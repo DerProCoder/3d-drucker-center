@@ -201,9 +201,30 @@ function iconCalc(ctx, x, y, s) {
   }
 }
 
+function iconCam(ctx, x, y, s) {
+  ctx.fillStyle = '#2f3540';
+  roundRect(ctx, x, y + s * 0.2, s * 0.72, s * 0.6, s * 0.1);
+  ctx.fill();
+  ctx.fillStyle = '#2f3540';
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.72, y + s * 0.42);
+  ctx.lineTo(x + s, y + s * 0.26);
+  ctx.lineTo(x + s, y + s * 0.74);
+  ctx.lineTo(x + s * 0.72, y + s * 0.58);
+  ctx.fill();
+  ctx.fillStyle = '#7cc4ff';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.36, y + s * 0.5, s * 0.17, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ff3b3b';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.12, y + s * 0.3, s * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 const ICONS = {
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
-  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc,
+  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)

@@ -54,7 +54,7 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 | Maus | Umschauen |
 | W A S D | Laufen |
 | Linksklick | Benutzen, aufheben, abstellen, einlegen |
-| Q | Getragenen Gegenstand zurück ins Lager legen |
+| Q | Alles Getragene zurück ins Lager legen |
 | Esc | Pause / PC verlassen |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
@@ -67,12 +67,12 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 20.000 €.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Du kannst bis zu **5 Spulen** auf einmal tragen – jeder Klick auf den Drucker legt die zuletzt genommene ein, so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
 6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
 7. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
 8. **Liefern:** Hast du alle bestellten Teile, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
 
-Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
+Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
@@ -112,7 +112,7 @@ src/
   storage-room.js Abstellraum mit Regal und Lieferzone
   workshop.js     Druckertisch: Aufstellen, Einlegen, Druck-Animation
   shop.js         PC-Desktop mit Apps, Taskleiste und Mauszeiger · printer-menu.js: Druckermenü
-                  orders-menu.js: Aufträge · pc-apps.js: Notizen und Rechner · desktop.js: Bildschirm & Symbole
+                  orders-menu.js: Aufträge · printer-cam.js: Drucker-Cam · pc-apps.js: Notizen und Rechner · desktop.js: Bildschirm & Symbole
   printer-model.js, printer-parts.js   3D-Modelle der Drucker
   print-shapes.js 3D-Formen der Druckvorlagen
 ```

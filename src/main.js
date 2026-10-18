@@ -17,6 +17,7 @@ import { createStorageRoom, SHELF_CAPACITY } from './storage-room.js';
 import { createWorkshop, PRINTER_SLOTS_X } from './workshop.js';
 import { Carry } from './carry.js';
 import { Interaction } from './interaction.js';
+import { createPrinterCam } from './printer-cam.js';
 import { enableShadows } from './util.js';
 import { setupGraphics, loadQuality, saveQuality } from './graphics.js';
 
@@ -33,7 +34,8 @@ const saveFound = hasSave();
 if (saveFound) loadGame(economy, orders, progress);
 const hud = createHud(economy, orders, progress);
 progress.onLevelUp = (level, title) => hud.showLevelUp(level, title);
-const autosave = startAutosave(economy, orders, progress, hud.showSaved);
+// Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
+const autosave = startAutosave(economy, orders, progress, hud.showSaved, () => carry.spools);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -222,8 +224,12 @@ controls.addEventListener('unlock', () => {
 });
 
 // Shop: Linksklick auf den PC öffnet ihn, Schließen kehrt ins Spiel zurück
+// Live-Bild der Drucker für die PC-App
+const printerCam = createPrinterCam({ renderer, scene, economy, workshop });
+
 const shop = createShop(economy, {
   orders,
+  cam: printerCam,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
   freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage,
@@ -299,4 +305,5 @@ renderer.setAnimationLoop(() => {
   interaction.update(controls.isLocked);
   crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
   graphics.render(dt);
+  printerCam.update(dt);
 });
