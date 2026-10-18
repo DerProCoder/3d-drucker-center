@@ -106,7 +106,7 @@ export function createPrinterMenu(economy) {
     const gameSeconds = Math.round(GAME_MINUTES_PER_SECOND * 60);
     const intro = `<p class="slots">Spielzeit: 1 echte Sekunde = ${gameSeconds} Sekunden im Spiel · Fertige Teile: <strong>${parts}</strong></p>`;
     if (!economy.printers.length) {
-      return `${intro}<p class="empty">Noch keine Drucker. Kauf einen im Reiter „Drucker“, hol den Karton aus dem Abstellraum und stell ihn auf den Druckertisch.</p>`;
+      return `${intro}<p class="empty">Noch keine Drucker. Kauf einen im Drucker-Shop, hol den Karton aus dem Abstellraum und stell ihn auf den Druckertisch.</p>`;
     }
     const sorted = [...economy.printers].sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
     return `${intro}<div class="grid control-grid">${sorted.map(card).join('')}</div>`;

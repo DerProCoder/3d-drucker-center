@@ -231,6 +231,16 @@ export class Economy {
     this.notify();
   }
 
+  // Fertige Teile abgeben (für Kundenaufträge). Gibt zurück, ob genug da waren.
+  takeFinishedParts(templateId, count) {
+    const have = this.finishedParts.get(templateId) ?? 0;
+    if (have < count) return false;
+    if (have === count) this.finishedParts.delete(templateId);
+    else this.finishedParts.set(templateId, have - count);
+    this.notify();
+    return true;
+  }
+
   // Restliche Druckzeit in Spielminuten bei der aktuellen Geschwindigkeit
   remainingMinutes(printer) {
     const job = printer.job;

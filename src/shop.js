@@ -1,43 +1,79 @@
-// PC-Fenster: Reiter „Filamente“ und „Drucker“ zum Einkaufen, ganz rechts das „Druckermenü“ zum Steuern.
+// PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
+// „Filament-Shop“ und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
+// dazu „Notizen“ und „Rechner“.
 import { FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
+import { createOrdersMenu } from './orders-menu.js';
+import { createCalcApp, createNotesApp } from './pc-apps.js';
+import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const speedPercents = SPEED_MODES.map((m) => m.percent);
 const speedRange = `${Math.min(...speedPercents)}–${Math.max(...speedPercents)} %`;
 
+// live: Inhalt hängt vom Spielstand ab und wird bei Änderungen neu gezeichnet
+// (Notizen und Rechner nicht, sonst gingen Eingaben verloren)
+const APPS = [
+  { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
+  { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
+  { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
+  { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
+  { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
+  { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
+];
+const appById = (id) => APPS.find((a) => a.id === id);
+
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js)
+export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, onClose }) {
+  const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
   root.className = 'hidden';
+  root.style.backgroundImage = `url(${wallpaperDataUrl()})`;
   root.innerHTML = `
-    <div class="shop-window" role="dialog" aria-label="Druckercenter">
+    <div class="desktop-icons">
+      ${APPS.map((a) => `
+        <button class="desktop-icon" data-open="${a.id}">
+          <img src="${icons.get(a.id)}" alt=""><span>${a.name}</span><span class="icon-badge" data-badge="${a.id}"></span>
+        </button>`).join('')}
+    </div>
+    <div class="shop-window hidden" role="dialog">
       <div class="shop-titlebar">
-        <span class="shop-title">Druckercenter</span>
+        <img class="shop-icon" alt="">
+        <span class="shop-title"></span>
         <span class="shop-balance"></span>
-        <button class="shop-close" aria-label="Schließen">✕</button>
-      </div>
-      <div class="shop-tabs">
-        <button data-tab="filaments">Filamente</button>
-        <button data-tab="printers">Drucker</button>
-        <button data-tab="control" class="tab-right">Druckermenü</button>
+        <button class="shop-close" aria-label="Fenster schließen">✕</button>
       </div>
       <div class="shop-content"></div>
-      <div class="shop-toast"></div>
+    </div>
+    <div class="shop-toast"></div>
+    <div class="taskbar">
+      <button class="taskbar-power" title="PC verlassen (Esc)">⏻ PC verlassen</button>
+      <div class="taskbar-apps">
+        <img class="taskbar-start" src="${iconDataUrl('start', 24)}" alt="">
+        ${APPS.map((a) => `<button class="taskbar-app" data-open="${a.id}" title="${a.name}"><img src="${icons.get(a.id)}" alt="${a.name}"></button>`).join('')}
+      </div>
+      <div class="taskbar-clock"></div>
     </div>
   `;
   document.body.appendChild(root);
 
+  const windowEl = root.querySelector('.shop-window');
+  const titleEl = root.querySelector('.shop-title');
+  const titleIconEl = root.querySelector('.shop-icon');
   const balanceEl = root.querySelector('.shop-balance');
   const contentEl = root.querySelector('.shop-content');
   const toastEl = root.querySelector('.shop-toast');
-  const tabButtons = root.querySelectorAll('[data-tab]');
-  let tab = 'filaments';
+  const clockEl = root.querySelector('.taskbar-clock');
+  let app = null; // offene App oder null (nur Desktop)
   let toastTimer = null;
   const printerMenu = createPrinterMenu(economy);
+  const ordersMenu = createOrdersMenu(orders, economy);
+  const notes = createNotesApp();
+  const calc = createCalcApp();
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -108,12 +144,32 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
   }
 
   function render() {
-    balanceEl.textContent = euro.format(economy.money);
-    tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    // Zähler am Aufträge-Symbol
+    for (const badge of root.querySelectorAll('[data-badge]')) {
+      badge.textContent = badge.dataset.badge === 'orders' && orders.open.length ? orders.open.length : '';
+    }
+    for (const b of root.querySelectorAll('.taskbar-app')) b.classList.toggle('active', b.dataset.open === app);
+    windowEl.classList.toggle('hidden', !app);
+    if (!app) return;
+
+    const info = appById(app);
+    titleEl.textContent = info.name;
+    titleIconEl.src = icons.get(app);
+    windowEl.classList.toggle('small', !!info.small);
+    balanceEl.textContent = info.live ? euro.format(economy.money) : '';
     const scroll = contentEl.scrollTop;
-    const renderers = { filaments: renderFilaments, printers: renderPrinters, control: printerMenu.render };
-    contentEl.innerHTML = renderers[tab]();
+    const renderers = {
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
+      control: printerMenu.render, notes: notes.render, calc: calc.render,
+    };
+    contentEl.innerHTML = renderers[app]();
     contentEl.scrollTop = scroll;
+  }
+
+  function openApp(id) {
+    app = id;
+    contentEl.scrollTop = 0;
+    render();
   }
 
   function toast(text) {
@@ -123,32 +179,53 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
     toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 1800);
   }
 
-  tabButtons.forEach((b) => b.addEventListener('click', () => {
-    tab = b.dataset.tab;
-    contentEl.scrollTop = 0;
-    render();
-  }));
+  function updateClock() {
+    const now = new Date();
+    clockEl.innerHTML = `${now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}<br>${now.toLocaleDateString('de-DE')}`;
+  }
+
+  root.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open]')?.dataset.open;
+    if (open) openApp(open);
+  });
+  root.querySelector('.shop-close').addEventListener('click', () => openApp(null));
+  root.querySelector('.taskbar-power').addEventListener('click', () => close());
 
   contentEl.addEventListener('change', (e) => {
-    if (tab === 'control' && printerMenu.handleChange(e)) render();
+    if (app === 'control' && printerMenu.handleChange(e)) render();
+  });
+  contentEl.addEventListener('input', (e) => {
+    if (app === 'notes') notes.handleInput(e);
   });
 
-  // Fortschrittsbalken im Druckermenü laufen live mit
+  // Fortschrittsbalken im Druckermenü, Fristen bei den Aufträgen und die Uhr laufen live mit
   setInterval(() => {
-    if (isOpen() && tab === 'control') printerMenu.liveUpdate(contentEl);
+    if (!isOpen()) return;
+    updateClock();
+    if (app === 'control') printerMenu.liveUpdate(contentEl);
+    if (app === 'orders') ordersMenu.liveUpdate(contentEl);
   }, 250);
 
   contentEl.addEventListener('click', (e) => {
-    if (tab === 'control') {
+    if (app === 'control') {
       printerMenu.handleClick(e);
+      return;
+    }
+    if (app === 'orders') {
+      const message = ordersMenu.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
+    if (app === 'calc') {
+      if (calc.handleClick(e)) render();
       return;
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
     if (!id) return;
-    if (tab === 'filaments') {
+    if (app === 'filaments') {
       const f = FILAMENTS.find((x) => x.id === id);
       if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${f.material} ${f.color} – liegt im Lagerregal`);
-    } else {
+    } else if (app === 'printers') {
       const p = PRINTERS.find((x) => x.id === id);
       if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Gekauft: ${p.name} – steht im Abstellraum`);
     }
@@ -156,6 +233,7 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
 
   function open() {
     root.classList.remove('hidden');
+    updateClock();
     render();
   }
 
@@ -168,8 +246,12 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
 
   const isOpen = () => !root.classList.contains('hidden');
 
-  root.querySelector('.shop-close').addEventListener('click', close);
-  economy.subscribe(() => { if (isOpen()) render(); });
+  // Bei Spieländerungen nur Apps neu zeichnen, die davon abhängen
+  const refresh = () => {
+    if (isOpen() && (!app || appById(app).live)) render();
+  };
+  economy.subscribe(refresh);
+  orders.subscribe(refresh);
 
   return { open, close, isOpen };
 }
