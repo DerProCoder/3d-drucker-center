@@ -66,6 +66,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 // Spule: { filamentId, grams, moisture }
 // Drucker:
 //   location: 'storage' (Karton im Abstellraum) | 'carried' (in der Hand) | 'table' (aufgestellt)
+//             | 'floor' (geworfen, liegt auf dem Boden: floor = { x, z, rotY, boxed })
 //   spools: Fächer für Spulen (Spule oder null) – 1 Fach oder 4 beim AMS
 //   activeSlot: Fach, aus dem gedruckt wird
 //   speedId: gewählte Geschwindigkeitsstufe
@@ -240,6 +241,38 @@ export class Economy {
     p.slot = null;
     p.storageSpot = this.freeStorageSpot();
     this.notify();
+  }
+
+  // Aufgestellten Drucker hochheben (nicht, solange er druckt). Spulen und fertige Teile bleiben drin.
+  canLift(printer) {
+    return printer.location === 'table' && !this.isBusy(printer);
+  }
+
+  liftPrinter(id) {
+    const p = this.printerById(id);
+    if (!p || !this.canLift(p)) return false;
+    p.location = 'carried';
+    p.slot = null;
+    this.notify();
+    return true;
+  }
+
+  // Geworfener Drucker bleibt dort auf dem Boden liegen, wo er gelandet ist
+  dropPrinter(id, floor) {
+    const p = this.printerById(id);
+    if (!p) return;
+    p.location = 'floor';
+    p.floor = floor;
+    this.notify();
+  }
+
+  takePrinterFromFloor(id) {
+    const p = this.printerById(id);
+    if (p?.location !== 'floor') return false;
+    p.location = 'carried';
+    delete p.floor;
+    this.notify();
+    return true;
   }
 
   placePrinter(id, slot) {

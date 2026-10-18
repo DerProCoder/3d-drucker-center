@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { filamentById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
+import { createPrinterModel } from '../models/printer-model.js';
 import { createNozzle, furnitureSize } from '../models/furniture.js';
 import { spoolLabel } from '../core/economy.js';
 
@@ -16,6 +17,7 @@ export class Carry {
     this.economy = economy;
     this.infoEl = infoEl;
     this.printerId = null;
+    this.unboxed = false;    // Drucker ohne Karton (vom Tisch oder Boden aufgehoben)
     this.furnitureId = null; // Regalkarton
     this.nozzle = false;     // Ersatzdüse in der Hand
     this.spools = [];
@@ -47,9 +49,11 @@ export class Carry {
     return this.spools[this.selected] ?? null;
   }
 
-  holdPrinter(printer) {
+  // unboxed: der Drucker selbst statt seines Kartons (vom Tisch oder vom Boden aufgehoben)
+  holdPrinter(printer, { unboxed = false } = {}) {
     if (!this.isEmpty) return;
     this.printerId = printer.id;
+    this.unboxed = unboxed;
     this.refresh();
   }
 
@@ -73,6 +77,7 @@ export class Carry {
   releasePrinter() {
     const printer = this.printer;
     this.printerId = null;
+    this.unboxed = false;
     this.refresh();
     return printer;
   }
@@ -129,12 +134,20 @@ export class Carry {
     if (this.mesh) this.camera.remove(this.mesh);
     this.mesh = null;
     const printer = this.printer;
+    if (printer && this.unboxed) {
+      const model = createPrinterModel(printer.model);
+      const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      model.position.set(0, -0.3 - size.y, -0.4 - size.z / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
+      this.show(model);
+      this.setInfo(`In der Hand: ${printer.model.name} · auf einen freien Platz stellen · F: werfen · Q: zurück ins Lager`);
+      return;
+    }
     if (printer) {
       const box = createPrinterBox(printer.model);
       const { h, d } = box.userData.size;
       box.position.set(0, -0.32 - h, -0.42 - d / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
       this.show(box);
-      this.setInfo(`In der Hand: Karton ${printer.model.name} · Q: zurück ins Lager`);
+      this.setInfo(`In der Hand: Karton ${printer.model.name} · F: werfen · Q: zurück ins Lager`);
       return;
     }
     const furniture = this.furniture;

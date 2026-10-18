@@ -21,6 +21,7 @@ import { createStorageRoom } from './world/storage-room.js';
 import { createWorkshop } from './world/workshop.js';
 import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
+import { createThrowing } from './world/throwing.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
@@ -310,6 +311,9 @@ const cat = createCat({
       achievements.add('catPets');
     } else if (type === 'meow') {
       sound.play('meow');
+    } else if (type === 'respawn') {
+      hud.notify('🐈 Ein neuer Kater ist zugelaufen – er heißt wieder Düsentrieb.', 'info');
+      sound.play('meow');
     } else if (type === 'knock') {
       hud.notify('😼 Kater Düsentrieb hat ein fertiges Teil vom Tisch geworfen! Es liegt vor dem Drucker.', 'bad');
       sound.play('clunk');
@@ -318,6 +322,24 @@ const cat = createCat({
   },
 });
 scene.add(cat.group);
+
+// Drucker werfen (F) – und manchmal den Kater treffen
+const throwing = createThrowing({
+  camera,
+  economy,
+  carry,
+  cat,
+  onEvent: (type, d) => {
+    if (type === 'throw') sound.play('whoosh');
+    else if (type === 'land') sound.play('clunk');
+    else if (type === 'cat-hit') {
+      sound.play('yowl');
+      hud.notify(`😵 Volltreffer! Der ${d.printer.model.name} hat Kater Düsentrieb erwischt. Er ist jetzt im Katzenhimmel.`, 'bad');
+      achievements.add('catHits');
+    }
+  },
+});
+scene.add(throwing.group);
 economy.subscribe(() => {
   workshop.sync();
   storage.sync();
@@ -392,7 +414,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group],
+  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -407,6 +429,12 @@ document.addEventListener('wheel', (e) => {
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
+  // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
+  if (e.code === 'KeyE' && !e.repeat && controls.isLocked && carry.isEmpty) {
+    const printer = interaction.current?.owner.userData.printer;
+    if (printer && economy.liftPrinter(printer.id)) carry.holdPrinter(printer, { unboxed: true });
+  }
+  if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwing.throwCarried();
   if (e.code === 'KeyM' && !e.repeat && !shop.isOpen()) {
     sound.toggleMute();
     hud.notify(sound.muted ? '🔇 Ton aus' : '🔊 Ton an', 'info');
@@ -494,6 +522,7 @@ renderer.setAnimationLoop(() => {
   }
   workshop.animate(dt);
   cat.update(dt);
+  throwing.update(dt);
   hud.update();
   printerSounds(dt);
   updateMovement(dt);

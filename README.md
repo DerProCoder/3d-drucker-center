@@ -57,6 +57,8 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 | W A S D | Laufen |
 | Linksklick | Benutzen, aufheben, abstellen, einlegen, Teil entnehmen, Kater streicheln |
 | Mausrad | Bei mehreren Spulen in der Hand: wählen, welche als Nächstes eingelegt wird |
+| E | Aufgestellten Drucker hochheben (nicht während er druckt) |
+| F | Getragenen Drucker oder Druckerkarton werfen |
 | Q | Alles in der Hand zurück ins Lager legen |
 | M | Ton an/aus |
 | Esc | Pause / PC verlassen |
@@ -107,6 +109,8 @@ Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Dr
 ### Kater Düsentrieb
 
 Der Hallenkater streunt herum, macht Nickerchen und springt gern auf den Druckertisch. Fertige Teile, die zu lange auf dem Drucker liegen, schubst er dabei auch mal auf den Boden – dann einfach aufheben. Streicheln mit Linksklick.
+
+Wer gemein ist: Drucker mit `E` vom Tisch heben und mit `F` werfen. Trifft er den Kater, kippt der um und landet als kleiner Geist im Katzenhimmel 👻 – nach 20 Sekunden läuft ein neuer Kater zu. Der geworfene Drucker bleibt auf dem Boden liegen und lässt sich mit Linksklick wieder aufheben (Spulen und fertige Teile sind noch drin).
 
 Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
@@ -165,6 +169,7 @@ src/
     storage-room.js   Abstellraum mit Regal und Lieferzone
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
     cat.js            Kater Düsentrieb
+    throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
     interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
     collision.js      Kollision der Spielfigur
     graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
