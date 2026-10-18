@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Druckercenter</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="crosshair"></div>
+  <div id="interact-hint" class="hidden"></div>
+  <div id="carry-info" class="hidden"></div>
+  <div id="start-overlay">
+    <h1>Druckercenter</h1>
+    <p>Klicken zum Starten</p>
+    <p class="hint">WASD laufen · Maus schauen · Linksklick benutzen/aufheben · Q zurück ins Lager · Esc Pause</p>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
