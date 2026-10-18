@@ -66,7 +66,7 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat (Material und meist auch die Farbe), was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 5.000 € – überleg dir gut, womit du anfängst.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit **5.000 €** und einem **A1 mini**, der schon auf dem ersten Drucktisch steht – kauf dir also erst mal Filament und erfüll ein paar Aufträge.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
@@ -96,7 +96,7 @@ Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Dr
 
 ### Regale am Druckertisch
 
-Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Drucker als Karton in den Abstellraum und werden **in die Lücken zwischen den Druckern** gestellt (3 Regalplätze) – die 4 Druckerplätze bleiben frei.
+Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Drucker als Karton in den Abstellraum und werden **in die Lücken zwischen den Druckern** gestellt (3 Regalplätze pro Drucktisch) – die Druckerplätze bleiben frei.
 
 - **Filament-Regal** (8 Spulen): Spulen in der Hand aufs Regal klicken legt sie ab, auf eine Spule zielen nimmt genau diese. So hast du die nächsten Farben direkt neben den Druckern.
 - **Ersatzteilregal** (12 Ersatzdüsen): Gekaufte Ersatzdüsen landen hier. Klick nimmt eine Düse in die Hand.
@@ -109,6 +109,13 @@ Der Hallenkater streunt herum, macht Nickerchen und springt gern auf den Drucker
 Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+
+## Halle ausbauen
+
+Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
+
+- **Drucktische:** Am Anfang hast du einen Tisch mit 4 Druckerplätzen und 3 Regalplätzen dazwischen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen.
+- **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es ebenfalls in der App **Ausbau**.
 
 ## Speichern, Level und Grafik
 
@@ -143,6 +150,10 @@ src/
   orders.js       Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern (ohne 3D)
   progress.js     Level, XP und Titel (ohne 3D)
   achievements.js Erfolge und Statistik (ohne 3D)
+  upgrades.js     Ausbau: Drucktische, Regalebenen (ohne 3D) · upgrades-menu.js: App „Ausbau“
+  game-clock.js   Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung (ohne 3D)
+  hall.js         Kaufbare Drucktische in der Halle mit Bodenmarkierung
+  furniture.js    3D-Modelle der Regale am Drucktisch und der Ersatzdüse
   cat.js          Kater Düsentrieb
   sound.js        Geräusche per WebAudio (ohne Audiodateien)
   carry.js        Was der Spieler trägt: ein Karton oder bis zu 5 Spulen

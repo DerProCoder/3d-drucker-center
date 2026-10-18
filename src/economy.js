@@ -6,7 +6,6 @@ import { FAILURES, SPOOL_GRAMS, filamentById, filamentLabel, speedById, template
 
 export const START_MONEY = 5000; // €
 export const GAME_MINUTES_PER_SECOND = 1 / 3; // Spielzeit: 1 echte Sekunde = 20 Spielsekunden
-export const START_TIME = 8 * 60;  // Spielbeginn: Tag 1, 8:00 Uhr (Spielminuten)
 export const RENT_PER_HOUR = 3;    // € Hallenmiete pro Spielstunde
 export const IDLE_POWER_SHARE = 0.15; // Stromverbrauch im Leerlauf, Anteil vom Verbrauch beim Drucken
 export const BANKRUPT_AT = -500;   // so weit lässt die Bank das Konto überziehen, danach ist Schluss
@@ -15,7 +14,6 @@ export const DAMP = 0.4;           // ab dieser Feuchte steigt das Fehldruckrisi
 export const NOZZLE_POKES = 5;     // so oft muss man eine verstopfte Düse freistechen
 export const NOZZLE_LIFE_HOURS = 48; // so viele Druckstunden (bei 100 %) hält eine Düse
 export const NOZZLE_WORN = 0.75;   // ab diesem Verschleiß steigt das Fehldruckrisiko
-export const RACK_SLOT_COUNT = 3;  // Regalplätze in den Lücken zwischen den 4 Druckerplätzen
 export const PLATE_GAP = 5;        // mm Abstand zwischen Teilen auf der Druckplatte
 export const MAX_PER_PLATE = 16;   // mehr Teile auf einmal lässt das Spiel nicht zu
 const BATCH_TIME_SHARE = 0.9;      // jedes weitere Teil braucht 90 % der Zeit (Aufheizen, Kalibrieren nur einmal)
@@ -81,13 +79,12 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 // Kartons im Abstellraum haben ebenso einen festen Platz (storageSpot)
 // Einrichtung (Regale am Druckertisch): { id, type (aus FURNITURE), location, slot, storageSpot,
 //   spools (Filament-Regal: Fächer mit Spule oder null), nozzles (Ersatzteilregal: Anzahl Ersatzdüsen) }
-//   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (slot 0…RACK_SLOT_COUNT-1).
+//   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (3 pro Drucktisch, siehe upgrades.js).
 // Lose Teile: hat der Kater vom Tisch geworfen, liegen auf dem Boden { id, templateId, filamentId, x, z, rotY }
 export class Economy {
   constructor() {
     this.money = START_MONEY;
-    this.time = START_TIME;
-    this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde
+    this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
     this.shelf = [];                 // Spulen im Regal
     this.finishedParts = new Map();
@@ -102,17 +99,7 @@ export class Economy {
     this.random = Math.random;       // austauschbar, damit sich Pannen im Test erzwingen lassen
   }
 
-  // ---------- Zeit und laufende Kosten ----------
-
-  get day() {
-    return Math.floor(this.time / 1440) + 1;
-  }
-
-  // Uhrzeit als „hh:mm“
-  get clock() {
-    const minutes = Math.floor(this.time % 1440);
-    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-  }
+  // ---------- Laufende Kosten ----------
 
   // Strom: aufgestellte Drucker verbrauchen beim Drucken voll, sonst nur ein wenig
   get powerPerHour() {
@@ -133,19 +120,25 @@ export class Economy {
     return this.accessories.has('dryer');
   }
 
-  // Lässt die Spielzeit laufen: Spulen ziehen Feuchte, zu jeder vollen Stunde werden Miete und Strom abgebucht
+  // Lässt die Spielzeit laufen: Spulen ziehen Feuchte, Miete und Strom laufen auf
   advanceTime(gameMinutes) {
-    const hourBefore = Math.floor(this.time / 60);
-    this.time += gameMinutes;
     this.pendingCosts += (this.costPerHour * gameMinutes) / 60;
     this.updateMoisture(gameMinutes);
-    if (Math.floor(this.time / 60) !== hourBefore) {
-      const amount = Math.round(this.pendingCosts * 100) / 100;
-      this.pendingCosts = 0;
-      this.money -= amount;
-      this.emit('bill', { amount });
-      this.notify();
-    }
+  }
+
+  // Zu jeder vollen Spielstunde (Meldung der Spieluhr): aufgelaufene Miete und Strom abbuchen
+  payHourlyBill() {
+    const amount = Math.round(this.pendingCosts * 100) / 100;
+    this.pendingCosts = 0;
+    if (amount <= 0) return;
+    this.charge(amount);
+    this.emit('bill', { amount });
+  }
+
+  // Rechnung abbuchen. Darf ins Minus gehen – dann kann man nichts mehr kaufen.
+  charge(amount) {
+    this.money = Math.round((this.money - amount) * 100) / 100;
+    this.notify();
   }
 
   updateMoisture(gameMinutes) {
@@ -200,6 +193,11 @@ export class Economy {
   // Gibt den neuen Drucker zurück oder null, wenn das Geld nicht reicht
   buyPrinter(model) {
     if (!this.withdraw(model.price)) return null;
+    return this.addPrinter(model);
+  }
+
+  // Drucker ohne Bezahlen dazubekommen (Startausstattung). Landet wie gekaufte im Abstellraum.
+  addPrinter(model) {
     const printer = {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
       spools: Array(model.spoolSlots).fill(null), activeSlot: 0, speedId: 'standard', job: null,
@@ -586,10 +584,7 @@ export class Economy {
     return this.furniture.some((f) => f.location === 'table' && f.slot === slot);
   }
 
-  // Wie viele Regale noch gekauft werden können (egal ob schon aufgestellt)
-  get freeRackSlots() {
-    return RACK_SLOT_COUNT - this.furniture.length;
-  }
+
 
   buyFurniture(type) {
     if (!this.withdraw(type.price)) return null;
@@ -623,7 +618,7 @@ export class Economy {
 
   placeFurniture(id, slot) {
     const f = this.furnitureById(id);
-    if (!f || slot < 0 || slot >= RACK_SLOT_COUNT || this.rackSlotUsed(slot)) return;
+    if (!f || slot < 0 || this.rackSlotUsed(slot)) return;
     f.location = 'table';
     f.slot = slot;
     this.notify();

@@ -7,6 +7,7 @@ import { createSpool } from './spool.js';
 import { createPrinterBox } from './printer-box.js';
 import { MAX_SPOOLS } from './carry.js';
 import { furnitureSize } from './furniture.js';
+import { SPOOLS_PER_SHELF_LEVEL } from './upgrades.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
@@ -26,9 +27,9 @@ const D = Z1 - Z0;
 // Spulen stehen nebeneinander, farbige Wicklung zeigt in den Raum
 const SHELF = {
   x0: -8, x1: -7.5, z0: 10.95, z1: 13.65,
-  levels: [0.15, 0.62, 1.09, 1.56], perLevel: 20, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
+  levels: [0.15, 0.62, 1.09, 1.56], perLevel: SPOOLS_PER_SHELF_LEVEL, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
 };
-export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel;
+export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel; // alle Ebenen ausgebaut (siehe upgrades.js)
 
 // Trockenschrank zwischen Tür-Wand und Regal
 const DRYER = {
@@ -119,12 +120,16 @@ function createShelf() {
       shelf.add(box(0.04, height, 0.04, upright, x, height / 2, z));
     }
   }
-  for (const level of SHELF.levels) {
-    shelf.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
+  // Pro Ebene ein Boden mit zwei Traversen – nicht gekaufte Ebenen werden ausgeblendet
+  shelf.userData.levels = SHELF.levels.map((level) => {
+    const parts = new THREE.Group();
+    parts.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
     for (const x of [SHELF.x0 + 0.02, SHELF.x1 - 0.02]) {
-      shelf.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
+      parts.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
     }
-  }
+    shelf.add(parts);
+    return parts;
+  });
   return shelf;
 }
 
@@ -201,7 +206,8 @@ function floorText(text, width) {
 
 // ---------- Raum ----------
 
-export function createStorageRoom({ economy, carry, collision }) {
+// upgrades: Ausbau-Stand – bestimmt, wie viele Regalebenen es gibt
+export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const group = new THREE.Group();
 
   const floorMat = new THREE.MeshStandardMaterial({
@@ -376,10 +382,11 @@ export function createStorageRoom({ economy, carry, collision }) {
 
   function sync() {
     contents.clear();
+    shelf.userData.levels.forEach((parts, i) => { parts.visible = i < upgrades.shelfLevels; });
     dryer.visible = economy.hasDryer;
 
     for (const spool of economy.shelf) {
-      if (spool.shelfSlot >= SHELF_CAPACITY) continue;
+      if (spool.shelfSlot >= upgrades.shelfCapacity) continue;
       const level = Math.floor(spool.shelfSlot / SHELF.perLevel);
       const index = spool.shelfSlot % SHELF.perLevel;
       const mesh = createSpool(filamentById(spool.filamentId));
@@ -415,5 +422,6 @@ export function createStorageRoom({ economy, carry, collision }) {
     enableShadows(contents);
   }
 
+  upgrades.subscribe(sync); // neue Regalebene sofort zeigen
   return { group, sync };
 }

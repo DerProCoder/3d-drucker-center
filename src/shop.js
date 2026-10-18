@@ -1,6 +1,6 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
-// „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+// „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 import {
   ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
 } from './catalog.js';
@@ -8,6 +8,7 @@ import { ACHIEVEMENTS } from './achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
+import { createUpgradesMenu } from './upgrades-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
@@ -21,6 +22,7 @@ const APPS = [
   { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
+  { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
   { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
@@ -32,7 +34,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
 // orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
-export function createShop(economy, { orders, achievements, cam, freePrinterSlots, freeShelfSpace, onClose }) {
+// upgrades: Hallen-Ausbau (upgrades.js)
+export function createShop(economy, { orders, achievements, cam, upgrades, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -77,6 +80,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
   let toastTimer = null;
   const printerMenu = createPrinterMenu(economy);
   const ordersMenu = createOrdersMenu(orders, economy);
+  const upgradesMenu = createUpgradesMenu(upgrades, economy);
   const notes = createNotesApp();
   const calc = createCalcApp();
 
@@ -189,7 +193,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
           </div>
         </div>`;
     }).join('');
-    const rackSlots = economy.freeRackSlots;
+    const rackSlots = upgrades.rackSlots - economy.furniture.length;
     const furniture = FURNITURE.map((f) => {
       let blocked = null;
       if (rackSlots <= 0) blocked = 'Kein Platz mehr';
@@ -256,7 +260,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
     balanceEl.textContent = info.live ? euro.format(economy.money) : '';
     const scroll = contentEl.scrollTop;
     const renderers = {
-      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
       cam: cam.render,
     };
@@ -310,6 +314,11 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
       printerMenu.handleClick(e);
       return;
     }
+    if (app === 'upgrades') {
+      const message = upgradesMenu.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
     if (app === 'orders') {
       const message = ordersMenu.handleClick(e);
       if (message) toast(message);
@@ -327,7 +336,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
     if (!id) return;
     if (id.startsWith('furniture:')) {
       const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
-      if (economy.freeRackSlots > 0 && economy.buyFurniture(f)) toast(`Gekauft: ${f.name} – Karton steht im Abstellraum`);
+      if (upgrades.rackSlots - economy.furniture.length > 0 && economy.buyFurniture(f)) toast(`Gekauft: ${f.name} – Karton steht im Abstellraum`);
     } else if (id.startsWith('spare:')) {
       const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
       if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);
@@ -364,6 +373,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
   };
   economy.subscribe(refresh);
   orders.subscribe(refresh);
+  upgrades.subscribe(refresh);
 
   return { open, close, isOpen };
 }

@@ -9,9 +9,17 @@ import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-m
 import { createSpool } from './spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from './furniture.js';
 import { enableShadows } from './util.js';
+import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from './upgrades.js';
 
-export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf dem Druckertisch (Welt-x)
+export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
 export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern
+export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
+
+// Weltposition eines Drucker- bzw. Regalplatzes. Plätze sind über alle Tische durchnummeriert.
+export const slotX = (slot) => PRINTER_SLOTS_X[slot % SLOTS_PER_TABLE];
+export const slotZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / SLOTS_PER_TABLE)];
+export const rackX = (slot) => RACK_SLOTS_X[slot % RACKS_PER_TABLE];
+export const rackZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / RACKS_PER_TABLE)];
 
 // ---------- Hilfsmodelle ----------
 
@@ -81,7 +89,8 @@ function badgeFor(printer) {
   return null;
 }
 
-export function createWorkshop({ table, tableHeight, economy, carry }) {
+// tables: Drucktisch-Objekte in der Reihenfolge von TABLE_ROWS_Z (hall.js) · upgrades: wie viele Tische gekauft sind
+export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }) {
   const group = new THREE.Group();
   const built = new Map(); // Drucker-ID → 3D-Modell
   const racks = new Map(); // Regal-ID → 3D-Modell
@@ -100,48 +109,56 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
   const carriedBox = () => {
     if (carry.printer) {
       return {
-        name: 'Drucker', size: printerSize(carry.printer.model), slotsX: PRINTER_SLOTS_X,
+        name: 'Drucker', size: printerSize(carry.printer.model), perTable: SLOTS_PER_TABLE, x: slotX, z: slotZ,
         used: (i) => economy.tableSlotUsed(i),
       };
     }
     if (carry.furniture) {
       return {
-        name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), slotsX: RACK_SLOTS_X,
+        name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), perTable: RACKS_PER_TABLE, x: rackX, z: rackZ,
         used: (i) => economy.rackSlotUsed(i),
       };
     }
     return null;
   };
-  const freeSlots = (box) => box.slotsX.map((_, i) => i).filter((i) => !box.used(i));
-  const nearestFreeSlot = (box, x) => freeSlots(box).reduce((best, i) => (
-    best === null || Math.abs(box.slotsX[i] - x) < Math.abs(box.slotsX[best] - x) ? i : best
+  // Freie Plätze auf einem bestimmten Tisch (nur gekaufte Tische haben Plätze)
+  const freeSlots = (box, tableIndex) => {
+    if (tableIndex >= upgrades.tables) return [];
+    return Array.from({ length: box.perTable }, (_, i) => tableIndex * box.perTable + i).filter((i) => !box.used(i));
+  };
+  const nearestFreeSlot = (box, tableIndex, x) => freeSlots(box, tableIndex).reduce((best, i) => (
+    best === null || Math.abs(box.x(i) - x) < Math.abs(box.x(best) - x) ? i : best
   ), null);
 
-  table.userData.interaction = {
-    hint: () => {
-      const box = carriedBox();
-      if (!box) return null;
-      if (!freeSlots(box).length) return carry.furniture ? 'Kein freier Platz zwischen den Druckern' : 'Kein freier Platz auf dem Tisch';
-      return `Linksklick: ${box.name} ${carry.furniture ? 'zwischen die Drucker stellen' : 'aufstellen'}`;
-    },
-    hover: (hit) => {
-      const box = carriedBox();
-      const slot = box ? nearestFreeSlot(box, hit.point.x) : null;
-      ghost.visible = slot !== null;
-      if (slot === null) return;
-      ghost.scale.copy(box.size);
-      ghost.position.set(box.slotsX[slot], tableHeight + box.size.y / 2, 0);
-    },
-    unhover: () => { ghost.visible = false; },
-    action: (hit) => {
-      const box = carriedBox();
-      const slot = box ? nearestFreeSlot(box, hit.point.x) : null;
-      if (slot === null) return;
-      if (carry.printer) economy.placePrinter(carry.releasePrinter().id, slot);
-      else economy.placeFurniture(carry.releaseFurniture().id, slot);
-      ghost.visible = false;
-    },
-  };
+  tables.forEach((table, tableIndex) => {
+    table.userData.interaction = {
+      hint: () => {
+        const box = carriedBox();
+        if (!box) return null;
+        if (!freeSlots(box, tableIndex).length) {
+          return carry.furniture ? 'Kein freier Platz zwischen den Druckern auf diesem Tisch' : 'Kein freier Platz auf diesem Tisch';
+        }
+        return `Linksklick: ${box.name} ${carry.furniture ? 'zwischen die Drucker stellen' : 'aufstellen'}`;
+      },
+      hover: (hit) => {
+        const box = carriedBox();
+        const slot = box ? nearestFreeSlot(box, tableIndex, hit.point.x) : null;
+        ghost.visible = slot !== null;
+        if (slot === null) return;
+        ghost.scale.copy(box.size);
+        ghost.position.set(box.x(slot), tableHeight + box.size.y / 2, box.z(slot));
+      },
+      unhover: () => { ghost.visible = false; },
+      action: (hit) => {
+        const box = carriedBox();
+        const slot = box ? nearestFreeSlot(box, tableIndex, hit.point.x) : null;
+        if (slot === null) return;
+        if (carry.printer) economy.placePrinter(carry.releasePrinter().id, slot);
+        else economy.placeFurniture(carry.releaseFurniture().id, slot);
+        ghost.visible = false;
+      },
+    };
+  });
 
   // Was ein Linksklick auf den Drucker gerade bewirkt: { text, run } oder null.
   // Reihenfolge: Pannen beheben, fertiges Teil entnehmen, dann erst Spulen.
@@ -452,7 +469,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       if (rack.location === 'table') {
         if (!model) {
           model = createFurnitureModel(rack.type);
-          model.position.set(RACK_SLOTS_X[rack.slot], tableHeight, 0);
+          model.position.set(rackX(rack.slot), tableHeight, rackZ(rack.slot));
           model.userData.interaction = rack.spools ? filamentRackInteraction(rack) : partsRackInteraction(rack);
           group.add(model);
           racks.set(rack.id, model);
@@ -472,7 +489,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       if (printer.location === 'table') {
         if (!model) {
           model = createPrinterModel(printer.model);
-          model.position.set(PRINTER_SLOTS_X[printer.slot], tableHeight, 0);
+          model.position.set(slotX(printer.slot), tableHeight, slotZ(printer.slot));
           model.userData.interaction = printerInteraction(printer);
           model.userData.printer = printer;
           enableShadows(model);

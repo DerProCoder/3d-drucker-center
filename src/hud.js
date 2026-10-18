@@ -6,7 +6,8 @@ import { BANKRUPT_AT } from './economy.js';
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
 
-export function createHud(economy, orders, progress) {
+// clock: Spieluhr (game-clock.js)
+export function createHud(economy, orders, progress, clock) {
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.innerHTML = `
@@ -79,7 +80,7 @@ export function createHud(economy, orders, progress) {
   // Uhr und Kosten ändern sich laufend – aber nur neu schreiben, wenn sich die Anzeige ändert
   let lastClock = '';
   function update() {
-    const text = `Tag ${economy.day} · ${economy.clock}`;
+    const text = `Tag ${clock.day} · ${clock.timeText}`;
     if (text === lastClock) return;
     lastClock = text;
     field('clock').textContent = text;
