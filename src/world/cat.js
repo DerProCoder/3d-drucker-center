@@ -1,5 +1,6 @@
 // Kater Düsentrieb: streunt durch die Halle, macht Nickerchen, springt auf den Druckertisch, setzt sich neben
 // die Drucker – und schubst fertige Teile, die keiner abholt, gern auf den Boden. Linksklick streichelt ihn.
+// Trifft ihn ein geworfener Drucker, kippt er (Cartoon-Stil) um; kurz darauf läuft ein neuer Kater zu.
 // Bewegung über Delta-Zeit. Das Herunterwerfen selbst erledigt economy.knockPartOff.
 import * as THREE from 'three';
 import { TABLE_ROWS_Z, rackX, rackZ, slotX, slotZ } from './workshop.js';
@@ -14,6 +15,8 @@ const HALL = { minX: -8.5, maxX: 8.5, minZ: -8.5, maxZ: 8.5 };
 const TABLE_FRONT_Z = 0.8;  // hier springt er hoch (vor der Tischmitte)
 const TABLE_SEAT_Z = 0.15;  // hier sitzt er auf dem Tisch (relativ zur Tischmitte)
 const SEAT_OFFSET_X = 0.55; // rechts neben dem Stellplatz, zwischen zwei Druckern
+const KO_SECONDS = 20;     // so lange liegt er nach einem Treffer, dann läuft ein neuer Kater zu
+const RESPAWN = { x: -5, z: 9.2 }; // an der Tür zum Abstellraum
 
 const rand = (min, max) => min + Math.random() * (max - min);
 
@@ -55,6 +58,20 @@ function createCatModel() {
   }
   cat.add(head);
 
+  // X-Augen für den K.-o.-Zustand, anfangs versteckt
+  const eyes = head.children.filter((o) => o.material === eye || o.material === dark);
+  const xEyes = new THREE.Group();
+  for (const side of [-1, 1]) {
+    for (const r of [0.8, -0.8]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.026, 0.004), dark);
+      bar.position.set(0.072, 0.018, side * 0.03);
+      bar.rotation.x = r;
+      xEyes.add(bar);
+    }
+  }
+  xEyes.visible = false;
+  head.add(xEyes);
+
   const legs = [];
   for (const [x, z] of [[0.12, 0.05], [0.12, -0.05], [-0.12, 0.05], [-0.12, -0.05]]) {
     const leg = new THREE.Group();
@@ -79,38 +96,43 @@ function createCatModel() {
   tail.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.018, 8), fur));
   cat.add(tail);
 
-  cat.userData.parts = { head, legs, tail, body };
+  cat.userData.parts = { head, legs, tail, body, eyes, xEyes };
   cat.traverse((o) => { o.castShadow = true; });
   return cat;
 }
 
-// Herzchen, die beim Streicheln aufsteigen
-let heartTexture = null;
-function createHeart() {
-  if (!heartTexture) {
+// Emoji als Sprite: Herzchen beim Streicheln, Geist nach einem Treffer
+const emojiTextures = new Map();
+function createEmojiSprite(emoji, size) {
+  if (!emojiTextures.has(emoji)) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 64;
     const ctx = canvas.getContext('2d');
     ctx.font = '52px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('❤️', 32, 36);
-    heartTexture = new THREE.CanvasTexture(canvas);
-    heartTexture.colorSpace = THREE.SRGBColorSpace;
+    ctx.fillText(emoji, 32, 36);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    emojiTextures.set(emoji, texture);
   }
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: heartTexture, transparent: true, depthWrite: false }));
-  sprite.scale.set(0.08, 0.08, 1);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTextures.get(emoji), transparent: true, depthWrite: false }));
+  sprite.scale.set(size, size, 1);
   sprite.raycast = () => {};
   return sprite;
 }
+
+const createHeart = () => createEmojiSprite('❤️', 0.08);
 
 // onEvent(type): 'pet' | 'meow' | 'knock' – für Sound, Meldungen und Erfolge
 export function createCat({ economy, tableHeight, onEvent }) {
   const group = new THREE.Group();
   const cat = createCatModel();
   group.add(cat);
-  const { head, legs, tail, body } = cat.userData.parts;
+  const { head, legs, tail, body, eyes, xEyes } = cat.userData.parts;
   const hearts = [];
+  let ghost = null;    // steigt nach einem Treffer auf
+  let fall = 0;        // 0 … 1: Umkippen nach einem Treffer
 
   // Zustand: was er gerade tut, wohin er will, wie lange noch
   let state = 'idle';
@@ -205,8 +227,39 @@ export function createCat({ economy, tableHeight, onEvent }) {
     startJump(new THREE.Vector3(cat.position.x, 0, z), 'idle');
   }
 
+  // Von einem geworfenen Drucker getroffen: umkippen, X-Augen, Geist steigt auf. Gibt false zurück, wenn er schon liegt.
+  function hit() {
+    if (state === 'ko') return false;
+    if (jump) cat.position.y = jump.to.y; // mitten im Sprung: dort landen, wo er hinwollte
+    jump = null;
+    target = null;
+    seat = null;
+    state = 'ko';
+    timer = KO_SECONDS;
+    fall = 0;
+    eyes.forEach((e) => { e.visible = false; });
+    xEyes.visible = true;
+    ghost = createEmojiSprite('👻', 0.16);
+    ghost.position.set(cat.position.x, cat.position.y + 0.3, cat.position.z);
+    ghost.userData.age = 0;
+    group.add(ghost);
+    onEvent?.('ko');
+    return true;
+  }
+
+  // Ein neuer Kater läuft an der Tür zum Abstellraum zu
+  function respawn() {
+    cat.rotation.set(0, Math.PI / 2, 0);
+    cat.position.set(RESPAWN.x, 0, RESPAWN.z);
+    eyes.forEach((e) => { e.visible = true; });
+    xEyes.visible = false;
+    state = 'idle';
+    timer = 1;
+    onEvent?.('respawn');
+  }
+
   function pet() {
-    if (state === 'jump') return;
+    if (state === 'jump' || state === 'ko') return;
     if (state === 'walk') {
       state = 'idle';
       target = null;
@@ -224,14 +277,42 @@ export function createCat({ economy, tableHeight, onEvent }) {
   }
 
   cat.userData.interaction = {
-    hint: () => (state === 'sleep' ? `Linksklick: ${NAME} sanft wecken und streicheln` : `Linksklick: ${NAME} streicheln`),
+    hint: () => {
+      if (state === 'ko') return `${NAME} ist im Katzenhimmel 😇 – gleich läuft ein neuer Kater zu`;
+      return state === 'sleep' ? `Linksklick: ${NAME} sanft wecken und streicheln` : `Linksklick: ${NAME} streicheln`;
+    },
     action: pet,
   };
+
+  // Getroffen: auf die Seite kippen, Geist steigt auf und verblasst, danach kommt ein neuer Kater
+  function updateKo(dt) {
+    fall = Math.min(1, fall + dt / 0.35);
+    cat.rotation.x = (Math.PI / 2) * (1 - (1 - fall) ** 3);
+    legs.forEach((leg) => { leg.rotation.z = 0; });
+    tail.rotation.x = 0;
+    if (ghost) {
+      ghost.userData.age += dt;
+      ghost.position.y += dt * 0.18;
+      ghost.position.x += Math.sin(ghost.userData.age * 3) * dt * 0.05;
+      ghost.material.opacity = Math.max(0, 1 - ghost.userData.age / 4);
+      if (ghost.userData.age > 4) {
+        group.remove(ghost);
+        ghost.material.dispose();
+        ghost = null;
+      }
+    }
+    if (timer <= 0) respawn();
+  }
 
   function update(dt) {
     time += dt;
     timer -= dt;
     let moving = false;
+
+    if (state === 'ko') {
+      updateKo(dt);
+      return;
+    }
 
     if (state === 'walk') {
       const dx = target.x - cat.position.x;
@@ -300,5 +381,5 @@ export function createCat({ economy, tableHeight, onEvent }) {
     }
   }
 
-  return { group, update, get position() { return cat.position; } };
+  return { group, update, hit, get position() { return cat.position; }, get isKo() { return state === 'ko'; } };
 }

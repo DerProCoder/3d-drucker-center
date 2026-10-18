@@ -99,6 +99,11 @@ export function createSound() {
     },
     purr: () => noise(1.6, { volume: 0.25, lowpass: 180, wobble: 24 }),
     bill: () => tone(240, 0, 0.12, { type: 'triangle', volume: 0.06 }),
+    whoosh: () => noise(0.35, { volume: 0.18, lowpass: 900 }),
+    yowl: () => {
+      tone(820, 0, 0.5, { type: 'sawtooth', volume: 0.06, slideTo: 260 });
+      tone(610, 0.05, 0.45, { type: 'square', volume: 0.025, slideTo: 200 });
+    },
   };
 
   function play(name) {

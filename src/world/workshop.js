@@ -239,7 +239,11 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
 
   function printerInteraction(printer) {
     return {
-      hint: () => printerAction(printer)?.text ?? null,
+      hint: () => {
+        const text = printerAction(printer)?.text ?? null;
+        if (!carry.isEmpty || !economy.canLift(printer)) return text;
+        return text ? `${text} · E: hochheben` : `${printer.model.name} · E: hochheben`;
+      },
       action: () => printerAction(printer)?.run?.(),
     };
   }

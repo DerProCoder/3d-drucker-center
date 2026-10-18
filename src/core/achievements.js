@@ -22,6 +22,7 @@ export const ACHIEVEMENTS = [
   { id: 'ludicrous', icon: '🚀', name: 'Ludicrous Speed', text: 'Einen Druck im Ludicrous-Modus heil fertig bekommen', check: (s) => s.ludicrousDone >= 1 },
   { id: 'cat', icon: '🐈', name: 'Katzenmensch', text: 'Kater Düsentrieb 10× gestreichelt', check: (s) => s.catPets >= 10 },
   { id: 'cat-chaos', icon: '😼', name: 'Gravitationstest', text: 'Der Kater hat ein Teil vom Tisch geworfen', check: (s) => s.knocked >= 1 },
+  { id: 'cat-ko', icon: '😵', name: 'Volltreffer', text: 'Kater Düsentrieb mit einem Drucker abgeschossen', check: (s) => s.catHits >= 1 },
   { id: 'overdraft', icon: '📉', name: 'Im Dispo', text: 'Das Konto ist ins Minus gerutscht', check: (s) => s.overdraft >= 1 },
 ];
 
@@ -29,7 +30,7 @@ export function emptyStats() {
   return {
     printsDone: 0, benchys: 0, grams: 0, spaghetti: 0, failures: 0, nozzlesCleared: 0, nozzlesReplaced: 0, amsRefills: 0,
     deliveries: 0, rushDeliveries: 0, regulars: 0, jonas: 0, maxPrinting: 0, ludicrousDone: 0,
-    catPets: 0, knocked: 0, overdraft: 0,
+    catPets: 0, knocked: 0, catHits: 0, overdraft: 0,
   };
 }
 
