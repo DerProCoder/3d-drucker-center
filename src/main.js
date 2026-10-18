@@ -7,6 +7,9 @@ import { CollisionWorld } from './collision.js';
 import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
 import { Orders, REGULAR_STARS } from './orders.js';
 import { Progress } from './progress.js';
+import { Upgrades } from './upgrades.js';
+import { GameClock } from './game-clock.js';
+import { createHall } from './hall.js';
 import { Achievements } from './achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './save.js';
 import { createTitleScreen } from './title-screen.js';
@@ -14,15 +17,15 @@ import { createHud } from './hud.js';
 import { createRoom, roomColliders } from './room.js';
 import { createDesktopScreen } from './desktop.js';
 import { createShop } from './shop.js';
-import { createStorageRoom, SHELF_CAPACITY } from './storage-room.js';
-import { createWorkshop, PRINTER_SLOTS_X } from './workshop.js';
+import { createStorageRoom } from './storage-room.js';
+import { createWorkshop } from './workshop.js';
 import { Carry } from './carry.js';
 import { createCat } from './cat.js';
 import { createSound } from './sound.js';
 import { Interaction } from './interaction.js';
 import { createPrinterCam } from './printer-cam.js';
 import { enableShadows } from './util.js';
-import { speedById } from './catalog.js';
+import { PRINTERS, speedById } from './catalog.js';
 import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './graphics.js';
 
 const WALK_SPEED = 4;          // m/s
@@ -35,9 +38,20 @@ const economy = new Economy();
 const progress = new Progress();
 const orders = new Orders(economy, progress);
 const achievements = new Achievements();
+const upgrades = new Upgrades(economy);
+const gameClock = new GameClock();
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock };
 const saveFound = hasSave();
-if (saveFound) loadGame(economy, orders, progress, achievements);
-const hud = createHud(economy, orders, progress);
+if (saveFound) {
+  loadGame(game);
+} else {
+  // Startausstattung: ein A1 mini steht schon auf dem ersten Tisch
+  const starter = economy.addPrinter(PRINTERS.find((m) => m.id === 'a1-mini'));
+  economy.placePrinter(starter.id, 0);
+}
+const hud = createHud(economy, orders, progress, gameClock);
+// Zu jeder vollen Spielstunde Miete und Strom abbuchen
+gameClock.onNewHour = () => economy.payHourlyBill();
 const sound = createSound();
 progress.onLevelUp = (level, title) => {
   hud.showLevelUp(level, title);
@@ -48,7 +62,10 @@ achievements.onUnlock = (a) => {
   sound.play('achievement');
 };
 // Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
-const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved, () => carry.spools);
+const autosave = startAutosave(game, hud.showSaved, () => ({
+  spools: carry.spools,
+  nozzles: carry.nozzle ? 1 : 0,
+}));
 
 // Spielereignisse → Meldungen, Geräusche und Erfolge
 economy.onEvent = (type, d) => {
@@ -89,6 +106,19 @@ economy.onEvent = (type, d) => {
     case 'part-collected':
     case 'part-picked':
       sound.play('pop');
+      break;
+    case 'nozzle-worn':
+      hud.notify(`🔧 ${name}: Düse ist abgenutzt – Fehldrucke werden häufiger. Ersatzdüse bereitlegen!`, 'bad');
+      sound.play('warn');
+      break;
+    case 'nozzle-dead':
+      hud.notify(`🔧 ${name}: Düse verschlissen – ohne Ersatzdüse startet kein neuer Druck`, 'bad');
+      sound.play('error');
+      break;
+    case 'nozzle-replaced':
+      hud.notify(`🔩 ${name}: neue Düse eingebaut`, 'good');
+      sound.play('pop');
+      achievements.add('nozzlesReplaced');
       break;
     case 'nozzle-cleared':
       hud.notify(`🪡 ${name}: Düse wieder frei`, 'good');
@@ -179,11 +209,9 @@ function createTable(width, depth) {
   return table;
 }
 
-// Großer Druckertisch
-const printerTable = createTable(5.6, 0.8);
-enableShadows(printerTable);
-scene.add(printerTable);
-collision.addObject(printerTable);
+// Drucktische: der erste steht von Anfang an, weitere kauft man (hall.js)
+const hall = createHall({ createTable, collision, upgrades });
+scene.add(hall.group);
 
 // Computertisch rechts neben dem Druckertisch, mit Bildschirm oben und PC darunter
 const computerDesk = createTable(1.4, 0.7);
@@ -267,9 +295,9 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 
 // Getragener Gegenstand, Druckertisch (Aufstellen, Filament einlegen), Abstellraum (Lieferungen)
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
-const workshop = createWorkshop({ table: printerTable, tableHeight: TABLE_HEIGHT, economy, carry });
+const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
-const storage = createStorageRoom({ economy, carry, collision });
+const storage = createStorageRoom({ economy, carry, collision, upgrades });
 scene.add(storage.group);
 
 // Kater Düsentrieb streunt durch die Halle
@@ -335,9 +363,11 @@ const shop = createShop(economy, {
   orders,
   achievements,
   cam: printerCam,
+  upgrades,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
-  freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
-  freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage - carry.spools.length,
+  // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
+  freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
+  freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage - carry.spools.length,
   onClose: () => {
     if (gameOver) return; // Pleite: Maus nicht wieder einfangen
     title.show(true); // falls das erneute Sperren der Maus scheitert
@@ -346,7 +376,7 @@ const shop = createShop(economy, {
 });
 
 const pcInteraction = {
-  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge & Druckermenü)',
+  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
   action: () => {
     shop.open();
     controls.unlock();
@@ -362,7 +392,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, printerTable, computerDesk, workshop.group, cat.group],
+  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -446,12 +476,12 @@ function checkBankrupt() {
   deleteSave();
   shop.close();
   controls.unlock();
-  title.showGameOver({ day: economy.day, ...achievements.stats });
+  title.showGameOver({ day: gameClock.day, ...achievements.stats });
 }
 
-const clock = new THREE.Clock();
+const frameClock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
   const paused = !controls.isLocked && !shop.isOpen();
   if (!gameOver && !paused) {
@@ -459,6 +489,7 @@ renderer.setAnimationLoop(() => {
     economy.advanceTime(gameMinutes);
     economy.advancePrints(gameMinutes);
     orders.advance(gameMinutes);
+    gameClock.advance(gameMinutes);
     checkBankrupt();
   }
   workshop.animate(dt);

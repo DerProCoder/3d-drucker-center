@@ -1,11 +1,14 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
-// „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
-import { ACCESSORIES, FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
+// „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+import {
+  ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
+} from './catalog.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
+import { createUpgradesMenu } from './upgrades-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
@@ -19,6 +22,7 @@ const APPS = [
   { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
+  { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
   { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
@@ -30,7 +34,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
 // orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
-export function createShop(economy, { orders, achievements, cam, freePrinterSlots, freeShelfSpace, onClose }) {
+// upgrades: Hallen-Ausbau (upgrades.js)
+export function createShop(economy, { orders, achievements, cam, upgrades, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -75,6 +80,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
   let toastTimer = null;
   const printerMenu = createPrinterMenu(economy);
   const ordersMenu = createOrdersMenu(orders, economy);
+  const upgradesMenu = createUpgradesMenu(upgrades, economy);
   const notes = createNotesApp();
   const calc = createCalcApp();
 
@@ -127,10 +133,33 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
           </div>
         </div>`;
     }).join('');
+    const spare = SPARE_PARTS.map((part) => {
+      let blocked = null;
+      if (!economy.partsRacks.length) blocked = 'Erst Ersatzteilregal aufstellen';
+      else if (economy.partsRackSpace <= 0) blocked = 'Ersatzteilregal voll';
+      else if (!economy.canAfford(part.price)) blocked = 'Zu wenig Geld';
+      return `
+        <div class="card">
+          <div class="card-head">
+            <span class="accessory-icon">🔩</span>
+            <div>
+              <div class="card-title">${part.name}</div>
+              <div class="card-sub">${part.hint}</div>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span class="stock">Im Ersatzteilregal: ${economy.spareNozzles}</span>
+            <span class="price">${euro.format(part.price)}</span>
+            ${buyButton(`spare:${part.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
     return `<p class="slots">Lieferung ins Regal im Abstellraum · Freie Plätze: <strong>${shelfFree}</strong>
       · Offen gelagerte Spulen ziehen mit der Zeit Feuchtigkeit 💧 – feuchtes Filament verursacht Fehldrucke.</p>
       ${sections}
-      <section><h3>Zubehör</h3><div class="grid">${accessories}</div></section>`;
+      <section><h3>Zubehör</h3><div class="grid">${accessories}</div></section>
+      <section><h3>Ersatzteile <span class="hint">Düsen nutzen sich beim Drucken ab – Lieferung direkt ins Ersatzteilregal am Druckertisch</span></h3>
+        <div class="grid">${spare}</div></section>`;
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
@@ -164,9 +193,33 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
           </div>
         </div>`;
     }).join('');
+    const rackSlots = upgrades.rackSlots - economy.furniture.length;
+    const furniture = FURNITURE.map((f) => {
+      let blocked = null;
+      if (rackSlots <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.canAfford(f.price)) blocked = 'Zu wenig Geld';
+      const owned = economy.furniture.filter((x) => x.type.id === f.id).length;
+      return `
+        <div class="card">
+          <div class="card-head">
+            <span class="accessory-icon">${f.id === 'filament-rack' ? '🗄️' : '🧰'}</span>
+            <div>
+              <div class="card-title">${f.name}</div>
+              <div class="card-sub">${f.hint} · steht zwischen zwei Druckern</div>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span class="stock">Im Besitz: ${owned}</span>
+            <span class="price">${euro.format(f.price)}</span>
+            ${buyButton(`furniture:${f.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
     return `
       <p class="slots">Lieferung als Karton in den Abstellraum · Freie Plätze auf dem Druckertisch: <strong>${slots}</strong></p>
-      <div class="grid">${cards}</div>`;
+      <div class="grid">${cards}</div>
+      <section><h3>Einrichtung <span class="hint">Regale für die Lücken zwischen den Druckern · freie Regalplätze: ${rackSlots}</span></h3>
+        <div class="grid">${furniture}</div></section>`;
   }
 
   function renderAchievements() {
@@ -207,7 +260,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
     balanceEl.textContent = info.live ? euro.format(economy.money) : '';
     const scroll = contentEl.scrollTop;
     const renderers = {
-      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
       cam: cam.render,
     };
@@ -261,6 +314,11 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
       printerMenu.handleClick(e);
       return;
     }
+    if (app === 'upgrades') {
+      const message = upgradesMenu.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
     if (app === 'orders') {
       const message = ordersMenu.handleClick(e);
       if (message) toast(message);
@@ -276,7 +334,13 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
     if (!id) return;
-    if (id.startsWith('accessory:')) {
+    if (id.startsWith('furniture:')) {
+      const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
+      if (upgrades.rackSlots - economy.furniture.length > 0 && economy.buyFurniture(f)) toast(`Gekauft: ${f.name} – Karton steht im Abstellraum`);
+    } else if (id.startsWith('spare:')) {
+      const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
+      if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);
+    } else if (id.startsWith('accessory:')) {
       const a = ACCESSORIES.find((x) => `accessory:${x.id}` === id);
       if (economy.buyAccessory(a)) toast(`Gekauft: ${a.name} – steht im Abstellraum`);
     } else if (app === 'filaments') {
@@ -309,6 +373,7 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
   };
   economy.subscribe(refresh);
   orders.subscribe(refresh);
+  upgrades.subscribe(refresh);
 
   return { open, close, isOpen };
 }

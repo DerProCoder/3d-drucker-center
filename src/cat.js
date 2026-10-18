@@ -2,15 +2,17 @@
 // die Drucker – und schubst fertige Teile, die keiner abholt, gern auf den Boden. Linksklick streichelt ihn.
 // Bewegung über Delta-Zeit. Das Herunterwerfen selbst erledigt economy.knockPartOff.
 import * as THREE from 'three';
-import { PRINTER_SLOTS_X } from './workshop.js';
+import { TABLE_ROWS_Z, rackX, rackZ, slotX, slotZ } from './workshop.js';
+import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from './upgrades.js';
+import { furnitureSize } from './furniture.js';
 
 const NAME = 'Kater Düsentrieb';
 const WALK_SPEED = 0.7;     // m/s
 const JUMP_SECONDS = 0.55;
 const KNOCK_CHANCE = 0.55;  // so oft schubst er ein fertiges Teil, wenn er daneben sitzt
 const HALL = { minX: -8.5, maxX: 8.5, minZ: -8.5, maxZ: 8.5 };
-const TABLE_FRONT_Z = 0.8;  // hier springt er hoch
-const TABLE_SEAT_Z = 0.15;  // hier sitzt er auf dem Tisch
+const TABLE_FRONT_Z = 0.8;  // hier springt er hoch (vor der Tischmitte)
+const TABLE_SEAT_Z = 0.15;  // hier sitzt er auf dem Tisch (relativ zur Tischmitte)
 const SEAT_OFFSET_X = 0.55; // rechts neben dem Stellplatz, zwischen zwei Druckern
 
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -118,7 +120,7 @@ export function createCat({ economy, tableHeight, onEvent }) {
   let target = null;      // Laufziel { x, z }
   let afterWalk = null;   // was nach dem Ankommen passiert
   let jump = null;        // { from, to, t }
-  let seat = null;        // { printerId, x } wenn er auf dem Tisch sitzt
+  let seat = null;        // { printerId, x, z (Tischmitte), y (Sitzhöhe über dem Tisch) } wenn er auf dem Tisch sitzt
   let meowTimer = rand(20, 40);
   cat.position.set(-3, 0, 4);
 
@@ -139,6 +141,7 @@ export function createCat({ economy, tableHeight, onEvent }) {
       const z = rand(HALL.minZ, HALL.maxZ);
       // nicht in Tisch oder Computertisch
       if (Math.abs(z) < 0.7 && x > -3 && x < 5) continue;
+      if (TABLE_ROWS_Z.some((tz) => Math.abs(z - tz) < 0.7) && x > -3 && x < 3) continue; // weitere Drucktische
       return { x, z };
     }
     return { x: 0, z: 4 };
@@ -152,7 +155,13 @@ export function createCat({ economy, tableHeight, onEvent }) {
     const printer = done.length && Math.random() < 0.6
       ? done[Math.floor(Math.random() * done.length)]
       : onTable[Math.floor(Math.random() * onTable.length)];
-    return { printerId: printer.id, x: PRINTER_SLOTS_X[printer.slot] + SEAT_OFFSET_X };
+    // Rechts neben dem Drucker liegt die Regallücke gleicher Nummer: steht dort ein Regal, sitzt er oben drauf
+    const table = Math.floor(printer.slot / SLOTS_PER_TABLE);
+    const gap = printer.slot % SLOTS_PER_TABLE;
+    const rack = gap < RACKS_PER_TABLE
+      && economy.furniture.find((f) => f.location === 'table' && f.slot === table * RACKS_PER_TABLE + gap);
+    if (rack) return { printerId: printer.id, x: rackX(rack.slot), z: rackZ(rack.slot), y: furnitureSize(rack.type).y };
+    return { printerId: printer.id, x: slotX(printer.slot) + SEAT_OFFSET_X, z: slotZ(printer.slot), y: 0 };
   }
 
   function decide() {
@@ -160,9 +169,9 @@ export function createCat({ economy, tableHeight, onEvent }) {
     if (roll < 0.35) {
       const s = pickPrinterSeat();
       if (s) {
-        walkTo(s.x, TABLE_FRONT_Z, () => {
+        walkTo(s.x, s.z + TABLE_FRONT_Z, () => {
           seat = s;
-          startJump(new THREE.Vector3(s.x, tableHeight, TABLE_SEAT_Z), 'onTable');
+          startJump(new THREE.Vector3(s.x, tableHeight + s.y, s.z + (s.y ? 0 : TABLE_SEAT_Z)), 'onTable');
         });
         return;
       }
@@ -188,11 +197,12 @@ export function createCat({ economy, tableHeight, onEvent }) {
     // Vor dem Runterspringen: fertiges Teil vom Nachbardrucker schubsen?
     const printer = seat && economy.printerById(seat.printerId);
     if (printer?.job?.status === 'done' && Math.random() < KNOCK_CHANCE) {
-      const x = PRINTER_SLOTS_X[printer.slot] + rand(-0.3, 0.3);
-      if (economy.knockPartOff(printer.id, x, rand(0.7, 1.1))) onEvent?.('knock');
+      const x = slotX(printer.slot) + rand(-0.3, 0.3);
+      if (economy.knockPartOff(printer.id, x, slotZ(printer.slot) + rand(0.7, 1.1))) onEvent?.('knock');
     }
+    const z = (seat?.z ?? 0) + TABLE_FRONT_Z;
     seat = null;
-    startJump(new THREE.Vector3(cat.position.x, 0, TABLE_FRONT_Z), 'idle');
+    startJump(new THREE.Vector3(cat.position.x, 0, z), 'idle');
   }
 
   function pet() {

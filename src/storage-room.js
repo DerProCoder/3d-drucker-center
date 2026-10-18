@@ -6,6 +6,8 @@ import { WET, spoolLabel } from './economy.js';
 import { createSpool } from './spool.js';
 import { createPrinterBox } from './printer-box.js';
 import { MAX_SPOOLS } from './carry.js';
+import { furnitureSize } from './furniture.js';
+import { SPOOLS_PER_SHELF_LEVEL } from './upgrades.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
@@ -25,9 +27,9 @@ const D = Z1 - Z0;
 // Spulen stehen nebeneinander, farbige Wicklung zeigt in den Raum
 const SHELF = {
   x0: -8, x1: -7.5, z0: 10.95, z1: 13.65,
-  levels: [0.15, 0.62, 1.09, 1.56], perLevel: 20, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
+  levels: [0.15, 0.62, 1.09, 1.56], perLevel: SPOOLS_PER_SHELF_LEVEL, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
 };
-export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel;
+export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel; // alle Ebenen ausgebaut (siehe upgrades.js)
 
 // Trockenschrank zwischen Tür-Wand und Regal
 const DRYER = {
@@ -118,12 +120,16 @@ function createShelf() {
       shelf.add(box(0.04, height, 0.04, upright, x, height / 2, z));
     }
   }
-  for (const level of SHELF.levels) {
-    shelf.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
+  // Pro Ebene ein Boden mit zwei Traversen – nicht gekaufte Ebenen werden ausgeblendet
+  shelf.userData.levels = SHELF.levels.map((level) => {
+    const parts = new THREE.Group();
+    parts.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
     for (const x of [SHELF.x0 + 0.02, SHELF.x1 - 0.02]) {
-      shelf.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
+      parts.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
     }
-  }
+    shelf.add(parts);
+    return parts;
+  });
   return shelf;
 }
 
@@ -200,7 +206,8 @@ function floorText(text, width) {
 
 // ---------- Raum ----------
 
-export function createStorageRoom({ economy, carry, collision }) {
+// upgrades: Ausbau-Stand – bestimmt, wie viele Regalebenen es gibt
+export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const group = new THREE.Group();
 
   const floorMat = new THREE.MeshStandardMaterial({
@@ -300,8 +307,8 @@ export function createStorageRoom({ economy, carry, collision }) {
   zoneArea.rotation.x = -Math.PI / 2;
   zoneArea.position.set(BOX_X, 0.01, zcz);
   zoneArea.userData.interaction = {
-    hint: () => (carry.printer ? 'Linksklick: Karton abstellen' : null),
-    action: () => { if (carry.printer) carry.returnToStorage(); },
+    hint: () => (carry.printer || carry.furniture ? 'Linksklick: Karton abstellen' : null),
+    action: () => { if (carry.printer || carry.furniture) carry.returnToStorage(); },
   };
   group.add(zoneArea);
 
@@ -340,7 +347,8 @@ export function createStorageRoom({ economy, carry, collision }) {
   function spoolInteraction(spool) {
     return {
       hint: () => {
-        if (carry.printer) return 'Hände voll – erst den Karton abstellen (Q)';
+        if (carry.printer || carry.furniture) return 'Hände voll – erst den Karton abstellen (Q)';
+        if (carry.nozzle) return 'Hände voll – erst die Ersatzdüse zurücklegen (Q)';
         if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
         const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
         const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
@@ -363,12 +371,22 @@ export function createStorageRoom({ economy, carry, collision }) {
     };
   }
 
+  function furnitureBoxInteraction(item) {
+    return {
+      hint: () => (carry.isEmpty ? `Linksklick: Karton ${item.type.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
+      action: () => {
+        if (carry.isEmpty && economy.takeFurnitureFromStorage(item.id)) carry.holdFurniture(item);
+      },
+    };
+  }
+
   function sync() {
     contents.clear();
+    shelf.userData.levels.forEach((parts, i) => { parts.visible = i < upgrades.shelfLevels; });
     dryer.visible = economy.hasDryer;
 
     for (const spool of economy.shelf) {
-      if (spool.shelfSlot >= SHELF_CAPACITY) continue;
+      if (spool.shelfSlot >= upgrades.shelfCapacity) continue;
       const level = Math.floor(spool.shelfSlot / SHELF.perLevel);
       const index = spool.shelfSlot % SHELF.perLevel;
       const mesh = createSpool(filamentById(spool.filamentId));
@@ -379,12 +397,19 @@ export function createStorageRoom({ economy, carry, collision }) {
     }
 
     const boxColliders = [];
-    for (const printer of economy.printers) {
-      const spot = printer.storageSpot;
-      if (printer.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
-      const crate = createPrinterBox(printer.model);
+    // Kartons in der Lieferzone: Drucker und Regale
+    const crates = [
+      ...economy.printers.map((p) => ({ item: p, make: () => createPrinterBox(p.model), interaction: boxInteraction(p) })),
+      ...economy.furniture.map((f) => ({
+        item: f, make: () => createPrinterBox(f.type, furnitureSize(f.type), 'Einrichtung'), interaction: furnitureBoxInteraction(f),
+      })),
+    ];
+    for (const { item, make, interaction } of crates) {
+      const spot = item.storageSpot;
+      if (item.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
+      const crate = make();
       crate.position.set(BOX_X, 0, BOX_SPOTS_Z[spot]);
-      crate.userData.interaction = boxInteraction(printer);
+      crate.userData.interaction = interaction;
       contents.add(crate);
       const { w, d: depth } = crate.userData.size;
       boxColliders.push({
@@ -397,5 +422,6 @@ export function createStorageRoom({ economy, carry, collision }) {
     enableShadows(contents);
   }
 
+  upgrades.subscribe(sync); // neue Regalebene sofort zeigen
   return { group, sync };
 }

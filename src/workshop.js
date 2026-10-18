@@ -1,15 +1,25 @@
-// Druckertisch: Drucker aufstellen, Filament einlegen/herausnehmen, fertige Teile entnehmen, Pannen beheben
-// (Fehldruck wegräumen, Düse freistechen). Dazu Statussymbole über den Druckern und vom Kater
-// heruntergeworfene Teile auf dem Boden.
+// Druckertisch: Drucker und Regale aufstellen, Filament einlegen/herausnehmen, fertige Teile entnehmen, Pannen
+// beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
+// einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
 import { FAILURES, filamentById, filamentLabel, templateById, speedById } from './catalog.js';
 import { NOZZLE_POKES, plateLayout, spoolLabel } from './economy.js';
 import { getPrintShape, outlinePoint, outlineLength } from './print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-model.js';
 import { createSpool } from './spool.js';
+import { createFurnitureModel, createNozzle, furnitureSize } from './furniture.js';
 import { enableShadows } from './util.js';
+import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from './upgrades.js';
 
-export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf dem Druckertisch (Welt-x)
+export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
+export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern
+export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
+
+// Weltposition eines Drucker- bzw. Regalplatzes. Plätze sind über alle Tische durchnummeriert.
+export const slotX = (slot) => PRINTER_SLOTS_X[slot % SLOTS_PER_TABLE];
+export const slotZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / SLOTS_PER_TABLE)];
+export const rackX = (slot) => RACK_SLOTS_X[slot % RACKS_PER_TABLE];
+export const rackZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / RACKS_PER_TABLE)];
 
 // ---------- Hilfsmodelle ----------
 
@@ -73,14 +83,17 @@ function badgeFor(printer) {
   const job = printer.job;
   if (job?.status === 'failed') return ['⚠️', '#c0392b'];
   if (printer.clogged) return ['🪡', '#c0392b'];
+  if ((printer.nozzleWear ?? 0) >= 1) return ['🔧', '#c0392b'];
   if (job?.pauseReason === 'filament') return ['🧵', '#d68910'];
   if (job?.status === 'done') return ['✔', '#27ae60'];
   return null;
 }
 
-export function createWorkshop({ table, tableHeight, economy, carry }) {
+// tables: Drucktisch-Objekte in der Reihenfolge von TABLE_ROWS_Z (hall.js) · upgrades: wie viele Tische gekauft sind
+export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }) {
   const group = new THREE.Group();
   const built = new Map(); // Drucker-ID → 3D-Modell
+  const racks = new Map(); // Regal-ID → 3D-Modell
   const loose = new Map(); // ID loses Teil → Mesh auf dem Boden
 
   // Grüne Vorschau, wo der getragene Drucker landen würde
@@ -92,37 +105,60 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
   ghost.raycast = () => {}; // darf den Klickstrahl nicht abfangen
   group.add(ghost);
 
-  const freeSlots = () => PRINTER_SLOTS_X
-    .map((_, i) => i)
-    .filter((i) => !economy.printers.some((p) => p.location === 'table' && p.slot === i));
-  const nearestFreeSlot = (x) => freeSlots().reduce((best, i) => (
-    best === null || Math.abs(PRINTER_SLOTS_X[i] - x) < Math.abs(PRINTER_SLOTS_X[best] - x) ? i : best
+  // Was gerade aufgestellt werden kann: Druckerkarton (auf Druckerplätze) oder Regalkarton (zwischen die Drucker)
+  const carriedBox = () => {
+    if (carry.printer) {
+      return {
+        name: 'Drucker', size: printerSize(carry.printer.model), perTable: SLOTS_PER_TABLE, x: slotX, z: slotZ,
+        used: (i) => economy.tableSlotUsed(i),
+      };
+    }
+    if (carry.furniture) {
+      return {
+        name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), perTable: RACKS_PER_TABLE, x: rackX, z: rackZ,
+        used: (i) => economy.rackSlotUsed(i),
+      };
+    }
+    return null;
+  };
+  // Freie Plätze auf einem bestimmten Tisch (nur gekaufte Tische haben Plätze)
+  const freeSlots = (box, tableIndex) => {
+    if (tableIndex >= upgrades.tables) return [];
+    return Array.from({ length: box.perTable }, (_, i) => tableIndex * box.perTable + i).filter((i) => !box.used(i));
+  };
+  const nearestFreeSlot = (box, tableIndex, x) => freeSlots(box, tableIndex).reduce((best, i) => (
+    best === null || Math.abs(box.x(i) - x) < Math.abs(box.x(best) - x) ? i : best
   ), null);
 
-  table.userData.interaction = {
-    hint: () => {
-      if (!carry.printer) return null;
-      return freeSlots().length ? 'Linksklick: Drucker aufstellen' : 'Kein freier Platz auf dem Tisch';
-    },
-    hover: (hit) => {
-      const printer = carry.printer;
-      const slot = printer ? nearestFreeSlot(hit.point.x) : null;
-      ghost.visible = slot !== null;
-      if (slot === null) return;
-      const size = printerSize(printer.model);
-      ghost.scale.copy(size);
-      ghost.position.set(PRINTER_SLOTS_X[slot], tableHeight + size.y / 2, 0);
-    },
-    unhover: () => { ghost.visible = false; },
-    action: (hit) => {
-      const printer = carry.printer;
-      const slot = printer ? nearestFreeSlot(hit.point.x) : null;
-      if (slot === null) return;
-      carry.releasePrinter();
-      economy.placePrinter(printer.id, slot);
-      ghost.visible = false;
-    },
-  };
+  tables.forEach((table, tableIndex) => {
+    table.userData.interaction = {
+      hint: () => {
+        const box = carriedBox();
+        if (!box) return null;
+        if (!freeSlots(box, tableIndex).length) {
+          return carry.furniture ? 'Kein freier Platz zwischen den Druckern auf diesem Tisch' : 'Kein freier Platz auf diesem Tisch';
+        }
+        return `Linksklick: ${box.name} ${carry.furniture ? 'zwischen die Drucker stellen' : 'aufstellen'}`;
+      },
+      hover: (hit) => {
+        const box = carriedBox();
+        const slot = box ? nearestFreeSlot(box, tableIndex, hit.point.x) : null;
+        ghost.visible = slot !== null;
+        if (slot === null) return;
+        ghost.scale.copy(box.size);
+        ghost.position.set(box.x(slot), tableHeight + box.size.y / 2, box.z(slot));
+      },
+      unhover: () => { ghost.visible = false; },
+      action: (hit) => {
+        const box = carriedBox();
+        const slot = box ? nearestFreeSlot(box, tableIndex, hit.point.x) : null;
+        if (slot === null) return;
+        if (carry.printer) economy.placePrinter(carry.releasePrinter().id, slot);
+        else economy.placeFurniture(carry.releaseFurniture().id, slot);
+        ghost.visible = false;
+      },
+    };
+  });
 
   // Was ein Linksklick auf den Drucker gerade bewirkt: { text, run } oder null.
   // Reihenfolge: Pannen beheben, fertiges Teil entnehmen, dann erst Spulen.
@@ -131,10 +167,19 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     const job = printer.job;
     const supports = (spool) => printer.model.materials.includes(filamentById(spool.filamentId).material);
 
-    if (carry.printer) return null;
+    if (carry.printer || carry.furniture) return null;
     if (job?.status === 'failed') {
       const failure = FAILURES[job.failure];
       return { text: `Linksklick: Fehldruck wegräumen (${failure.name})`, run: () => economy.clearFailedPrint(printer.id) };
+    }
+    // Ersatzdüse in der Hand: tauschen (behebt auch eine verstopfte Düse)
+    if (carry.nozzle) {
+      if (economy.isBusy(printer)) return { text: `${name} druckt gerade – Düse erst danach tauschen` };
+      const wear = Math.round((printer.nozzleWear ?? 0) * 100);
+      return {
+        text: `Linksklick: Ersatzdüse einbauen (alte Düse ${wear} % abgenutzt${printer.clogged ? ', verstopft' : ''})`,
+        run: () => { if (economy.replaceNozzle(printer.id)) carry.releaseNozzle(); },
+      };
     }
     if (printer.clogged) {
       return {
@@ -320,13 +365,131 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     }
   }
 
+  // ---------- Regale ----------
+
+  // Filament-Regal: Spulen hineinlegen (alle, die passen), einzelne Spulen herausnehmen, leer wieder aufheben
+  function filamentRackInteraction(rack) {
+    const free = () => rack.spools.filter((s) => !s).length;
+    return {
+      hint: () => {
+        if (carry.printer || carry.furniture || carry.nozzle) return null;
+        if (carry.hasSpools) {
+          if (!free()) return 'Filament-Regal ist voll';
+          const n = Math.min(free(), carry.spools.length);
+          return `Linksklick: ${n === 1 ? 'Spule' : `${n} Spulen`} ins Filament-Regal legen (${free()} frei)`;
+        }
+        if (economy.isFurnitureEmpty(rack)) return 'Linksklick: leeres Filament-Regal aufheben';
+        return `Filament-Regal: ${rack.type.capacity - free()}/${rack.type.capacity} Spulen – auf eine Spule zielen, um sie zu nehmen`;
+      },
+      action: () => {
+        if (carry.hasSpools) {
+          while (carry.spools.length && free()) economy.putSpoolInRack(rack.id, carry.takeSpool(carry.spools.length - 1));
+        } else if (carry.isEmpty && economy.pickUpFurniture(rack.id)) {
+          carry.holdFurniture(rack);
+        }
+      },
+    };
+  }
+
+  function rackSpoolInteraction(rack, index) {
+    const rackInteraction = filamentRackInteraction(rack);
+    return {
+      hint: () => {
+        if (carry.hasSpools && carry.canTakeSpool) {
+          const spool = rack.spools[index];
+          return `Linksklick: ${spoolLabel(spool)} nehmen (${carry.spools.length + 1}/5 in der Hand)`;
+        }
+        if (carry.hasSpools) return rackInteraction.hint();
+        if (!carry.canTakeSpool) return null;
+        return `Linksklick: ${spoolLabel(rack.spools[index])} nehmen`;
+      },
+      action: () => {
+        if (!carry.canTakeSpool) {
+          rackInteraction.action();
+          return;
+        }
+        const spool = economy.takeSpoolFromRack(rack.id, index);
+        if (spool) carry.addSpool(spool);
+      },
+    };
+  }
+
+  // Ersatzteilregal: Düse nehmen, zurücklegen, leer wieder aufheben
+  function partsRackInteraction(rack) {
+    return {
+      hint: () => {
+        if (carry.printer || carry.furniture) return null;
+        if (carry.nozzle) return rack.nozzles < rack.type.capacity ? 'Linksklick: Ersatzdüse zurücklegen' : 'Ersatzteilregal ist voll';
+        if (carry.hasSpools) return 'Hände voll – erst die Spulen ablegen';
+        if (rack.nozzles) return `Linksklick: Ersatzdüse nehmen (${rack.nozzles} im Regal)`;
+        return 'Linksklick: leeres Ersatzteilregal aufheben · Ersatzdüsen gibt es im Filament-Shop';
+      },
+      action: () => {
+        if (carry.nozzle) {
+          if (economy.putNozzleInRack(rack.id)) carry.releaseNozzle();
+        } else if (carry.isEmpty && rack.nozzles) {
+          if (economy.takeNozzleFromRack(rack.id)) carry.holdNozzle();
+        } else if (carry.isEmpty && economy.pickUpFurniture(rack.id)) {
+          carry.holdFurniture(rack);
+        }
+      },
+    };
+  }
+
+  // Inhalt eines Regals neu aufbauen, wenn er sich geändert hat
+  function updateRackContents(model, rack) {
+    const key = rack.spools ? rack.spools.map((s) => s?.filamentId ?? '-').join(',') : String(rack.nozzles);
+    if (model.userData.contentKey === key) return;
+    model.userData.contentKey = key;
+    model.userData.contents?.removeFromParent();
+    const contents = new THREE.Group();
+    if (rack.spools) {
+      rack.spools.forEach((spool, i) => {
+        if (!spool) return;
+        const mesh = createSpool(filamentById(spool.filamentId));
+        mesh.position.copy(model.userData.spoolSpots[i]);
+        mesh.userData.interaction = rackSpoolInteraction(rack, i);
+        contents.add(mesh);
+      });
+    } else {
+      for (let i = 0; i < rack.nozzles; i++) {
+        const nozzle = createNozzle(1.6);
+        nozzle.position.copy(model.userData.nozzleSpots[i]);
+        contents.add(nozzle);
+      }
+    }
+    enableShadows(contents);
+    model.add(contents);
+    model.userData.contents = contents;
+  }
+
+  function syncRacks() {
+    for (const rack of economy.furniture) {
+      let model = racks.get(rack.id);
+      if (rack.location === 'table') {
+        if (!model) {
+          model = createFurnitureModel(rack.type);
+          model.position.set(rackX(rack.slot), tableHeight, rackZ(rack.slot));
+          model.userData.interaction = rack.spools ? filamentRackInteraction(rack) : partsRackInteraction(rack);
+          group.add(model);
+          racks.set(rack.id, model);
+        }
+        updateRackContents(model, rack);
+      } else if (model) {
+        group.remove(model);
+        racks.delete(rack.id);
+      }
+    }
+  }
+
   function sync() {
+    syncRacks();
     for (const printer of economy.printers) {
       let model = built.get(printer.id);
       if (printer.location === 'table') {
         if (!model) {
           model = createPrinterModel(printer.model);
-          model.position.set(PRINTER_SLOTS_X[printer.slot], tableHeight, 0);
+          model.position.set(slotX(printer.slot), tableHeight, slotZ(printer.slot));
           model.userData.interaction = printerInteraction(printer);
           model.userData.printer = printer;
           enableShadows(model);

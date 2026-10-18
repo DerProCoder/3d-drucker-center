@@ -1,10 +1,11 @@
-// Was der Spieler gerade in der Hand hat: entweder ein Druckerkarton oder bis zu MAX_SPOOLS Filamentspulen.
-// Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
+// Was der Spieler gerade in der Hand hat: entweder einen Karton (Drucker oder Regal), bis zu MAX_SPOOLS
+// Filamentspulen oder eine Ersatzdüse. Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
 // Spule: { filamentId, grams, moisture }
 import * as THREE from 'three';
 import { filamentById } from './catalog.js';
 import { createSpool } from './spool.js';
 import { createPrinterBox } from './printer-box.js';
+import { createNozzle, furnitureSize } from './furniture.js';
 import { spoolLabel } from './economy.js';
 
 export const MAX_SPOOLS = 5;
@@ -15,17 +16,23 @@ export class Carry {
     this.economy = economy;
     this.infoEl = infoEl;
     this.printerId = null;
+    this.furnitureId = null; // Regalkarton
+    this.nozzle = false;     // Ersatzdüse in der Hand
     this.spools = [];
     this.selected = 0;
     this.mesh = null;
   }
 
   get isEmpty() {
-    return this.printerId === null && !this.spools.length;
+    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.spools.length;
   }
 
   get printer() {
     return this.printerId === null ? null : this.economy.printerById(this.printerId);
+  }
+
+  get furniture() {
+    return this.furnitureId === null ? null : this.economy.furnitureById(this.furnitureId);
   }
 
   get hasSpools() {
@@ -33,7 +40,7 @@ export class Carry {
   }
 
   get canTakeSpool() {
-    return this.printerId === null && this.spools.length < MAX_SPOOLS;
+    return this.printerId === null && this.furnitureId === null && !this.nozzle && this.spools.length < MAX_SPOOLS;
   }
 
   get selectedSpool() {
@@ -70,6 +77,31 @@ export class Carry {
     return printer;
   }
 
+  holdFurniture(item) {
+    if (!this.isEmpty) return;
+    this.furnitureId = item.id;
+    this.refresh();
+  }
+
+  releaseFurniture() {
+    const item = this.furniture;
+    this.furnitureId = null;
+    this.refresh();
+    return item;
+  }
+
+  holdNozzle() {
+    if (!this.isEmpty) return false;
+    this.nozzle = true;
+    this.refresh();
+    return true;
+  }
+
+  releaseNozzle() {
+    this.nozzle = false;
+    this.refresh();
+  }
+
   // Mausrad: nächste/vorige Spule wählen
   cycle(direction) {
     if (this.spools.length < 2) return;
@@ -80,6 +112,11 @@ export class Carry {
   // Q oder Klick aufs Regal: alles wandert zurück in den Abstellraum
   returnToStorage() {
     if (this.printerId !== null) this.economy.returnPrinterToStorage(this.releasePrinter().id);
+    if (this.furnitureId !== null) this.economy.returnFurnitureToStorage(this.releaseFurniture().id);
+    if (this.nozzle) {
+      this.economy.returnNozzle();
+      this.releaseNozzle();
+    }
     const spools = this.spools;
     this.spools = [];
     this.selected = 0;
@@ -98,6 +135,23 @@ export class Carry {
       box.position.set(0, -0.32 - h, -0.42 - d / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
       this.show(box);
       this.setInfo(`In der Hand: Karton ${printer.model.name} · Q: zurück ins Lager`);
+      return;
+    }
+    const furniture = this.furniture;
+    if (furniture) {
+      const box = createPrinterBox(furniture.type, furnitureSize(furniture.type), 'Einrichtung');
+      const { h, d } = box.userData.size;
+      box.position.set(0, -0.32 - h, -0.42 - d / 2);
+      this.show(box);
+      this.setInfo(`In der Hand: Karton ${furniture.type.name} – auf einen freien Platz am Druckertisch stellen · Q: zurück ins Lager`);
+      return;
+    }
+    if (this.nozzle) {
+      const nozzle = createNozzle(4); // vergrößert, damit man sie in der Hand erkennt
+      nozzle.position.set(0.16, -0.18, -0.4);
+      nozzle.rotation.set(0.3, 0, -0.4);
+      this.show(nozzle);
+      this.setInfo('In der Hand: Ersatzdüse – auf einen Drucker klicken, um die Düse zu tauschen · Q: zurück ins Regal');
       return;
     }
     if (!this.spools.length) {

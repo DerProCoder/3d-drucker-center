@@ -48,7 +48,7 @@ function getPlainMaterials() {
 const sideMaterials = new Map();
 
 // Seiten mit Aufdruck: Modellname, Zerbrechlich-Hinweis, „Oben“-Pfeile
-function getSideMaterial(model) {
+function getSideMaterial(model, kind) {
   if (sideMaterials.has(model.id)) return sideMaterials.get(model.id);
   const material = new THREE.MeshStandardMaterial({
     roughness: 0.9,
@@ -66,7 +66,7 @@ function getSideMaterial(model) {
       ctx.font = '700 64px "Segoe UI", Arial, sans-serif';
       ctx.fillText(product, w / 2, h * 0.43);
       ctx.font = '22px "Segoe UI", Arial, sans-serif';
-      ctx.fillText('3D-Drucker', w / 2, h * 0.53);
+      ctx.fillText(kind, w / 2, h * 0.53);
 
       // Zerbrechlich: Weinglas-Symbol
       ctx.strokeStyle = '#2a2018';
@@ -103,13 +103,14 @@ function getSideMaterial(model) {
   return material;
 }
 
-export function createPrinterBox(model) {
-  const s = printerSize(model);
+// Karton für einen Drucker – oder mit eigener Größe (Vector3) und Aufschrift für Einrichtung wie Regale
+export function createPrinterBox(model, size = printerSize(model), kind = '3D-Drucker') {
+  const s = size;
   const w = s.x + MARGIN;
   const h = s.y + MARGIN;
   const d = s.z + MARGIN;
   const { top, plain } = getPlainMaterials();
-  const side = getSideMaterial(model);
+  const side = getSideMaterial(model, kind);
 
   const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, top, plain, side, side]);
   box.position.y = h / 2;

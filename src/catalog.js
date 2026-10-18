@@ -121,3 +121,23 @@ export const FAILURES = {
   warp: { name: 'Verzogen', text: 'Die Ecken haben sich hochgebogen (Warping)' },
   clog: { name: 'Düse verstopft', text: 'Aus der Düse kommt nichts mehr – erst freistechen, dann geht es weiter' },
 };
+
+// Einrichtung für den Druckertisch: kommt als Karton in den Abstellraum und belegt aufgestellt einen Stellplatz.
+// capacity: Spulen (Filament-Regal) bzw. Ersatzteile (Ersatzteilregal)
+export const FURNITURE = [
+  {
+    id: 'filament-rack', name: 'Filament-Regal', price: 49, capacity: 8,
+    hint: 'Hält 8 Spulen griffbereit direkt neben den Druckern',
+  },
+  {
+    id: 'parts-rack', name: 'Ersatzteilregal', price: 39, capacity: 12,
+    hint: 'Sortimentskasten für bis zu 12 Ersatzdüsen',
+  },
+];
+
+export const furnitureById = (id) => FURNITURE.find((f) => f.id === id);
+
+// Ersatzteile: werden direkt ins Ersatzteilregal geliefert
+export const SPARE_PARTS = [
+  { id: 'nozzle', name: 'Ersatzdüse 0,4 mm', price: 12, hint: 'Verschlissene oder verstopfte Düse tauschen' },
+];

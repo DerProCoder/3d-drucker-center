@@ -11,6 +11,7 @@ export const ACHIEVEMENTS = [
   { id: 'spaghetti', icon: '🍝', name: 'Spaghetti alla Stampa', text: 'Der erste Spaghetti-Fehldruck', check: (s) => s.spaghetti >= 1 },
   { id: 'chef', icon: '👨‍🍳', name: 'Chefkoch', text: '10 Fehldrucke erlebt', check: (s) => s.failures >= 10 },
   { id: 'nozzle', icon: '🪡', name: 'Freie Fahrt', text: 'Eine verstopfte Düse freigestochen', check: (s) => s.nozzlesCleared >= 1 },
+  { id: 'nozzle-swap', icon: '🔩', name: 'Boxenstopp', text: 'Eine abgenutzte Düse gegen eine neue getauscht', check: (s) => s.nozzlesReplaced >= 1 },
   { id: 'ams-refill', icon: '🔁', name: 'Nahtloser Wechsel', text: 'Das AMS hat automatisch eine neue Spule nachgeladen', check: (s) => s.amsRefills >= 1 },
   { id: 'first-delivery', icon: '📦', name: 'Erster Kunde', text: 'Den ersten Auftrag geliefert', check: (s) => s.deliveries >= 1 },
   { id: 'deliveries-25', icon: '🚚', name: 'Lieferprofi', text: '25 Aufträge geliefert', check: (s) => s.deliveries >= 25 },
@@ -26,7 +27,7 @@ export const ACHIEVEMENTS = [
 
 export function emptyStats() {
   return {
-    printsDone: 0, benchys: 0, grams: 0, spaghetti: 0, failures: 0, nozzlesCleared: 0, amsRefills: 0,
+    printsDone: 0, benchys: 0, grams: 0, spaghetti: 0, failures: 0, nozzlesCleared: 0, nozzlesReplaced: 0, amsRefills: 0,
     deliveries: 0, rushDeliveries: 0, regulars: 0, jonas: 0, maxPrinting: 0, ludicrousDone: 0,
     catPets: 0, knocked: 0, overdraft: 0,
   };

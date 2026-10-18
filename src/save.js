@@ -1,9 +1,13 @@
-// Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, fertige Teile, Aufträge, Level und Erfolge.
-// Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-import { PRINTERS, templateById } from './catalog.js';
+// Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
+// und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
+// game: { economy, orders, progress, achievements, upgrades, clock }
+import { PRINTERS, furnitureById, templateById } from './catalog.js';
+import { SLOTS_PER_TABLE } from './upgrades.js';
 
 const KEY = 'druckercenter-save';
-const VERSION = 3; // 2: Drucker mit Spulenfächern (AMS) · 3: Spielzeit, Feuchte, Pannen, farbige Teile, Erfolge
+// 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
+// Ausbau + Spieluhr (#5) · 4: beides zusammen
+const VERSION = 4;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -23,13 +27,26 @@ export function deleteSave() {
   storage()?.removeItem(KEY);
 }
 
-// carried: Spulen in der Hand ({ filamentId, grams, moisture }) – werden als „im Regal“ gespeichert,
-// damit beim Neuladen nichts verloren geht
-export function saveGame(economy, orders, progress, achievements, carried = []) {
+// carried: { spools, nozzles } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“
+// gespeichert, damit beim Neuladen nichts verloren geht
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock }, carried = {}) {
+  const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
   let free = 0;
-  for (const spool of carried) {
+  const furniture = economy.furniture.map((f) => ({
+    id: f.id,
+    typeId: f.type.id,
+    // Getragene Regale landen beim Laden wieder im Abstellraum
+    location: f.location === 'table' ? 'table' : 'storage',
+    slot: f.location === 'table' ? f.slot : null,
+    storageSpot: f.location === 'table' ? null : f.storageSpot,
+    spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
+    nozzles: f.nozzles,
+  }));
+  const partsRack = furniture.find((f) => f.typeId === 'parts-rack');
+  if (partsRack) partsRack.nozzles += carried.nozzles ?? 0;
+  for (const spool of carriedSpools) {
     while (used.has(free)) free++;
     used.add(free);
     shelf.push({ filamentId: spool.filamentId, grams: spool.grams, moisture: spool.moisture ?? 0, shelfSlot: free });
@@ -39,7 +56,6 @@ export function saveGame(economy, orders, progress, achievements, carried = []) 
     savedAt: Date.now(),
     economy: {
       money: economy.money,
-      time: economy.time,
       pendingCosts: economy.pendingCosts,
       nextPrinterId: economy.nextPrinterId,
       nextLooseId: economy.nextLooseId,
@@ -55,12 +71,15 @@ export function saveGame(economy, orders, progress, achievements, carried = []) 
         speedId: p.speedId,
         clogged: p.clogged,
         nozzlePokes: p.nozzlePokes,
+        nozzleWear: p.nozzleWear ?? 0,
         job: p.job ? { ...p.job } : null,
       })),
       shelf,
       finishedParts: [...economy.finishedParts],
       looseParts: economy.looseParts.map((l) => ({ ...l })),
       accessories: [...economy.accessories],
+      furniture,
+      nextFurnitureId: economy.nextFurnitureId,
     },
     orders: {
       open: orders.open.map((o) => ({ ...o })),
@@ -71,6 +90,8 @@ export function saveGame(economy, orders, progress, achievements, carried = []) 
     },
     progress: { xp: progress.xp },
     achievements: { stats: { ...achievements.stats }, unlocked: [...achievements.unlocked] },
+    upgrades: { tables: upgrades.tables, shelfLevels: upgrades.shelfLevels },
+    clock: { minutes: clock.minutes },
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -106,19 +127,22 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame(economy, orders, progress, achievements) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
   } catch {
     return false;
   }
-  if (data?.version === 2) data = migrateV2(data);
+  // Version 3 aus #5 (Ausbau) kennt noch kein Lager mit festen Plätzen – wie Version 2 umwandeln
+  if (data?.version === 2 || (data?.version === 3 && !data.economy.shelf)) data = migrateV2(data);
+  if (data?.version === 3) data.version = 4; // Version 3 aus #6: Ausbau und Uhr ergänzen unten Standardwerte
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
   economy.money = e.money;
-  economy.time = e.time ?? economy.time;
+  // Spieluhr: eigener Eintrag (ab #5) oder früher in economy.time gespeichert
+  clock.minutes = data.clock?.minutes ?? e.time ?? clock.minutes;
   economy.pendingCosts = e.pendingCosts ?? 0;
   economy.nextPrinterId = e.nextPrinterId;
   economy.nextLooseId = e.nextLooseId ?? 1;
@@ -130,6 +154,33 @@ export function loadGame(economy, orders, progress, achievements) {
   economy.finishedParts = new Map(e.finishedParts);
   economy.looseParts = e.looseParts ?? [];
   economy.accessories = new Set(e.accessories ?? []);
+  // Ausbau: gespeichert (ab #5) oder – bei älteren Ständen – so viele Tische, dass alle aufgestellten Drucker
+  // Platz haben, und alle Regalebenen (früher war das Lagerregal immer voll ausgebaut)
+  if (data.upgrades) {
+    upgrades.tables = data.upgrades.tables;
+    upgrades.shelfLevels = data.upgrades.shelfLevels;
+  } else {
+    const highestSlot = Math.max(-1, ...economy.printers.filter((p) => p.location === 'table').map((p) => p.slot));
+    upgrades.tables = Math.max(1, Math.ceil((highestSlot + 1) / SLOTS_PER_TABLE));
+    upgrades.shelfLevels = upgrades.maxShelfLevels;
+  }
+
+  economy.furniture = (e.furniture ?? [])
+    .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) }))
+    .filter((f) => f.type);
+  economy.nextFurnitureId = e.nextFurnitureId ?? 1;
+  // Regale ohne gültigen oder mit doppeltem Regalplatz (ältere Zwischenstände) zurück in den Abstellraum
+  const usedRackSlots = new Set();
+  for (const f of economy.furniture) {
+    if (f.location !== 'table') continue;
+    if (f.slot >= upgrades.rackSlots || usedRackSlots.has(f.slot)) {
+      f.location = 'storage';
+      f.slot = null;
+      f.storageSpot = economy.freeStorageSpot();
+    } else {
+      usedRackSlots.add(f.slot);
+    }
+  }
 
   orders.open = data.orders.open;
   orders.nextId = data.orders.nextId;
@@ -146,16 +197,18 @@ export function loadGame(economy, orders, progress, achievements) {
   economy.notify();
   orders.notify();
   progress.notify();
+  upgrades.notify();
+  clock.notify();
   return true;
 }
 
 // Autospeichern + beim Verlassen der Seite. onSaved wird nach jedem Speichern aufgerufen (z. B. für ein Symbol).
 // disable() braucht „Neues Spiel“, damit der gelöschte Stand beim Neuladen nicht gleich wieder geschrieben wird.
 // getCarried: () => Spulen, die der Spieler gerade trägt
-export function startAutosave(economy, orders, progress, achievements, onSaved, getCarried = () => []) {
+export function startAutosave(game, onSaved, getCarried = () => []) {
   let enabled = true;
   const save = () => {
-    if (enabled && saveGame(economy, orders, progress, achievements, getCarried())) onSaved?.();
+    if (enabled && saveGame(game, getCarried())) onSaved?.();
   };
   setInterval(save, AUTOSAVE_SECONDS * 1000);
   window.addEventListener('beforeunload', save);
