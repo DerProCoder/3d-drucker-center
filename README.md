@@ -4,6 +4,8 @@ Ein 3D-Browserspiel aus der Ich-Perspektive: Du betreibst eine eigene 3D-Drucker
 
 Das Spiel läuft komplett im Browser. Es gibt keinen Build-Schritt und nichts zu installieren außer einem Browser.
 
+**Direkt online spielen:** https://derprocoder.github.io/3d-drucker-center/ – wird bei jedem Push auf `main` automatisch über GitHub Pages aktualisiert (`.github/workflows/pages.yml`).
+
 ## Getting Started
 
 ### Voraussetzungen
