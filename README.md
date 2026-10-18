@@ -64,7 +64,7 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat, was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 20.000 €.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest klein: mit **100 €** und einem **A1 mini**, der schon auf dem ersten Drucktisch steht – kauf dir also erst mal Filament und erfüll ein paar Aufträge.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Du kannst bis zu **5 Spulen** auf einmal tragen – jeder Klick auf den Drucker legt die zuletzt genommene ein, so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
@@ -74,7 +74,15 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
-Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker, wie viele Aufträge offen sind und die Spielzeit (Tag und Uhrzeit). Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+
+## Halle ausbauen
+
+Platz kostet Geld – alles muss gekauft werden:
+
+- **Drucktische:** Am Anfang hast du einen Tisch mit 4 Stellplätzen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der PC-App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen.
+- **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es in der App **Ausbau**.
+- **Stromrechnung:** Jeden Spieltag um Mitternacht werden die Stromkosten aller aufgestellten Drucker abgebucht (Monatskosten ÷ 30). Fällt dein Konto ins Minus, kannst du nichts mehr kaufen, bis du wieder Geld verdienst.
 
 ## Speichern, Level und Grafik
 
@@ -104,6 +112,9 @@ src/
   economy.js      Spiellogik: Geld, Besitz, Druckaufträge (ohne 3D)
   orders.js       Kundenaufträge: Fristen, Lohn, Liefern (ohne 3D)
   progress.js     Level, XP und Titel (ohne 3D)
+  upgrades.js     Ausbau: Drucktische, Regalebenen (ohne 3D) · upgrades-menu.js: App „Ausbau“
+  game-clock.js   Spieluhr mit Tagen, meldet Mitternacht für die Stromrechnung (ohne 3D)
+  hall.js         Kaufbare Drucktische in der Halle mit Bodenmarkierung
   save.js         Spielstand in localStorage, Autospeichern
   graphics.js     Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
   hud.js          HUD, Level-Up-Banner · title-screen.js: Titel- und Pausenbildschirm

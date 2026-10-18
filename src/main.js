@@ -7,14 +7,18 @@ import { CollisionWorld } from './collision.js';
 import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
 import { Orders } from './orders.js';
 import { Progress } from './progress.js';
+import { Upgrades } from './upgrades.js';
+import { GameClock, DAYS_PER_MONTH } from './game-clock.js';
+import { createHall } from './hall.js';
+import { PRINTERS } from './catalog.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './save.js';
 import { createTitleScreen } from './title-screen.js';
 import { createHud } from './hud.js';
 import { createRoom, roomColliders } from './room.js';
 import { createDesktopScreen } from './desktop.js';
 import { createShop } from './shop.js';
-import { createStorageRoom, SHELF_CAPACITY } from './storage-room.js';
-import { createWorkshop, PRINTER_SLOTS_X } from './workshop.js';
+import { createStorageRoom } from './storage-room.js';
+import { createWorkshop } from './workshop.js';
 import { Carry } from './carry.js';
 import { Interaction } from './interaction.js';
 import { createPrinterCam } from './printer-cam.js';
@@ -30,12 +34,32 @@ const collision = new CollisionWorld();
 const economy = new Economy();
 const progress = new Progress();
 const orders = new Orders(economy, progress);
+const upgrades = new Upgrades(economy);
+const gameClock = new GameClock();
 const saveFound = hasSave();
-if (saveFound) loadGame(economy, orders, progress);
-const hud = createHud(economy, orders, progress);
+if (saveFound) {
+  loadGame(economy, orders, progress, upgrades, gameClock);
+} else {
+  // Startausstattung: ein A1 mini steht schon auf dem ersten Tisch
+  const starter = economy.addPrinter(PRINTERS.find((m) => m.id === 'a1-mini'));
+  economy.placePrinter(starter.id, 0);
+}
+const hud = createHud(economy, orders, progress, gameClock);
 progress.onLevelUp = (level, title) => hud.showLevelUp(level, title);
+
+// Stromrechnung jeden Spieltag um Mitternacht für alle aufgestellten Drucker
+const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+gameClock.onNewDay = (day) => {
+  const bill = Math.round((economy.powerCostPerMonth / DAYS_PER_MONTH) * 100) / 100;
+  if (bill <= 0) return;
+  economy.charge(bill);
+  hud.showNotice(`⚡ Tag ${day}: Stromrechnung ${euro.format(bill)} bezahlt`);
+};
+
 // Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
-const autosave = startAutosave(economy, orders, progress, hud.showSaved, () => carry.spools);
+const autosave = startAutosave({
+  economy, orders, progress, upgrades, clock: gameClock, onSaved: hud.showSaved, getCarried: () => carry.spools,
+});
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -98,11 +122,9 @@ function createTable(width, depth) {
   return table;
 }
 
-// Großer Druckertisch
-const printerTable = createTable(5.6, 0.8);
-enableShadows(printerTable);
-scene.add(printerTable);
-collision.addObject(printerTable);
+// Drucktische: der erste steht von Anfang an, weitere kauft man (hall.js)
+const hall = createHall({ createTable, collision, upgrades });
+scene.add(hall.group);
 
 // Computertisch rechts neben dem Druckertisch, mit Bildschirm oben und PC darunter
 const computerDesk = createTable(1.4, 0.7);
@@ -186,9 +208,11 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 
 // Getragener Gegenstand, Druckertisch (Aufstellen, Filament einlegen), Abstellraum (Lieferungen)
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
-const workshop = createWorkshop({ table: printerTable, tableHeight: TABLE_HEIGHT, economy, carry });
+const workshop = createWorkshop({
+  tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, usableSlots: () => upgrades.printerSlots,
+});
 scene.add(workshop.group);
-const storage = createStorageRoom({ economy, carry, collision });
+const storage = createStorageRoom({ economy, carry, collision, upgrades });
 scene.add(storage.group);
 economy.subscribe(() => {
   workshop.sync();
@@ -230,9 +254,10 @@ const printerCam = createPrinterCam({ renderer, scene, economy, workshop });
 const shop = createShop(economy, {
   orders,
   cam: printerCam,
-  // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
-  freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
-  freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage,
+  upgrades,
+  // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
+  freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
+  freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage,
   onClose: () => {
     title.show(true); // falls das erneute Sperren der Maus scheitert
     controls.lock();
@@ -240,7 +265,7 @@ const shop = createShop(economy, {
 });
 
 const pcInteraction = {
-  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge & Druckermenü)',
+  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
   action: () => {
     shop.open();
     controls.unlock();
@@ -256,7 +281,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, printerTable, computerDesk, workshop.group],
+  targets: [room, storage.group, hall.group, computerDesk, workshop.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -294,12 +319,13 @@ window.addEventListener('resize', () => {
   graphics.setSize(window.innerWidth, window.innerHeight);
 });
 
-const clock = new THREE.Clock();
+const frameClock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const dt = Math.min(frameClock.getDelta(), 0.1);
   // Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter
   economy.advancePrints(dt * GAME_MINUTES_PER_SECOND);
   orders.advance(dt * GAME_MINUTES_PER_SECOND);
+  gameClock.advance(dt * GAME_MINUTES_PER_SECOND);
   workshop.animate(dt);
   updateMovement(dt);
   interaction.update(controls.isLocked);

@@ -2,7 +2,7 @@
 // Bewusst ohne Three.js, damit die Logik unabhängig vom Rendering bleibt.
 import { SPOOL_GRAMS, filamentById, speedById, templateById } from './catalog.js';
 
-export const START_MONEY = 20000; // €
+export const START_MONEY = 100; // € – dazu gibt es einen A1 mini (siehe main.js)
 export const GAME_MINUTES_PER_SECOND = 1 / 3; // Spielzeit: 1 echte Sekunde = 20 Spielsekunden
 
 // Drucker:
@@ -62,11 +62,22 @@ export class Economy {
     this.notify();
   }
 
+  // Rechnung abbuchen (z. B. Strom). Darf ins Minus gehen – dann kann man nichts mehr kaufen.
+  charge(amount) {
+    this.money = Math.round((this.money - amount) * 100) / 100;
+    this.notify();
+  }
+
   // ---------- Einkauf: alles wird in den Abstellraum geliefert ----------
 
   // Gibt den neuen Drucker zurück oder null, wenn das Geld nicht reicht
   buyPrinter(model) {
     if (!this.withdraw(model.price)) return null;
+    return this.addPrinter(model);
+  }
+
+  // Drucker ohne Bezahlen dazubekommen (Startausstattung). Landet wie gekaufte im Abstellraum.
+  addPrinter(model) {
     const printer = {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
       spools: Array(model.spoolSlots).fill(null), activeSlot: 0, speedId: 'standard', job: null,

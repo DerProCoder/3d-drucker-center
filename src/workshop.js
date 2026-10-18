@@ -1,14 +1,21 @@
-// Druckertisch: Drucker aufstellen und Filament einlegen/herausnehmen.
+// Drucktische: Drucker aufstellen und Filament einlegen/herausnehmen.
 import * as THREE from 'three';
 import { filamentById, filamentLabel, templateById, speedById } from './catalog.js';
 import { getPrintShape, outlinePoint, outlineLength } from './print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-model.js';
 import { createSpool } from './spool.js';
 import { enableShadows } from './util.js';
+import { SLOTS_PER_TABLE } from './upgrades.js';
 
-export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf dem Druckertisch (Welt-x)
+export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
+export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
 
-export function createWorkshop({ table, tableHeight, economy, carry }) {
+// Weltposition eines Stellplatzes
+export const slotX = (slot) => PRINTER_SLOTS_X[slot % SLOTS_PER_TABLE];
+export const slotZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / SLOTS_PER_TABLE)];
+
+// tables: Drucktisch-Objekte in der Reihenfolge von TABLE_ROWS_Z · usableSlots: () => Anzahl gekaufter Stellplätze
+export function createWorkshop({ tables, tableHeight, economy, carry, usableSlots }) {
   const group = new THREE.Group();
   const built = new Map(); // Drucker-ID → 3D-Modell
 
@@ -22,37 +29,38 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
   group.add(ghost);
 
   const carriedPrinter = () => (carry.item?.kind === 'printer' ? economy.printerById(carry.item.printerId) : null);
-  const freeSlots = () => PRINTER_SLOTS_X
-    .map((_, i) => i)
-    .filter((i) => !economy.printers.some((p) => p.location === 'table' && p.slot === i));
-  const nearestFreeSlot = (x) => freeSlots().reduce((best, i) => (
-    best === null || Math.abs(PRINTER_SLOTS_X[i] - x) < Math.abs(PRINTER_SLOTS_X[best] - x) ? i : best
+  const freeSlots = (tableIndex) => PRINTER_SLOTS_X
+    .map((_, i) => tableIndex * SLOTS_PER_TABLE + i)
+    .filter((slot) => slot < usableSlots())
+    .filter((slot) => !economy.printers.some((p) => p.location === 'table' && p.slot === slot));
+  const nearestFreeSlot = (tableIndex, x) => freeSlots(tableIndex).reduce((best, slot) => (
+    best === null || Math.abs(slotX(slot) - x) < Math.abs(slotX(best) - x) ? slot : best
   ), null);
 
-  table.userData.interaction = {
+  tables.forEach((table, tableIndex) => { table.userData.interaction = {
     hint: () => {
       if (!carriedPrinter()) return null;
-      return freeSlots().length ? 'Linksklick: Drucker aufstellen' : 'Kein freier Platz auf dem Tisch';
+      return freeSlots(tableIndex).length ? 'Linksklick: Drucker aufstellen' : 'Kein freier Platz auf diesem Tisch';
     },
     hover: (hit) => {
       const printer = carriedPrinter();
-      const slot = printer ? nearestFreeSlot(hit.point.x) : null;
+      const slot = printer ? nearestFreeSlot(tableIndex, hit.point.x) : null;
       ghost.visible = slot !== null;
       if (slot === null) return;
       const size = printerSize(printer.model);
       ghost.scale.copy(size);
-      ghost.position.set(PRINTER_SLOTS_X[slot], tableHeight + size.y / 2, 0);
+      ghost.position.set(slotX(slot), tableHeight + size.y / 2, slotZ(slot));
     },
     unhover: () => { ghost.visible = false; },
     action: (hit) => {
       const printer = carriedPrinter();
-      const slot = printer ? nearestFreeSlot(hit.point.x) : null;
+      const slot = printer ? nearestFreeSlot(tableIndex, hit.point.x) : null;
       if (slot === null) return;
       carry.takeTop();
       economy.placePrinter(printer.id, slot);
       ghost.visible = false;
     },
-  };
+  }; });
 
   function printerInteraction(printer) {
     const name = printer.model.name;
@@ -162,7 +170,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       if (printer.location === 'table') {
         if (!model) {
           model = createPrinterModel(printer.model);
-          model.position.set(PRINTER_SLOTS_X[printer.slot], tableHeight, 0);
+          model.position.set(slotX(printer.slot), tableHeight, slotZ(printer.slot));
           model.userData.interaction = printerInteraction(printer);
           model.userData.printer = printer;
           enableShadows(model);

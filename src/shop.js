@@ -5,6 +5,7 @@ import { FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from '
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
+import { createUpgradesMenu } from './upgrades-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
@@ -18,6 +19,7 @@ const APPS = [
   { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
+  { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
   { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
@@ -27,8 +29,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-// orders: Kundenaufträge (orders.js) · cam: Drucker-Cam (printer-cam.js)
-export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js) · cam: Drucker-Cam (printer-cam.js) · upgrades: Hallen-Ausbau (upgrades.js)
+export function createShop(economy, { orders, cam, upgrades, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -73,6 +75,7 @@ export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSp
   let toastTimer = null;
   const printerMenu = createPrinterMenu(economy);
   const ordersMenu = createOrdersMenu(orders, economy);
+  const upgradesMenu = createUpgradesMenu(upgrades, economy);
   const notes = createNotesApp();
   const calc = createCalcApp();
 
@@ -160,7 +163,7 @@ export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSp
     balanceEl.textContent = info.live ? euro.format(economy.money) : '';
     const scroll = contentEl.scrollTop;
     const renderers = {
-      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render,
       control: printerMenu.render, notes: notes.render, calc: calc.render, cam: cam.render,
     };
     contentEl.innerHTML = renderers[app]();
@@ -213,6 +216,11 @@ export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSp
       printerMenu.handleClick(e);
       return;
     }
+    if (app === 'upgrades') {
+      const message = upgradesMenu.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
     if (app === 'orders') {
       const message = ordersMenu.handleClick(e);
       if (message) toast(message);
@@ -258,6 +266,7 @@ export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSp
   };
   economy.subscribe(refresh);
   orders.subscribe(refresh);
+  upgrades.subscribe(refresh);
 
   return { open, close, isOpen };
 }

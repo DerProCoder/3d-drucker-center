@@ -843,3 +843,30 @@ kbd {
   border-radius: 8px;
   background: #000;
 }
+
+/* Ausbau-App */
+
+.upgrade .steps { display: flex; gap: 6px; }
+.upgrade .step { flex: 1; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); }
+.upgrade .step.owned { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.power-note { margin-top: 16px !important; }
+
+/* Hinweis oben in der Mitte (z. B. Stromrechnung) */
+#notice {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  z-index: 30;
+  padding: 8px 16px;
+  transform: translate(-50%, -12px);
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+#notice.visible { opacity: 1; transform: translate(-50%, 0); }

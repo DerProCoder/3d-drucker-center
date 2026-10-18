@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { FILAMENTS, filamentLabel } from './catalog.js';
 import { createSpool } from './spool.js';
 import { MAX_SPOOLS } from './carry.js';
+import { SPOOLS_PER_SHELF_LEVEL } from './upgrades.js';
 import { createPrinterBox } from './printer-box.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
@@ -24,9 +25,8 @@ const D = Z1 - Z0;
 // Spulen stehen nebeneinander, farbige Wicklung zeigt in den Raum
 const SHELF = {
   x0: -8, x1: -7.5, z0: 10.95, z1: 13.65,
-  levels: [0.15, 0.62, 1.09, 1.56], perLevel: 20, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
+  levels: [0.15, 0.62, 1.09, 1.56], perLevel: SPOOLS_PER_SHELF_LEVEL, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
 };
-export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel;
 
 const ZONE = { x0: -3.1, x1: -2.05, z0: 10.55, z1: 14.2 };
 const BOX_X = (ZONE.x0 + ZONE.x1) / 2;
@@ -111,12 +111,16 @@ function createShelf() {
       shelf.add(box(0.04, height, 0.04, upright, x, height / 2, z));
     }
   }
-  for (const level of SHELF.levels) {
-    shelf.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
+  // Pro Ebene ein Boden mit zwei Traversen – nicht gekaufte Ebenen werden ausgeblendet
+  shelf.userData.levels = SHELF.levels.map((level) => {
+    const parts = new THREE.Group();
+    parts.add(box(depth - 0.04, 0.02, length - 0.04, board, cx, level - 0.01, cz));
     for (const x of [SHELF.x0 + 0.02, SHELF.x1 - 0.02]) {
-      shelf.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
+      parts.add(box(0.03, 0.06, length, beam, x, level - 0.04, cz));
     }
-  }
+    shelf.add(parts);
+    return parts;
+  });
   return shelf;
 }
 
@@ -166,7 +170,8 @@ function floorText(text, width) {
 
 // ---------- Raum ----------
 
-export function createStorageRoom({ economy, carry, collision }) {
+// upgrades: Ausbau-Stand – bestimmt, wie viele Regalebenen es gibt
+export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const group = new THREE.Group();
 
   const floorMat = new THREE.MeshStandardMaterial({
@@ -322,10 +327,12 @@ export function createStorageRoom({ economy, carry, collision }) {
 
   function sync() {
     contents.clear();
+    shelf.userData.levels.forEach((parts, i) => { parts.visible = i < upgrades.shelfLevels; });
+    const capacity = upgrades.shelfCapacity;
 
     let slot = 0;
     for (const filament of FILAMENTS) {
-      for (let i = 0; i < economy.filamentStock(filament.id) && slot < SHELF_CAPACITY; i++, slot++) {
+      for (let i = 0; i < economy.filamentStock(filament.id) && slot < capacity; i++, slot++) {
         const level = Math.floor(slot / SHELF.perLevel);
         const index = slot % SHELF.perLevel;
         const spool = createSpool(filament);
@@ -355,5 +362,6 @@ export function createStorageRoom({ economy, carry, collision }) {
     enableShadows(contents);
   }
 
+  upgrades.subscribe(sync); // neue Regalebene sofort zeigen
   return { group, sync };
 }

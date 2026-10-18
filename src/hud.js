@@ -1,10 +1,10 @@
 // HUD oben links: Level mit XP-Balken, Kontostand (zählt animiert hoch/runter, mit +/−-Einblendungen),
-// Stromkosten und offene Aufträge. Dazu die Level-Up-Einblendung und das Speichern-Symbol.
+// Stromkosten, offene Aufträge und Spieluhr. Dazu die Level-Up-Einblendung und das Speichern-Symbol.
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
 
-export function createHud(economy, orders, progress) {
+export function createHud(economy, orders, progress, clock) {
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.innerHTML = `
@@ -22,6 +22,7 @@ export function createHud(economy, orders, progress) {
     </div>
     <div class="hud-row"><span class="hud-label">⚡ Stromkosten</span><span class="hud-value" data-field="power"></span></div>
     <div class="hud-row"><span class="hud-label">📋 Aufträge</span><span class="hud-value" data-field="orders"></span></div>
+    <div class="hud-row"><span class="hud-label">🕒 Spielzeit</span><span class="hud-value" data-field="clock"></span></div>
   `;
   document.body.appendChild(hud);
 
@@ -69,6 +70,10 @@ export function createHud(economy, orders, progress) {
     field('power').textContent = `${euro.format(eco.powerCostPerMonth)} / Monat`;
   });
 
+  clock.subscribe((c) => {
+    field('clock').textContent = `Tag ${c.day} · ${c.timeText}`;
+  });
+
   orders.subscribe((o) => {
     field('orders').textContent = `${o.open.length} offen`;
   });
@@ -114,5 +119,18 @@ export function createHud(economy, orders, progress) {
     saveTimer = setTimeout(() => saveEl.classList.remove('visible'), 1500);
   }
 
-  return { showLevelUp, showSaved };
+  // Hinweis oben in der Mitte, z. B. „Stromrechnung bezahlt“
+  const noticeEl = document.createElement('div');
+  noticeEl.id = 'notice';
+  document.body.appendChild(noticeEl);
+  let noticeTimer = null;
+
+  function showNotice(text) {
+    noticeEl.textContent = text;
+    noticeEl.classList.add('visible');
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => noticeEl.classList.remove('visible'), 3500);
+  }
+
+  return { showLevelUp, showSaved, showNotice };
 }

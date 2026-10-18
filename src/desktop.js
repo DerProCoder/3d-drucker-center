@@ -201,6 +201,21 @@ function iconCalc(ctx, x, y, s) {
   }
 }
 
+// Ausbau: Haus mit Plus
+function iconBuild(ctx, x, y, s) {
+  ctx.fillStyle = '#f2c419';
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.5, y + s * 0.06);
+  ctx.lineTo(x + s * 0.96, y + s * 0.44);
+  ctx.lineTo(x + s * 0.04, y + s * 0.44);
+  ctx.fill();
+  ctx.fillStyle = '#e8a923';
+  ctx.fillRect(x + s * 0.14, y + s * 0.42, s * 0.72, s * 0.5);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x + s * 0.45, y + s * 0.5, s * 0.1, s * 0.34);
+  ctx.fillRect(x + s * 0.33, y + s * 0.62, s * 0.34, s * 0.1);
+}
+
 function iconCam(ctx, x, y, s) {
   ctx.fillStyle = '#2f3540';
   roundRect(ctx, x, y + s * 0.2, s * 0.72, s * 0.6, s * 0.1);
@@ -224,7 +239,7 @@ function iconCam(ctx, x, y, s) {
 
 const ICONS = {
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
-  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam,
+  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)
