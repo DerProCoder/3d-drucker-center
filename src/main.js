@@ -58,11 +58,11 @@ economy.onEvent = (type, d) => {
       achievements.max('maxPrinting', d.printing);
       break;
     case 'print-done':
-      hud.notify(`✔ ${name}: ${d.template.name} ist fertig`, 'good');
+      hud.notify(`✔ ${name}: ${d.count > 1 ? `${d.count} × ` : ''}${d.template.name} fertig`, 'good');
       sound.play('done');
       achievements.add('printsDone');
-      achievements.add('grams', d.template.grams);
-      if (d.template.id === 'benchy') achievements.add('benchys');
+      achievements.add('grams', d.template.grams * d.count);
+      if (d.template.id === 'benchy') achievements.add('benchys', d.count);
       if (d.speedId === 'ludicrous') achievements.add('ludicrousDone');
       break;
     case 'print-failed':

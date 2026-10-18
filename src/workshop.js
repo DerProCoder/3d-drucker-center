@@ -3,7 +3,7 @@
 // heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
 import { FAILURES, filamentById, filamentLabel, templateById, speedById } from './catalog.js';
-import { NOZZLE_POKES, spoolLabel } from './economy.js';
+import { NOZZLE_POKES, plateLayout, spoolLabel } from './economy.js';
 import { getPrintShape, outlinePoint, outlineLength } from './print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-model.js';
 import { createSpool } from './spool.js';
@@ -143,8 +143,10 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       };
     }
     if (job?.status === 'done') {
-      const part = `${templateById(job.templateId).name}, ${filamentLabel(filamentById(job.filamentId))}`;
-      return { text: `Linksklick: fertiges Teil entnehmen (${part})`, run: () => economy.collectPart(printer.id) };
+      const count = job.count ?? 1;
+      const part = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}, ${filamentLabel(filamentById(job.filamentId))}`;
+      const what = count > 1 ? 'fertige Teile' : 'fertiges Teil';
+      return { text: `Linksklick: ${what} entnehmen (${part})`, run: () => economy.collectPart(printer.id) };
     }
 
     const canChange = economy.canChangeSpools(printer);
@@ -197,12 +199,13 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     };
   }
 
-  // Gedrucktes Teil auf der Platte. Es ist von Anfang an vollständig modelliert, eine Schnittebene
-  // gibt aber nur die bereits gedruckten Schichten frei. Das Teil liegt auf dem Druckbett und fährt mit ihm.
-  // Bei Fehldrucken kommt die passende Sauerei dazu.
+  // Gedruckte Teile auf der Platte (bei Mehrfachdruck im Raster). Sie sind von Anfang an vollständig modelliert,
+  // eine gemeinsame Schnittebene gibt aber nur die bereits gedruckten Schichten frei. Die Teile liegen auf dem
+  // Druckbett und fahren mit ihm. Bei Fehldrucken kommt die passende Sauerei dazu.
   function updatePart(model, printer) {
     const job = printer.job;
-    const key = job ? `${job.templateId}|${job.filamentId}|${job.status === 'failed' ? job.failure : ''}` : null;
+    const count = job?.count ?? 1;
+    const key = job ? `${job.templateId}|${job.filamentId}|${count}|${job.status === 'failed' ? job.failure : ''}` : null;
     if (model.userData.partKey === key) return;
     for (const old of [model.userData.partMesh, model.userData.mess]) old?.parent.remove(old);
     model.userData.partMesh = null;
@@ -214,18 +217,34 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     const shape = getPrintShape(template);
     const filament = filamentById(job.filamentId);
     const clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-    const part = new THREE.Mesh(shape.geometry, partMaterial(filament, clip));
+    const material = partMaterial(filament, clip);
     const rig = model.userData.printRig;
+    const part = new THREE.Group();
     part.position.copy(rig.plateCenter);
-    part.castShadow = true;
-    part.userData = { shape, clip, pathT: 0 };
+    const layout = plateLayout(template, printer.model.build, count);
+    let hx = 0;
+    let hz = 0;
+    for (const pos of layout.positions) {
+      const mesh = new THREE.Mesh(shape.geometry, material);
+      mesh.position.set(pos.x * 0.001, 0, pos.y * 0.001);
+      if (layout.rotated) mesh.rotation.y = Math.PI / 2;
+      mesh.castShadow = true;
+      part.add(mesh);
+      hx = Math.max(hx, Math.abs(pos.x) * 0.001);
+      hz = Math.max(hz, Math.abs(pos.y) * 0.001);
+    }
+    // Mehrere Teile: die Düse fährt das ganze Feld ab statt nur den Umriss eines Teils
+    const w = (layout.rotated ? template.size.y : template.size.x) * 0.0005;
+    const d = (layout.rotated ? template.size.x : template.size.y) * 0.0005;
+    const field = { type: 'rect', hx: hx + w, hz: hz + d };
+    part.userData = { shape, clip, pathT: 0, outline: count > 1 ? () => field : null, spread: Math.max(field.hx, field.hz) };
     rig.partParent.add(part);
     model.userData.partMesh = part;
 
     if (job.status !== 'failed') return;
     const printed = shape.height * job.progress;
     if (job.failure === 'spaghetti') {
-      const mess = createSpaghetti(filament, Math.max(0.015, printed * 0.6), 0.07);
+      const mess = createSpaghetti(filament, Math.max(0.015, printed * 0.6), Math.max(0.07, part.userData.spread));
       mess.position.copy(rig.plateCenter);
       rig.partParent.add(mess);
       model.userData.mess = mess;
@@ -351,7 +370,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
           state.partHeight = state.layerY;
         } else {
           state.mode = 'printing'; // auch pausiert: Achsen bleiben an der Stelle stehen
-          const outline = shape.outline(job.progress);
+          const outline = part.userData.outline?.() ?? shape.outline(job.progress);
           if (job.status === 'printing') {
             // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe
             const speed = 0.06 * (speedById(printer.speedId).percent / 100);

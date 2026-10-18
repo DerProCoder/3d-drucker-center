@@ -29,8 +29,9 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
   function statusText(p) {
     const job = p.job;
     if (!job) return 'Bereit';
-    const name = templateById(job.templateId).name;
+    const name = `${(job.count ?? 1) > 1 ? `${job.count} × ` : ''}${templateById(job.templateId).name}`;
     if (job.status === 'done') return `Fertig: ${name}`;
+    if (job.status === 'failed') return `Fehldruck: ${name}!`;
     const pct = Math.floor(job.progress * 100);
     return `${job.status === 'paused' ? 'Pausiert' : 'Druckt'}: ${name} · ${pct} %`;
   }

@@ -12,6 +12,43 @@ export const BANKRUPT_AT = -500;   // so weit lässt die Bank das Konto überzie
 export const WET = 0.5;            // ab dieser Feuchte gilt eine Spule als feucht
 export const DAMP = 0.4;           // ab dieser Feuchte steigt das Fehldruckrisiko
 export const NOZZLE_POKES = 5;     // so oft muss man eine verstopfte Düse freistechen
+export const PLATE_GAP = 5;        // mm Abstand zwischen Teilen auf der Druckplatte
+export const MAX_PER_PLATE = 16;   // mehr Teile auf einmal lässt das Spiel nicht zu
+const BATCH_TIME_SHARE = 0.9;      // jedes weitere Teil braucht 90 % der Zeit (Aufheizen, Kalibrieren nur einmal)
+
+// Teile auf der Druckplatte im Raster anordnen. Gibt { max, positions } zurück: wie viele höchstens passen und
+// die Mittelpunkte (mm, relativ zur Plattenmitte, x = Breite, y = Tiefe) für count Teile.
+// Teile dürfen gedreht werden, wenn dann mehr draufpassen.
+export function plateLayout(template, build, count = 1) {
+  const grid = (w, d) => {
+    const cols = Math.floor((build.x + PLATE_GAP) / (w + PLATE_GAP));
+    const rows = Math.floor((build.y + PLATE_GAP) / (d + PLATE_GAP));
+    return { cols, rows, w, d, max: Math.min(MAX_PER_PLATE, cols * rows) };
+  };
+  const a = grid(template.size.x, template.size.y);
+  const b = grid(template.size.y, template.size.x);
+  const g = b.max > a.max ? { ...b, rotated: true } : { ...a, rotated: false };
+  const n = Math.max(0, Math.min(count, g.max));
+  // Möglichst quadratisch belegen: so viele Spalten wie nötig, Reihen danach
+  const square = Math.ceil(Math.sqrt(n * (g.d + PLATE_GAP) / (g.w + PLATE_GAP))) || 1;
+  const cols = Math.min(g.cols, Math.max(square, Math.ceil(n / g.rows)));
+  const rows = Math.ceil(n / cols);
+  const positions = [];
+  for (let i = 0; i < n; i++) {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    const inRow = Math.min(cols, n - r * cols); // letzte Reihe mittig
+    positions.push({
+      x: (c - (inRow - 1) / 2) * (g.w + PLATE_GAP),
+      y: (r - (rows - 1) / 2) * (g.d + PLATE_GAP),
+    });
+  }
+  return { max: g.max, rotated: g.rotated, positions };
+}
+
+// Druckzeit (Spielminuten bei 100 %) und Material für count Teile auf einer Platte
+export const batchMinutes = (template, count = 1) => template.minutes * (1 + BATCH_TIME_SHARE * (count - 1));
+export const batchGrams = (template, count = 1) => template.grams * count;
 
 // Feuchte (0 = trocken, 1 = klatschnass) pro Spielminute, je nachdem, wo die Spule liegt.
 // 1 Spieltag = 72 echte Minuten: Am offenen Halter ist eine Spule nach etwa einem Spieltag feucht.
@@ -31,7 +68,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   activeSlot: Fach, aus dem gedruckt wird
 //   speedId: gewählte Geschwindigkeitsstufe
 //   clogged / nozzlePokes: verstopfte Düse und wie oft schon gestochert wurde
-//   job: { templateId, filamentId, slot, progress 0…1, gramsUsed,
+//   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
 //          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament', failure?: Schlüssel aus FAILURES }
 //        oder null
 // Fertige Teile haben eine Farbe: Schlüssel `${templateId}|${filamentId}` → Anzahl
@@ -281,7 +318,7 @@ export class Economy {
   }
 
   // Grund, warum der Druck nicht starten kann, oder null
-  printProblem(printer, template) {
+  printProblem(printer, template, count = 1) {
     if (printer.location !== 'table') return 'Drucker ist nicht aufgestellt';
     if (this.isBusy(printer)) return 'Druckt gerade';
     if (printer.job?.status === 'done') return 'Erst das fertige Teil entnehmen';
@@ -295,22 +332,24 @@ export class Economy {
     const b = printer.model.build;
     const fitsFlat = (x <= b.x && y <= b.y) || (y <= b.x && x <= b.y);
     if (!fitsFlat || z > b.z) return 'Passt nicht in den Bauraum';
+    if (count > plateLayout(template, b).max) return `Nur ${plateLayout(template, b).max} passen auf die Platte`;
     if (spool.grams <= 0) return 'Spule ist leer';
     return null;
   }
 
   // Wie viel Filament für den Druck fehlt, wenn man nichts nachlegt (AMS füllt mit gleicher Sorte nach)
-  filamentShortfall(printer, template) {
+  filamentShortfall(printer, template, count = 1) {
     const spool = this.activeSpool(printer);
-    if (!spool) return template.grams;
+    if (!spool) return batchGrams(template, count);
     const available = printer.spools
       .filter((s) => s?.filamentId === spool.filamentId)
       .reduce((sum, s) => sum + s.grams, 0);
-    return Math.max(0, template.grams - available);
+    return Math.max(0, batchGrams(template, count) - available);
   }
 
-  // Wahrscheinlichkeit (0…1), dass ein ganzer Druck schiefgeht – bei der aktuellen Geschwindigkeit und Spule
-  failureRisk(printer, template, spool = this.activeSpool(printer)) {
+  // Wahrscheinlichkeit (0…1), dass ein ganzer Druck schiefgeht – bei der aktuellen Geschwindigkeit und Spule.
+  // Mehr Teile auf der Platte erhöhen das Risiko etwas, und ein Fehler ruiniert die ganze Platte.
+  failureRisk(printer, template, spool = this.activeSpool(printer), count = 1) {
     if (!spool) return 0;
     const speed = speedById(printer.speedId).percent;
     const material = filamentById(spool.filamentId).material;
@@ -321,15 +360,16 @@ export class Economy {
     if (template.size.z > 100 && speed > 100) risk += 0.04;       // hohe Teile wackeln
     if (spool.moisture > DAMP) risk += (spool.moisture - DAMP) * 0.4; // klatschnass: +24 %
     if (speed < 100) risk *= 0.5;
+    risk = 1 - (1 - risk) ** (1 + 0.25 * (count - 1));
     return Math.min(0.95, risk);
   }
 
-  startPrint(printerId, template) {
+  startPrint(printerId, template, count = 1) {
     const p = this.printerById(printerId);
-    if (this.printProblem(p, template)) return false;
+    if (this.printProblem(p, template, count)) return false;
     const spool = this.activeSpool(p);
     p.job = {
-      templateId: template.id, filamentId: spool.filamentId, slot: p.activeSlot,
+      templateId: template.id, count, filamentId: spool.filamentId, slot: p.activeSlot,
       progress: 0, gramsUsed: 0, status: 'printing',
     };
     const printing = this.printers.filter((x) => x.job?.status === 'printing').length;
@@ -365,8 +405,8 @@ export class Economy {
   collectPart(printerId) {
     const p = this.printerById(printerId);
     if (p.job?.status !== 'done') return;
-    this.addPart(p.job.templateId, p.job.filamentId);
-    this.emit('part-collected', { printer: p, templateId: p.job.templateId });
+    this.addPart(p.job.templateId, p.job.filamentId, p.job.count ?? 1);
+    this.emit('part-collected', { printer: p, templateId: p.job.templateId, count: p.job.count ?? 1 });
     p.job = null;
     this.notify();
   }
@@ -402,7 +442,7 @@ export class Economy {
     const job = printer.job;
     if (!job) return 0;
     const template = templateById(job.templateId);
-    return ((1 - job.progress) * template.minutes) / (speedById(printer.speedId).percent / 100);
+    return ((1 - job.progress) * batchMinutes(template, job.count ?? 1)) / (speedById(printer.speedId).percent / 100);
   }
 
   // Lässt alle laufenden Drucke um gameMinutes weiterlaufen: Filament wird verbraucht, Pannen können passieren.
@@ -413,13 +453,14 @@ export class Economy {
       const job = p.job;
       if (job?.status !== 'printing') continue;
       const template = templateById(job.templateId);
-      let step = Math.min((gameMinutes * speedById(p.speedId).percent / 100) / template.minutes, 1 - job.progress);
+      const count = job.count ?? 1;
+      let step = Math.min((gameMinutes * speedById(p.speedId).percent / 100) / batchMinutes(template, count), 1 - job.progress);
 
       // Filament verbrauchen. Ist die Spule leer, füllt das AMS aus einem Fach mit gleicher Sorte nach,
       // sonst wartet der Drucker auf eine neue Spule.
       // Drucke aus alten Spielständen haben ihr Filament schon beim Start bezahlt (prepaid)
       const spool = p.spools[job.slot];
-      const need = job.prepaid ? 0 : step * template.grams;
+      const need = job.prepaid ? 0 : step * batchGrams(template, count);
       const used = Math.min(need, spool?.grams ?? 0);
       if (spool) spool.grams -= used;
       job.gramsUsed += used;
@@ -440,7 +481,7 @@ export class Economy {
       }
 
       // Pannen: das Risiko gilt für den ganzen Druck und wird auf die Fortschrittsschritte verteilt
-      const risk = this.failureRisk(p, template, spool ?? p.spools[job.slot]);
+      const risk = this.failureRisk(p, template, spool ?? p.spools[job.slot], count);
       if (step > 0 && this.random() < 1 - (1 - risk) ** step) {
         job.progress = Math.max(0.05, job.progress + step);
         this.failPrint(p, template, spool);
@@ -452,7 +493,7 @@ export class Economy {
       if (job.progress >= 1 - 1e-9) {
         job.progress = 1;
         job.status = 'done';
-        this.emit('print-done', { printer: p, template, speedId: p.speedId });
+        this.emit('print-done', { printer: p, template, count, speedId: p.speedId });
         changed = true;
       }
     }
@@ -530,7 +571,7 @@ export class Economy {
     return true;
   }
 
-  // Der Kater wirft ein fertiges Teil vom Druckbett. x/z: wo es auf dem Boden landet.
+  // Der Kater wirft ein fertiges Teil vom Druckbett (bei mehreren nur eins). x/z: wo es auf dem Boden landet.
   knockPartOff(printerId, x, z) {
     const p = this.printerById(printerId);
     if (p?.job?.status !== 'done') return false;
@@ -538,7 +579,8 @@ export class Economy {
       id: this.nextLooseId++, templateId: p.job.templateId, filamentId: p.job.filamentId,
       x, z, rotY: this.random() * Math.PI * 2,
     });
-    p.job = null;
+    if ((p.job.count ?? 1) > 1) p.job.count--;
+    else p.job = null;
     this.emit('part-knocked', { printer: p });
     this.notify();
     return true;
