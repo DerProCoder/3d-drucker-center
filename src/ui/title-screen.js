@@ -25,6 +25,7 @@ export function createTitleScreen({ overlay, hasSave, quality, gpu, onPlay, onNe
         : ''}</div>` : ''}
       <div class="title-keys">
         <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> laufen</span>
+        <span><kbd>C</kbd> halten: schleichen</span>
         <span><kbd>Maus</kbd> umschauen</span>
         <span><kbd>Klick</kbd> benutzen</span>
         <span><kbd>Mausrad</kbd> Spule wählen</span>

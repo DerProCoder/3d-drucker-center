@@ -33,6 +33,9 @@ import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './world/graphi
 
 const WALK_SPEED = 4;          // m/s
 const EYE_HEIGHT = 1.7;        // m
+const SNEAK_EYE_HEIGHT = 1.2;  // m – geduckt, solange C gedrückt ist
+const SNEAK_SPEED = 0.4;       // Anteil der Laufgeschwindigkeit beim Schleichen
+const CROUCH_RATE = 8;         // wie schnell man in die Hocke geht bzw. aufsteht (1/s)
 const PLAYER_RADIUS = 0.3;     // m, Abstand des Körpers zu Hindernissen
 const INTERACT_DISTANCE = 2.5; // m
 
@@ -472,16 +475,23 @@ window.addEventListener('keydown', (e) => {
 const keys = new Set();
 window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('blur', () => keys.clear()); // sonst bleibt z. B. C nach einem Fensterwechsel „gedrückt“
 
 function updateMovement(dt) {
   if (!controls.isLocked) return;
+  // Schleichen: nur solange C gedrückt ist – Kamera gleitet weich nach unten bzw. wieder hoch
+  const sneaking = keys.has('KeyC');
+  const eye = sneaking ? SNEAK_EYE_HEIGHT : EYE_HEIGHT;
+  camera.position.y += (eye - camera.position.y) * Math.min(1, CROUCH_RATE * dt);
+
   const forward = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
   const right = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   if (forward === 0 && right === 0) return;
 
   const len = Math.hypot(forward, right);
-  controls.moveForward((forward / len) * WALK_SPEED * dt);
-  controls.moveRight((right / len) * WALK_SPEED * dt);
+  const speed = WALK_SPEED * (sneaking ? SNEAK_SPEED : 1);
+  controls.moveForward((forward / len) * speed * dt);
+  controls.moveRight((right / len) * speed * dt);
 
   collision.resolve(camera.position, PLAYER_RADIUS);
 }

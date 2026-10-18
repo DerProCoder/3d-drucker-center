@@ -55,6 +55,7 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 |---|---|
 | Maus | Umschauen |
 | W A S D | Laufen |
+| C (gedrückt halten) | Schleichen: geduckt und langsamer, solange C gedrückt ist |
 | Linksklick | Benutzen, aufheben, abstellen, einlegen, Teil entnehmen, Kater streicheln |
 | Mausrad | Bei mehreren Spulen in der Hand: wählen, welche als Nächstes eingelegt wird |
 | E | Aufgestellten Drucker hochheben (nicht während er druckt) |
