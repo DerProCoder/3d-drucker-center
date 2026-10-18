@@ -6,6 +6,9 @@ import { createKeyboard, createMouse, createMousePad, createCable } from './peri
 import { CollisionWorld } from './collision.js';
 import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
 import { Orders } from './orders.js';
+import { Progress } from './progress.js';
+import { hasSave, loadGame, deleteSave, startAutosave } from './save.js';
+import { createTitleScreen } from './title-screen.js';
 import { createHud } from './hud.js';
 import { createRoom, roomColliders } from './room.js';
 import { createDesktopScreen } from './desktop.js';
@@ -15,6 +18,7 @@ import { createWorkshop, PRINTER_SLOTS_X } from './workshop.js';
 import { Carry } from './carry.js';
 import { Interaction } from './interaction.js';
 import { enableShadows } from './util.js';
+import { setupGraphics, loadQuality, saveQuality } from './graphics.js';
 
 const WALK_SPEED = 4;          // m/s
 const EYE_HEIGHT = 1.7;        // m
@@ -23,8 +27,13 @@ const INTERACT_DISTANCE = 2.5; // m
 
 const collision = new CollisionWorld();
 const economy = new Economy();
-const orders = new Orders(economy);
-createHud(economy, orders);
+const progress = new Progress();
+const orders = new Orders(economy, progress);
+const saveFound = hasSave();
+if (saveFound) loadGame(economy, orders, progress);
+const hud = createHud(economy, orders, progress);
+progress.onLevelUp = (level, title) => hud.showLevelUp(level, title);
+const autosave = startAutosave(economy, orders, progress, hud.showSaved);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -40,8 +49,9 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 camera.position.set(0, EYE_HEIGHT, 6);
 scene.add(camera); // getragene Gegenstände hängen an der Kamera
 
-// Licht: Grundhelligkeit + gerichtetes Licht für Schatten; die Deckenleuchten kommen aus room.js
-scene.add(new THREE.HemisphereLight(0xfff8ee, 0x5a4a3a, 0.45));
+// Licht: Grundhelligkeit + gerichtetes Licht für Schatten; die Deckenleuchten kommen aus room.js,
+// Spiegelungen aus der Umgebung in graphics.js
+scene.add(new THREE.HemisphereLight(0xfff8ee, 0x5a4a3a, 0.3));
 const sun = new THREE.DirectionalLight(0xfff4e0, 0.8);
 sun.position.set(5, 10, 4);
 sun.castShadow = true;
@@ -122,7 +132,7 @@ const pcCase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.42, 0.42), caseMateri
 pcCase.position.y = 0.21;
 const pcPowerLed = new THREE.Mesh(
   new THREE.CircleGeometry(0.008, 12),
-  new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00ff66, emissiveIntensity: 1.5 })
+  new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00ff66, emissiveIntensity: 4 })
 );
 pcPowerLed.position.set(0, 0.38, 0.211);
 pc.add(pcCase, pcPowerLed);
@@ -186,10 +196,29 @@ economy.subscribe(() => {
 // FPV-Steuerung
 const controls = new PointerLockControls(camera, document.body);
 const overlay = document.getElementById('start-overlay');
-overlay.addEventListener('click', () => controls.lock());
-controls.addEventListener('lock', () => overlay.classList.add('hidden'));
+const quality = loadQuality();
+const title = createTitleScreen({
+  overlay,
+  hasSave: saveFound,
+  quality,
+  onPlay: () => controls.lock(),
+  onNewGame: () => {
+    autosave.disable();
+    deleteSave();
+    location.reload();
+  },
+  onQuality: (q) => {
+    autosave.save();
+    saveQuality(q);
+    location.reload();
+  },
+});
+controls.addEventListener('lock', () => title.hide());
 controls.addEventListener('unlock', () => {
-  if (!shop.isOpen()) overlay.classList.remove('hidden');
+  if (!shop.isOpen()) {
+    title.show(true);
+    autosave.save(); // beim Pausieren gleich sichern
+  }
 });
 
 // Shop: Linksklick auf den PC öffnet ihn, Schließen kehrt ins Spiel zurück
@@ -199,7 +228,7 @@ const shop = createShop(economy, {
   freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
   freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage,
   onClose: () => {
-    overlay.classList.remove('hidden'); // falls das erneute Sperren der Maus scheitert
+    title.show(true); // falls das erneute Sperren der Maus scheitert
     controls.lock();
   },
 });
@@ -213,11 +242,14 @@ const pcInteraction = {
 };
 for (const part of [monitor, pc, keyboard, mouse]) part.userData.interaction = pcInteraction;
 
+const hintEl = document.getElementById('interact-hint');
+const crosshair = document.getElementById('crosshair');
+
 // Alles, was der Klickstrahl treffen kann – Wände und Möbel verdecken, was dahinter liegt
 const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
-  hintEl: document.getElementById('interact-hint'),
+  hintEl,
   targets: [room, storage.group, printerTable, computerDesk, workshop.group],
 });
 
@@ -247,10 +279,13 @@ function updateMovement(dt) {
   collision.resolve(camera.position, PLAYER_RADIUS);
 }
 
+const graphics = setupGraphics(renderer, scene, camera, quality);
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  graphics.setSize(window.innerWidth, window.innerHeight);
 });
 
 const clock = new THREE.Clock();
@@ -262,5 +297,6 @@ renderer.setAnimationLoop(() => {
   workshop.animate(dt);
   updateMovement(dt);
   interaction.update(controls.isLocked);
-  renderer.render(scene, camera);
+  crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
+  graphics.render(dt);
 });

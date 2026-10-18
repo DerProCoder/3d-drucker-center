@@ -2,7 +2,6 @@
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
 import { PRINT_TEMPLATES } from './catalog.js';
 
-export const MAX_OPEN_ORDERS = 4;
 export const NEW_ORDER_EVERY = 30; // Spielminuten zwischen zwei neuen Aufträgen
 const FIRST_ORDERS = 2;            // so viele Aufträge liegen beim Spielstart schon bereit
 
@@ -20,9 +19,11 @@ export function unitPrice(template) {
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
 // Auftrag: { id, customer, templateId, quantity, reward (€ gesamt), minutesLeft (Spielminuten bis zur Frist) }
+// progress (progress.js) bestimmt Lohnaufschlag und wie viele Aufträge gleichzeitig offen sein dürfen
 export class Orders {
-  constructor(economy) {
+  constructor(economy, progress) {
     this.economy = economy;
+    this.progress = progress;
     this.open = [];
     this.nextId = 1;
     this.untilNext = NEW_ORDER_EVERY;
@@ -44,7 +45,7 @@ export class Orders {
       customer: pick(CUSTOMERS),
       templateId: template.id,
       quantity,
-      reward: Math.round(unitPrice(template) * quantity * bonus),
+      reward: Math.round(unitPrice(template) * quantity * bonus * this.progress.rewardMultiplier),
       // Frist: doppelte Druckzeit für alle Teile plus Zeit fürs Einkaufen und Aufstellen
       minutesLeft: Math.round(template.minutes * quantity * 2 + 180),
     };
@@ -66,6 +67,7 @@ export class Orders {
     if (!order || this.deliveryProblem(order)) return false;
     this.economy.takeFinishedParts(order.templateId, order.quantity);
     this.economy.earn(order.reward);
+    this.progress.addXp(order.reward);
     this.open = this.open.filter((o) => o !== order);
     this.completed++;
     this.notify();
@@ -89,7 +91,7 @@ export class Orders {
     this.untilNext -= gameMinutes;
     if (this.untilNext <= 0) {
       this.untilNext += NEW_ORDER_EVERY;
-      if (this.open.length < MAX_OPEN_ORDERS) {
+      if (this.open.length < this.progress.maxOpenOrders) {
         this.open.push(this.createOrder());
         changed = true;
       }

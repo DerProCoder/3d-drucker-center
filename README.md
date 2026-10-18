@@ -74,7 +74,13 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
-Oben links siehst du deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+
+## Speichern, Level und Grafik
+
+- **Speichern:** Das Spiel speichert automatisch alle 10 Sekunden, beim Pausieren und beim Schließen des Tabs (unten rechts blinkt „💾 Gespeichert“). Beim nächsten Start steht im Titelbildschirm **Weiterspielen**. **Neues Spiel** löscht den Spielstand.
+- **Level:** Jeder gelieferte Auftrag bringt XP (1 XP pro Euro). Mit jedem Level gibt es einen neuen Titel – vom *Bastler* bis zur *Legende des Filaments* –, 10 % mehr Lohn pro Auftrag und nach und nach mehr Aufträge gleichzeitig.
+- **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung), **Mittel** und **Niedrig** wählen.
 
 ## Probleme?
 
@@ -84,7 +90,8 @@ Oben links siehst du deinen Kontostand, die monatlichen Stromkosten der aufgeste
 | `serve.ps1` startet nicht („Ausführung von Skripts ist deaktiviert“) | Den Befehl genau wie oben mit `-ExecutionPolicy Bypass` aufrufen. |
 | „Port bereits belegt“ | Anderen Port nehmen: `.\serve.ps1 -Port 8090` und dann `http://localhost:8090` öffnen. |
 | Maus lässt sich nicht einfangen | Einmal ins Bild klicken. Nach `Esc` lässt der Browser die Maus manchmal erst nach einem weiteren Klick wieder einfangen. |
-| Spielstand ist nach Neuladen weg | Speichern ist noch nicht eingebaut. |
+| Spielstand ist nach Neuladen weg | Gespeichert wird im Browser (localStorage). Im privaten Fenster oder nach dem Löschen der Browserdaten ist er weg. |
+| Spiel ruckelt | Im Titelbildschirm die Grafik auf **Mittel** oder **Niedrig** stellen. |
 
 ## Projektaufbau
 
@@ -96,6 +103,10 @@ src/
   main.js         Verdrahtet alles: Szene, Steuerung, Spielschleife
   economy.js      Spiellogik: Geld, Besitz, Druckaufträge (ohne 3D)
   orders.js       Kundenaufträge: Fristen, Lohn, Liefern (ohne 3D)
+  progress.js     Level, XP und Titel (ohne 3D)
+  save.js         Spielstand in localStorage, Autospeichern
+  graphics.js     Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
+  hud.js          HUD, Level-Up-Banner · title-screen.js: Titel- und Pausenbildschirm
   catalog.js      Drucker, Filamente, Druckvorlagen mit Preisen und Werten
   room.js         Halle mit Boden, Wänden, Fenstern, Licht
   storage-room.js Abstellraum mit Regal und Lieferzone

@@ -319,16 +319,19 @@ function createCeilingLight() {
   lamp.add(box(1.24, 0.06, 0.34, new THREE.MeshStandardMaterial({ color: 0xdadada, roughness: 0.4 }), 0, -0.03, 0));
   const diffuser = new THREE.Mesh(
     new THREE.PlaneGeometry(1.16, 0.26),
-    new THREE.MeshBasicMaterial({ color: 0xfff6e8 })
+    // Heller als Weiß, damit der Bloom-Effekt die Leuchten nachglühen lässt
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e8).multiplyScalar(5) })
   );
   diffuser.rotation.x = Math.PI / 2;
   diffuser.position.y = -0.061;
   lamp.add(diffuser);
 
-  // Reichweite begrenzt, damit das Licht nicht durch die Wand in den Abstellraum scheint
-  const light = new THREE.PointLight(0xfff1dc, 8, 11, 2);
-  light.position.y = -0.2;
-  lamp.add(light);
+  // Panel strahlt wie ein echtes nur nach unten (breiter Spot), die Decke bleibt dadurch ohne grellen Fleck.
+  // Reichweite begrenzt, damit das Licht nicht durch die Wand in den Abstellraum scheint.
+  const light = new THREE.SpotLight(0xfff1dc, 16, 11, Math.PI * 0.42, 0.8, 2);
+  light.position.y = -0.07;
+  light.target.position.set(0, -1, 0);
+  lamp.add(light, light.target);
   return lamp;
 }
 
@@ -338,11 +341,17 @@ export function createRoom() {
   const room = new THREE.Group();
   const half = ROOM_SIZE / 2;
 
+  // Lackierte Dielen: Klarlack spiegelt Leuchten und Fenster, die Maserung gibt per Bump-Map Struktur
+  const planks = canvasTexture(1024, 1024, drawPlanks, ROOM_SIZE / 1.6, ROOM_SIZE / 1.6);
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE),
-    new THREE.MeshStandardMaterial({
-      map: canvasTexture(1024, 1024, drawPlanks, ROOM_SIZE / 1.6, ROOM_SIZE / 1.6),
-      roughness: 0.55,
+    new THREE.MeshPhysicalMaterial({
+      map: planks,
+      bumpMap: planks,
+      bumpScale: 0.6,
+      roughness: 0.6,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.18,
     })
   );
   floor.rotation.x = -Math.PI / 2;
