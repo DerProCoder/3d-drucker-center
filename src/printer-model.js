@@ -301,95 +301,124 @@ function buildA1(g) {
 
 // ---------- Bambu Lab P1P / P1S / P2S: CoreXY-Würfel mit AMS auf dem Dach ----------
 // Kopf fährt X und Y (vor/zurück) unter der Decke, das Bett fährt nach unten (Z).
-// P1P: offenes Gerüst ohne Wände und Tür. P1S/P2S: Seitenwände, Glastür vorne, Glasdeckel oben.
+// P1P: offenes Gerüst ohne Wände und Tür. P1S/P2S: geschlossenes Gehäuse, Glastür vorne, Glasdeckel oben.
 
+// Gehäuse wie bei den echten Geräten: ein abgerundeter, geschlossener Würfel. Seitenwände laufen vom Boden
+// bis oben durch, vorne eine große Glastür mit schwarzem Siebdruckrand, darüber die Frontleiste mit Display,
+// oben ein Glasdeckel im Rahmen. Der P1P ist das offene Gerüst: Sockel, vier runde Eckstreben, oberer Rahmen.
 const CUBE_VARIANTS = {
-  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03 },
-  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03 },
-  p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false, fascia: 0.045 },
+  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x232427 },
+  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x2a2b2f },
+  p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false, fascia: 0.05, color: 0x34363b },
 };
 
 function buildBambuCube(g, variant) {
   const { title, w, d, h, enclosed } = variant;
   const m = createMaterials();
+  // Gehäuse: dunkler Kunststoff mit leichtem Glanz; Rahmenteile innen etwas dunkler
+  const body = new THREE.MeshPhysicalMaterial({ color: variant.color, roughness: 0.45, clearcoat: 0.35, clearcoatRoughness: 0.3 });
   const frame = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.55, metalness: 0.2 });
-  const panel = new THREE.MeshStandardMaterial({ color: 0x2c2e33, roughness: 0.6 });
+  const panel = new THREE.MeshStandardMaterial({ color: 0x1e1f22, roughness: 0.7 }); // Innenwände
+  const frit = new THREE.MeshBasicMaterial({ color: 0x050505 });                   // schwarzer Siebdruck am Glas
   const glass = m.glass;
   const carbon = new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.35, metalness: 0.3 });
-  const FOOT = 0.01;
-  const baseH = 0.07;
+  const FOOT = 0.008;
+  const baseH = 0.055;
   const baseTop = FOOT + baseH;
-  const post = 0.03;
-  const topH = 0.03;
+  const post = 0.03;   // Wandstärke bzw. Breite der Eckstreben – innen beginnt der Bauraum
+  const topH = 0.026;  // oberer Rahmen
+  const R = 0.016;     // Eckenradius des Gehäuses
+  const fasciaH = variant.fascia; // Frontleiste unter dem Rahmen (Platz fürs Display)
+  const bandH = fasciaH + topH;
 
-  // Unterbau und Gerüst: Eckpfosten und oberer Rahmen
-  addFeet(g, w, d, FOOT, m);
-  g.add(rbox(w, baseH, d, 0.012, frame, 0, FOOT + baseH / 2, 0));
-  const postH = h - baseTop - topH;
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      g.add(rbox(post, postH, post, 0.004, frame, sx * (w / 2 - post / 2), baseTop + postH / 2, sz * (d / 2 - post / 2)));
-    }
-    g.add(rbox(post, topH, d, 0.006, frame, sx * (w / 2 - post / 2), h - topH / 2, 0)); // Rahmen links/rechts
-  }
-  g.add(rbox(w, topH, post, 0.006, frame, 0, h - topH / 2, -d / 2 + post / 2));    // Rahmen hinten
-  // Vorderes Display-Paneel unter dem oberen Rahmen
-  const fasciaH = variant.fascia; // Höhe des vorderen Paneels unter dem Rahmen (Platz fürs Display)
-  g.add(rbox(w, fasciaH + topH, 0.022, 0.006, frame, 0, h - (fasciaH + topH) / 2, d / 2 - 0.011));
-  addLogo(g, 0.011, '#d6d8dc', w / 2 - 0.085, h - (fasciaH + topH) / 2, d / 2 + 0.0006);
-
-  // Bauraum: dunkle Bodenplatte, Abfallschacht hinten links
-  g.add(box(w - post * 2, 0.004, d - post * 2, panel, 0, baseTop + 0.002, 0));
-  const chute = rbox(0.045, 0.06, 0.05, 0.004, m.black, -w / 2 + post + 0.03, baseTop + 0.03, -d / 2 + post + 0.03);
-  chute.rotation.x = -0.25;
-  g.add(chute);
-  addSideVents(g, m, 0, w, FOOT + baseH * 0.5, -0.06, 4, 0.12);
+  addFeet(g, w - 0.02, d - 0.02, FOOT, m);
+  // Sockel mit abgerundeten Kanten und einer Schattenfuge zum Bauraum
+  g.add(rbox(w, baseH, d, R, body, 0, FOOT + baseH / 2, 0));
+  g.add(box(w - 0.01, 0.003, 0.002, frame, 0, baseTop - 0.004, d / 2 + 0.0005));
 
   if (enclosed) {
-    // Seitenwände und Rückwand, Glasdeckel oben, Glastür vorne mit Rahmen und Griff
-    const wallH = h - baseTop - topH;
-    for (const sx of [-1, 1]) g.add(box(0.006, wallH, d - post * 2, panel, sx * (w / 2 - 0.004), baseTop + wallH / 2, 0));
-    g.add(box(w - post * 2, wallH, 0.006, panel, 0, baseTop + wallH / 2, -d / 2 + 0.004));
-    // Abluftlüfter innen an der Rückwand
+    // Seitenwände durchgehend vom Sockel bis oben, Rückwand dazwischen
+    const sideH = h - FOOT;
+    for (const sx of [-1, 1]) g.add(rbox(0.022, sideH, d, R, body, sx * (w / 2 - 0.011), FOOT + sideH / 2, 0));
+    const wallH = h - baseTop;
+    g.add(rbox(w - 0.03, wallH, 0.016, 0.006, body, 0, baseTop + wallH / 2, -d / 2 + 0.008));
+    // Innen dunkle Verkleidung
+    for (const sx of [-1, 1]) g.add(box(0.002, wallH - topH, d - 0.04, panel, sx * (w / 2 - 0.0225), baseTop + (wallH - topH) / 2, 0));
+    g.add(box(w - 0.046, wallH - topH, 0.002, panel, 0, baseTop + (wallH - topH) / 2, -d / 2 + 0.017));
     const fan = createFanGrille(0.075, m);
-    fan.position.set(w / 4, baseTop + wallH * 0.55, -d / 2 + 0.013);
+    fan.position.set(w / 4, baseTop + (wallH - topH) * 0.55, -d / 2 + 0.024);
     g.add(fan);
-    // Glasdeckel zwischen hinterem Rahmen und vorderem Paneel
-    const lid = box(w - post * 2, 0.005, d - post - 0.022, glass, 0, h - 0.0025, (post - 0.022) / 2);
+
+    // Oberer Rahmen mit Glasdeckel
+    g.add(rbox(w - 0.03, topH, 0.03, 0.006, body, 0, h - topH / 2, -d / 2 + 0.015));
+    const lid = box(w - 0.05, 0.004, d - 0.05 - 0.024, glass, 0, h - 0.004, -0.012 + 0.012);
     lid.userData.noShadow = true;
     g.add(lid);
-    const doorH = h - baseTop - topH - fasciaH;
-    const door = box(w - post * 2, doorH, 0.005, glass, 0, baseTop + doorH / 2, d / 2 - 0.003);
+    const lidFrit = box(w - 0.05, 0.001, 0.012, frit, 0, h - 0.0015, -d / 2 + 0.031);
+    g.add(lidFrit);
+
+    // Glastür: fast die ganze Front, schwarzer Rand innen, Griffmulde rechts, kleine Scharniere links
+    const doorW = w - 0.026;
+    const doorH = h - baseTop - bandH - 0.002;
+    const doorY = baseTop + doorH / 2 + 0.001;
+    const door = rbox(doorW, doorH, 0.004, 0.006, glass, 0, doorY, d / 2 - 0.002);
     door.userData.noShadow = true;
     g.add(door);
-    g.add(box(w - post * 2, 0.012, 0.008, frame, 0, baseTop + 0.006, d / 2 - 0.002)); // Türunterkante
-    g.add(rbox(0.014, 0.16, 0.022, 0.005, frame, w / 2 - post - 0.03, baseTop + doorH * 0.55, d / 2 + 0.01)); // Griff
-    for (const fy of [0.15, 0.85]) g.add(rbox(0.012, 0.03, 0.012, 0.003, m.steel, -w / 2 + post - 0.002, baseTop + doorH * fy, d / 2 - 0.001)); // Scharniere
+    const fw = 0.014; // Breite des Siebdruckrands
+    for (const [bw, bh, bx, by] of [
+      [doorW, fw, 0, doorY + doorH / 2 - fw / 2], [doorW, fw, 0, doorY - doorH / 2 + fw / 2],
+      [fw, doorH, -doorW / 2 + fw / 2, doorY], [fw, doorH, doorW / 2 - fw / 2, doorY],
+    ]) {
+      const strip = box(bw, bh, 0.0005, frit, bx, by, d / 2 - 0.0045);
+      strip.userData.noShadow = true;
+      g.add(strip);
+    }
+    g.add(rbox(0.01, 0.12, 0.012, 0.004, frame, doorW / 2 - 0.018, doorY, d / 2 + 0.006)); // Griff
+    for (const fy of [-0.42, 0.42]) g.add(rbox(0.008, 0.024, 0.008, 0.002, frame, -doorW / 2 + 0.006, doorY + doorH * fy, d / 2 + 0.002));
   } else {
-    // P1P: offen, nur Querstreben oben vorne für das AMS
-    g.add(rbox(w, topH, post, 0.006, frame, 0, h - topH / 2, d / 2 - post / 2));
+    // P1P: vier abgerundete Eckstreben und ein umlaufender oberer Rahmen
+    const postH = h - baseTop - topH;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        g.add(rbox(post, postH + 0.01, post, 0.01, body, sx * (w / 2 - post / 2), baseTop + postH / 2, sz * (d / 2 - post / 2)));
+      }
+      g.add(rbox(post, topH, d, 0.008, body, sx * (w / 2 - post / 2), h - topH / 2, 0));
+    }
+    g.add(rbox(w, topH, post, 0.008, body, 0, h - topH / 2, -d / 2 + post / 2));
   }
 
-  // Bildschirm (P2S größer, Touch) – P1-Serie mit Tasten daneben
+  // Frontleiste mit Display, Tasten und Schriftzug
+  g.add(rbox(w - (enclosed ? 0.02 : 0), bandH, 0.024, 0.008, body, 0, h - bandH / 2, d / 2 - 0.012));
+  addLogo(g, 0.011, '#d6d8dc', w / 2 - 0.085, h - bandH / 2, d / 2 + 0.0006);
   const [sw, sh] = variant.screen;
   const screenX = -w / 2 + 0.035 + sw / 2;
-  const screenY = h - (fasciaH + topH) / 2; // mittig im vorderen Paneel
+  const screenY = h - bandH / 2;
   const screen = createTouchscreen(sw, sh, title, m);
   screen.position.set(screenX, screenY, d / 2 + 0.002);
   g.add(screen);
   if (variant.buttons) {
     for (let i = 0; i < 4; i++) {
-      const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.004, 12), m.shell);
+      const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.004, 12), m.shellMid);
       btn.rotation.x = Math.PI / 2;
       btn.position.set(screenX + sw / 2 + 0.014 + (i % 2) * 0.012, screenY + (i < 2 ? 0.007 : -0.007), d / 2 + 0.002);
       g.add(btn);
     }
   }
-  // Innenbeleuchtung unter dem vorderen Paneel
+  // Innenbeleuchtung unter der Frontleiste
   const light = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.008), m.ledStrip);
   light.rotation.x = Math.PI / 2;
-  light.position.set(0, h - topH - fasciaH - 0.001, d / 2 - 0.03);
+  light.position.set(0, h - bandH - 0.001, d / 2 - 0.03);
   g.add(light);
+
+  // Bauraum: dunkle Bodenplatte, Abfallschacht hinten links, Lüftungsschlitze hinten am Sockel
+  g.add(box(w - post * 2, 0.004, d - post * 2, panel, 0, baseTop + 0.002, 0));
+  const chute = rbox(0.045, 0.06, 0.05, 0.004, m.black, -w / 2 + post + 0.03, baseTop + 0.03, -d / 2 + post + 0.03);
+  chute.rotation.x = -0.25;
+  g.add(chute);
+  const rearVents = createVents(3, 0.16, 0.005, 0.005, m);
+  rearVents.rotation.y = Math.PI;
+  rearVents.position.set(0.06, FOOT + baseH / 2, -d / 2 - 0.0008);
+  g.add(rearVents);
 
   // CoreXY-Mechanik unter der Decke: Y-Führungen links/rechts, X-Brücke mit Kopf fährt vor/zurück
   const railY = h - topH - 0.018;

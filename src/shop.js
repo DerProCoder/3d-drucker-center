@@ -1,6 +1,6 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
-// dazu „Erfolge“, „Notizen“ und „Rechner“.
+// „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 import { ACCESSORIES, FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
@@ -20,6 +20,7 @@ const APPS = [
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
+  { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
@@ -28,8 +29,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-// orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js)
-export function createShop(economy, { orders, achievements, freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
+export function createShop(economy, { orders, achievements, cam, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -208,8 +209,10 @@ export function createShop(economy, { orders, achievements, freePrinterSlots, fr
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
+      cam: cam.render,
     };
     contentEl.innerHTML = renderers[app]();
+    if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     contentEl.scrollTop = scroll;
   }
 
@@ -261,6 +264,10 @@ export function createShop(economy, { orders, achievements, freePrinterSlots, fr
     if (app === 'orders') {
       const message = ordersMenu.handleClick(e);
       if (message) toast(message);
+      return;
+    }
+    if (app === 'cam') {
+      if (cam.handleClick(e)) render();
       return;
     }
     if (app === 'calc') {

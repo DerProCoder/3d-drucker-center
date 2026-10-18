@@ -917,3 +917,28 @@ kbd {
 /* Titelbildschirm: verwendete Grafikkarte, Warnung bei Software-Rendering */
 .title-gpu { margin-top: 12px; font-size: 0.75rem; opacity: 0.55; }
 .title-gpu.warn { opacity: 1; padding: 10px 12px; border-radius: 10px; background: rgba(181, 57, 43, 0.3); border: 1px solid var(--bad); line-height: 1.5; }
+
+/* Drucker-Cam */
+
+.cam { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.cam-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cam-tab {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #cfd6e4;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.cam-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cam-empty { opacity: 0.6; }
+.cam-view {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+}

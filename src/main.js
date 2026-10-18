@@ -20,6 +20,7 @@ import { Carry } from './carry.js';
 import { createCat } from './cat.js';
 import { createSound } from './sound.js';
 import { Interaction } from './interaction.js';
+import { createPrinterCam } from './printer-cam.js';
 import { enableShadows } from './util.js';
 import { speedById } from './catalog.js';
 import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './graphics.js';
@@ -46,7 +47,8 @@ achievements.onUnlock = (a) => {
   hud.showAchievement(a);
   sound.play('achievement');
 };
-const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved);
+// Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
+const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved, () => carry.spools);
 
 // Spielereignisse → Meldungen, Geräusche und Erfolge
 economy.onEvent = (type, d) => {
@@ -326,9 +328,13 @@ controls.addEventListener('unlock', () => {
 });
 
 // Shop: Linksklick auf den PC öffnet ihn, Schließen kehrt ins Spiel zurück
+// Live-Bild der Drucker für die PC-App
+const printerCam = createPrinterCam({ renderer, scene, economy, workshop });
+
 const shop = createShop(economy, {
   orders,
   achievements,
+  cam: printerCam,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
   freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage - carry.spools.length,
@@ -463,4 +469,5 @@ renderer.setAnimationLoop(() => {
   interaction.update(controls.isLocked);
   crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
   graphics.render(dt);
+  printerCam.update(dt);
 });

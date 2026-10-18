@@ -23,7 +23,17 @@ export function deleteSave() {
   storage()?.removeItem(KEY);
 }
 
-export function saveGame(economy, orders, progress, achievements) {
+// carried: Spulen in der Hand ({ filamentId, grams, moisture }) – werden als „im Regal“ gespeichert,
+// damit beim Neuladen nichts verloren geht
+export function saveGame(economy, orders, progress, achievements, carried = []) {
+  const shelf = economy.shelf.map((s) => ({ ...s }));
+  const used = new Set(shelf.map((s) => s.shelfSlot));
+  let free = 0;
+  for (const spool of carried) {
+    while (used.has(free)) free++;
+    used.add(free);
+    shelf.push({ filamentId: spool.filamentId, grams: spool.grams, moisture: spool.moisture ?? 0, shelfSlot: free });
+  }
   const data = {
     version: VERSION,
     savedAt: Date.now(),
@@ -47,7 +57,7 @@ export function saveGame(economy, orders, progress, achievements) {
         nozzlePokes: p.nozzlePokes,
         job: p.job ? { ...p.job } : null,
       })),
-      shelf: economy.shelf.map((s) => ({ ...s })),
+      shelf,
       finishedParts: [...economy.finishedParts],
       looseParts: economy.looseParts.map((l) => ({ ...l })),
       accessories: [...economy.accessories],
@@ -141,10 +151,11 @@ export function loadGame(economy, orders, progress, achievements) {
 
 // Autospeichern + beim Verlassen der Seite. onSaved wird nach jedem Speichern aufgerufen (z. B. für ein Symbol).
 // disable() braucht „Neues Spiel“, damit der gelöschte Stand beim Neuladen nicht gleich wieder geschrieben wird.
-export function startAutosave(economy, orders, progress, achievements, onSaved) {
+// getCarried: () => Spulen, die der Spieler gerade trägt
+export function startAutosave(economy, orders, progress, achievements, onSaved, getCarried = () => []) {
   let enabled = true;
   const save = () => {
-    if (enabled && saveGame(economy, orders, progress, achievements)) onSaved?.();
+    if (enabled && saveGame(economy, orders, progress, achievements, getCarried())) onSaved?.();
   };
   setInterval(save, AUTOSAVE_SECONDS * 1000);
   window.addEventListener('beforeunload', save);

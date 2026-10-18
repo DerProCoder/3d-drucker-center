@@ -384,5 +384,8 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     return model ? model.position : null;
   }
 
-  return { group, sync, animate, printerPosition };
+  // 3D-Modell eines aufgestellten Druckers (z. B. für die Drucker-Cam) oder undefined
+  const modelOf = (printerId) => built.get(printerId);
+
+  return { group, sync, animate, printerPosition, modelOf };
 }
