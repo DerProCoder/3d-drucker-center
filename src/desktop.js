@@ -139,12 +139,96 @@ function iconPc(ctx, x, y, s) {
   ctx.fillRect(x + s * 0.2, y + s * 0.84, s * 0.6, s * 0.06);
 }
 
+function iconSpool(ctx, x, y, s) {
+  const r = s / 2;
+  ctx.fillStyle = '#2fb34a';
+  ctx.beginPath();
+  ctx.arc(x + r, y + r, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = s * 0.04;
+  for (const f of [0.75, 0.6]) {
+    ctx.beginPath();
+    ctx.arc(x + r, y + r, r * f, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#3a3d44';
+  ctx.beginPath();
+  ctx.arc(x + r, y + r, r * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d8dbe0';
+  ctx.beginPath();
+  ctx.arc(x + r, y + r, r * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function iconOrders(ctx, x, y, s) {
+  ctx.fillStyle = '#c98a4b';
+  roundRect(ctx, x + s * 0.12, y + s * 0.08, s * 0.76, s * 0.9, s * 0.08);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x + s * 0.2, y + s * 0.2, s * 0.6, s * 0.7);
+  ctx.fillStyle = '#8a8d91';
+  roundRect(ctx, x + s * 0.34, y + s * 0.02, s * 0.32, s * 0.14, s * 0.04);
+  ctx.fill();
+  ctx.fillStyle = '#2f8f4a';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + s * 0.27, y + s * (0.32 + i * 0.18), s * 0.08, s * 0.08);
+  ctx.fillStyle = '#9aa0a8';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + s * 0.42, y + s * (0.33 + i * 0.18), s * 0.32, s * 0.06);
+}
+
+function iconNotes(ctx, x, y, s) {
+  ctx.fillStyle = '#ffe066';
+  roundRect(ctx, x + s * 0.1, y + s * 0.05, s * 0.8, s * 0.9, s * 0.06);
+  ctx.fill();
+  ctx.fillStyle = '#e0b400';
+  ctx.fillRect(x + s * 0.1, y + s * 0.05, s * 0.8, s * 0.14);
+  ctx.fillStyle = 'rgba(90,70,0,0.55)';
+  for (let i = 0; i < 4; i++) ctx.fillRect(x + s * 0.22, y + s * (0.32 + i * 0.15), s * (i === 3 ? 0.35 : 0.56), s * 0.05);
+}
+
+function iconCalc(ctx, x, y, s) {
+  ctx.fillStyle = '#3a3f4b';
+  roundRect(ctx, x + s * 0.12, y, s * 0.76, s, s * 0.1);
+  ctx.fill();
+  ctx.fillStyle = '#9fe3b0';
+  ctx.fillRect(x + s * 0.22, y + s * 0.1, s * 0.56, s * 0.2);
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      ctx.fillStyle = c === 2 ? '#ff8a3d' : '#d8dbe0';
+      ctx.fillRect(x + s * (0.22 + c * 0.2), y + s * (0.4 + r * 0.19), s * 0.14, s * 0.13);
+    }
+  }
+}
+
+const ICONS = {
+  start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
+  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc,
+};
+
+// Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)
+export function iconDataUrl(name, size = 48) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size * 2;
+  ICONS[name](canvas.getContext('2d'), 0, 0, size * 2);
+  return canvas.toDataURL();
+}
+
+// Nur das Hintergrundbild, z. B. für den Desktop im PC-Fenster
+export function wallpaperDataUrl() {
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  drawWallpaper(canvas.getContext('2d'));
+  return canvas.toDataURL();
+}
+
 function drawDesktopIcons(ctx) {
   const icons = [
     ['Papierkorb', iconTrash],
     ['Dieser PC', iconPc],
     ['Druckershop', iconPrinter],
-    ['Aufträge', iconFolder],
+    ['Aufträge', iconOrders],
   ];
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
