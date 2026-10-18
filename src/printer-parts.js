@@ -11,35 +11,63 @@ let plateTexture = null;
 function getPlateTexture() {
   if (plateTexture) return plateTexture;
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
+  canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#b48d52';
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 14000; i++) {
+  ctx.fillStyle = '#b8915a';
+  ctx.fillRect(0, 0, 512, 512);
+  // Feine Körnung der strukturierten Oberfläche
+  for (let i = 0; i < 120000; i++) {
     const light = Math.random() < 0.5;
-    ctx.fillStyle = light ? `rgba(255,235,190,${Math.random() * 0.25})` : `rgba(60,40,10,${Math.random() * 0.25})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 1.5, 1 + Math.random() * 1.5);
+    ctx.fillStyle = light ? `rgba(255,235,190,${Math.random() * 0.18})` : `rgba(60,40,10,${Math.random() * 0.18})`;
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 0.8 + Math.random(), 0.8 + Math.random());
   }
+  ctx.scale(2, 2); // Aufdruck unten in 256er-Koordinaten
+  // Aufdruck wie auf der echten Platte: Rand, Mittelkreuz, Logo und Seitenkennung
+  ctx.strokeStyle = 'rgba(70,45,10,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(6, 6, 244, 244);
+  ctx.beginPath();
+  ctx.moveTo(122, 128); ctx.lineTo(134, 128);
+  ctx.moveTo(128, 122); ctx.lineTo(128, 134);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(70,45,10,0.45)';
+  ctx.font = '600 11px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('Bambu Lab', 14, 240);
+  ctx.textAlign = 'right';
+  ctx.fillText('Textured PEI', 242, 240);
   plateTexture = new THREE.CanvasTexture(canvas);
   plateTexture.colorSpace = THREE.SRGBColorSpace;
-  plateTexture.wrapS = plateTexture.wrapT = THREE.RepeatWrapping;
-  plateTexture.repeat.set(2, 2);
+  plateTexture.anisotropy = 8;
   return plateTexture;
 }
 
 export function createMaterials() {
+  // Spritzguss-Kunststoff: matt mit leichtem Klarlack-Glanz, damit Kanten im Licht schimmern
+  const plastic = (color, roughness = 0.5) => new THREE.MeshPhysicalMaterial({
+    color, roughness, clearcoat: 0.3, clearcoatRoughness: 0.35,
+  });
   return {
-    shell: new THREE.MeshStandardMaterial({ color: 0xd5d7da, roughness: 0.55 }),       // hellgraues Gehäuse
-    shellDark: new THREE.MeshStandardMaterial({ color: 0x2c2e32, roughness: 0.6 }),    // dunkle Kunststoffteile
+    shell: plastic(0xe4e6e9, 0.45),      // hellgraues Gehäuse
+    shellDark: plastic(0x2c2e32, 0.55),  // dunkle Kunststoffteile
+    shellMid: plastic(0x7d8288, 0.5),    // graue Abdeckungen
     black: new THREE.MeshStandardMaterial({ color: 0x141517, roughness: 0.7 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x0e0e0f, roughness: 0.95 }),
-    steel: new THREE.MeshStandardMaterial({ color: 0xc4c8cd, metalness: 0.85, roughness: 0.28 }),
-    alu: new THREE.MeshStandardMaterial({ color: 0x9da2a8, metalness: 0.7, roughness: 0.4 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0xc4c8cd, metalness: 0.9, roughness: 0.22 }),
+    alu: new THREE.MeshStandardMaterial({ color: 0x9da2a8, metalness: 0.75, roughness: 0.35 }),
     bedAlu: new THREE.MeshStandardMaterial({ color: 0x3b3e43, metalness: 0.6, roughness: 0.45 }),
-    brass: new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.85, roughness: 0.3 }),
-    plate: new THREE.MeshStandardMaterial({ map: getPlateTexture(), metalness: 0.3, roughness: 0.6 }),
-    ptfe: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, transparent: true, opacity: 0.85, roughness: 0.3 }),
+    brass: new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.9, roughness: 0.25 }),
+    copper: new THREE.MeshStandardMaterial({ color: 0xb4643a, metalness: 0.85, roughness: 0.3 }),
+    plate: new THREE.MeshPhysicalMaterial({ map: getPlateTexture(), metalness: 0.35, roughness: 0.55, clearcoat: 0.15 }),
+    ptfe: new THREE.MeshPhysicalMaterial({ color: 0xf4f4f0, transparent: true, opacity: 0.8, roughness: 0.2, clearcoat: 0.6 }),
+    // Glas: dunkel getönt, spiegelt die Umgebung, wirft keine Schatten (Meshes mit userData.noShadow)
+    glass: new THREE.MeshPhysicalMaterial({
+      color: 0x18222c, transparent: true, opacity: 0.32, roughness: 0.03, metalness: 0.1,
+      clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, depthWrite: false,
+    }),
     led: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    // Heller als Weiß, damit der Bloom-Effekt die LED-Leisten glühen lässt
+    ledStrip: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4e2).multiplyScalar(4) }),
+    statusGreen: new THREE.MeshBasicMaterial({ color: new THREE.Color(0x00ae42).multiplyScalar(2.5) }),
   };
 }
 
@@ -62,6 +90,68 @@ function cylinder(rTop, rBottom, h, segments, material, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, h, segments), material);
   mesh.position.set(x, y, z);
   return mesh;
+}
+
+// Schriftzug als flache Fläche (z. B. „Bambu Lab“), Ursprung in der Mitte, zeigt nach +z.
+// height: Schrifthöhe in Metern, die Breite ergibt sich aus dem Text.
+const labelCache = new Map();
+export function createLabel(text, height, color = '#ffffff', weight = 700) {
+  const key = `${text}|${color}|${weight}`;
+  if (!labelCache.has(key)) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const font = `${weight} 64px "Segoe UI", Arial, sans-serif`;
+    ctx.font = font;
+    canvas.width = Math.ceil(ctx.measureText(text).width) + 16;
+    canvas.height = 84;
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 8, 44);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    labelCache.set(key, { texture, aspect: canvas.width / canvas.height });
+  }
+  const { texture, aspect } = labelCache.get(key);
+  const h = height * (84 / 64);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(h * aspect, h),
+    new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 0.4, depthWrite: false })
+  );
+  mesh.userData.noShadow = true;
+  return mesh;
+}
+
+// Lüftungsschlitze: Reihe abgerundeter, dunkler Schlitze auf einer Fläche, Ursprung in der Mitte, nach +z
+export function createVents(count, slotW, slotH, gap, m) {
+  const vents = new THREE.Group();
+  const total = count * slotH + (count - 1) * gap;
+  for (let i = 0; i < count; i++) {
+    vents.add(rbox(slotW, slotH, 0.002, slotH / 2, m.black, 0, -total / 2 + slotH / 2 + i * (slotH + gap), 0));
+  }
+  return vents;
+}
+
+// Runder Lüfter mit Gitter (z. B. Abluft hinten im Bauraum), Ursprung in der Mitte, Luftseite nach +z
+export function createFanGrille(size, m) {
+  const fan = new THREE.Group();
+  fan.add(rbox(size, size, 0.012, 0.004, m.black));
+  const r = size * 0.44;
+  const hub = new THREE.Mesh(new THREE.CircleGeometry(r * 0.32, 20), m.shellDark);
+  hub.position.z = 0.0065;
+  fan.add(hub);
+  for (const f of [0.55, 0.78, 1]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * f, 0.0012, 6, 40), m.shellDark);
+    ring.position.z = 0.0065;
+    fan.add(ring);
+  }
+  for (let i = 0; i < 4; i++) {
+    const spoke = box(r * 2, 0.0025, 0.002, m.shellDark, 0, 0, 0.0065);
+    spoke.rotation.z = (i * Math.PI) / 4;
+    fan.add(spoke);
+  }
+  return fan;
 }
 
 // ---------- Bauteile ----------
@@ -102,29 +192,42 @@ export function createBelt(length, m) {
 // Heizbett mit magnetischer, strukturierter PEI-Platte. Unterseite bei y = 0.
 export function createBuildPlate(size, m) {
   const plate = new THREE.Group();
-  plate.add(rbox(size + 0.012, 0.008, size + 0.012, 0.004, m.bedAlu, 0, 0.004, 0));
-  plate.add(rbox(size, 0.0015, size, 0.003, m.plate, 0, 0.0088, 0));
+  const heater = new THREE.MeshStandardMaterial({ color: 0x7a1f12, roughness: 0.7 }); // Heizfolie unten
+  plate.add(rbox(size - 0.01, 0.0015, size - 0.01, 0.004, heater, 0, 0.00075, 0));
+  plate.add(rbox(size + 0.012, 0.007, size + 0.012, 0.004, m.bedAlu, 0, 0.005, 0));
+  // Ausrichtungsstifte hinten
+  for (const sx of [-1, 1]) {
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.0025, 0.0025, 0.004, 10), m.steel);
+    pin.position.set(sx * (size / 2 - 0.02), 0.0105, -size / 2 - 0.003);
+    plate.add(pin);
+  }
+  plate.add(rbox(size, 0.0015, size, 0.003, m.plate, 0, 0.0093, 0));
   // Griffzunge vorne an der Platte
-  plate.add(rbox(0.05, 0.0015, 0.016, 0.004, m.plate, 0, 0.0088, size / 2 + 0.006));
+  plate.add(rbox(0.05, 0.0015, 0.016, 0.004, m.plate, 0, 0.0093, size / 2 + 0.006));
   // Kabel zum Heizbett hinten
   plate.add(box(0.03, 0.004, 0.02, m.black, 0, 0.002, -size / 2 - 0.012));
-  plate.userData.topY = 0.0096;
+  plate.userData.topY = 0.0101;
   return plate;
 }
 
-// Druckkopf im Stil der A1-Serie. Ursprung in der Mitte des Gehäuses, Rückseite bei z = -depth/2.
-export function createToolhead(m) {
+// Druckkopf, Ursprung in der Mitte des Gehäuses, Rückseite bei z = -depth/2.
+// style 'a1': helle Frontabdeckung (A1-Serie) · 'p1': dunkles Gehäuse mit grauer Front (P1/P2-Serie)
+export function createToolhead(m, style = 'a1') {
   const head = new THREE.Group();
-  const w = 0.055;
+  const w = style === 'p1' ? 0.06 : 0.055;
   const h = 0.075;
   const d = 0.045;
+  const front = style === 'p1' ? m.shellMid : m.shell;
 
   head.add(rbox(w, h, d, 0.006, m.shellDark));
-  // Frontabdeckung
-  head.add(rbox(w + 0.003, h - 0.004, 0.01, 0.004, m.shell, 0, 0.001, d / 2 + 0.003));
-  // Logo-Feld und Status-LED
-  head.add(box(0.02, 0.004, 0.001, m.shellDark, 0, 0.02, d / 2 + 0.0085));
-  head.add(box(0.012, 0.0015, 0.001, m.led, 0, -0.026, d / 2 + 0.0085));
+  // Frontabdeckung mit abgesetzter unterer Kante
+  head.add(rbox(w + 0.003, h - 0.004, 0.01, 0.004, front, 0, 0.001, d / 2 + 0.003));
+  head.add(rbox(w - 0.008, 0.012, 0.002, 0.003, m.shellDark, 0, -h / 2 + 0.012, d / 2 + 0.0085));
+  // Schriftzug und Status-LED
+  const logo = createLabel('Bambu Lab', 0.0055, style === 'p1' ? '#e8e8e8' : '#3a3d42');
+  logo.position.set(0, 0.018, d / 2 + 0.0085);
+  head.add(logo);
+  head.add(box(0.012, 0.0015, 0.001, m.led, 0, -h / 2 + 0.012, d / 2 + 0.0098));
 
   // Lüftergitter links (Bauteilkühlung): konzentrische Ringe
   const grille = new THREE.Group();
@@ -157,39 +260,74 @@ export function createToolhead(m) {
 // Touchscreen mit Bambu-ähnlicher Statusanzeige. Ursprung in der Mitte, Anzeige nach +z.
 export function createTouchscreen(w, h, title, m) {
   const canvas = document.createElement('canvas');
-  canvas.width = 320;
-  canvas.height = Math.round(320 * (h / w));
+  canvas.width = 400;
+  canvas.height = Math.round(400 * (h / w));
   const ctx = canvas.getContext('2d');
   const W = canvas.width;
   const H = canvas.height;
-  ctx.fillStyle = '#141619';
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#1b1e22');
+  bg.addColorStop(1, '#101215');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#1f2226';
-  ctx.fillRect(0, 0, W, 30);
+  // Kopfzeile: Gerätename, WLAN
+  ctx.fillStyle = '#23272c';
+  ctx.fillRect(0, 0, W, 34);
   ctx.fillStyle = '#e8e8e8';
-  ctx.font = '600 16px "Segoe UI", Arial, sans-serif';
+  ctx.font = '600 18px "Segoe UI", Arial, sans-serif';
   ctx.textBaseline = 'middle';
-  ctx.fillText(title, 10, 15);
-  // WLAN-Balken
+  ctx.fillText(title, 12, 17);
   ctx.fillStyle = '#00ae42';
-  [6, 10, 14].forEach((bh, i) => ctx.fillRect(W - 40 + i * 8, 22 - bh, 5, bh));
-  // Status
-  ctx.fillStyle = '#00ae42';
-  ctx.font = '600 30px "Segoe UI", Arial, sans-serif';
+  [7, 11, 15].forEach((bh, i) => ctx.fillRect(W - 44 + i * 9, 25 - bh, 6, bh));
+  // Fortschrittsring links, Status rechts
+  const cy = 34 + (H - 34) * 0.48;
+  const r = Math.min(H * 0.28, W * 0.16);
+  ctx.lineWidth = r * 0.22;
+  ctx.strokeStyle = '#2c3137';
+  ctx.beginPath();
+  ctx.arc(W * 0.24, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = '#00ae42';
+  ctx.beginPath();
+  ctx.arc(W * 0.24, cy, r, -Math.PI / 2, Math.PI * 1.1);
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
-  ctx.fillText('Bereit', W / 2, H * 0.45);
-  // Temperaturen
-  ctx.font = '15px "Segoe UI", Arial, sans-serif';
-  ctx.fillStyle = '#bbbbbb';
-  ctx.fillText('Düse 25 °C      Bett 25 °C', W / 2, H - 26);
+  ctx.font = `700 ${Math.round(r * 0.6)}px "Segoe UI", Arial, sans-serif`;
+  ctx.fillText('✓', W * 0.24, cy);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#00ae42';
+  ctx.font = '700 30px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('Bereit', W * 0.46, cy - 18);
+  ctx.fillStyle = '#9aa1a9';
+  ctx.font = '16px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('Düse 25 °C', W * 0.46, cy + 12);
+  ctx.fillText('Bett 25 °C', W * 0.46, cy + 34);
+  // Leiste unten
+  ctx.fillStyle = '#23272c';
+  ctx.fillRect(0, H - 28, W, 28);
+  ctx.fillStyle = '#6c737b';
+  ['⌂', '⚙', '▤', '⏻'].forEach((icon, i) => {
+    ctx.textAlign = 'center';
+    ctx.font = '18px "Segoe UI Symbol", "Segoe UI", sans-serif';
+    ctx.fillText(icon, W * (0.125 + i * 0.25), H - 14);
+  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
 
   const screen = new THREE.Group();
   screen.add(rbox(w + 0.008, h + 0.008, 0.008, 0.003, m.shellDark));
+  // Glasscheibe leicht vor der Anzeige spiegelt das Licht
   const display = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: texture }));
   display.position.z = 0.0041;
   screen.add(display);
+  const cover = new THREE.Mesh(
+    new THREE.PlaneGeometry(w + 0.004, h + 0.004),
+    new THREE.MeshPhysicalMaterial({ color: 0x000000, transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1, depthWrite: false })
+  );
+  cover.position.z = 0.0043;
+  screen.add(cover);
   return screen;
 }
 
@@ -244,15 +382,17 @@ export function createSpoolHolder(length, m) {
 // userData.outlet: Anschluss des Filamentschlauchs hinten.
 export const AMS_SLOTS = 4;
 
-export function createAMS(m) {
+// dark: AMS 2 Pro (dunkelgrau, P2S) statt des hellgrauen AMS
+export function createAMS(m, { dark: darkBody = false } = {}) {
   const ams = new THREE.Group();
   const W = 0.36;
   const H = 0.245;
   const D = 0.285;
   const baseH = 0.03;
-  const dark = m.shellDark;
-  const smoke = new THREE.MeshStandardMaterial({
-    color: 0x8fa3b8, transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0.2, depthWrite: false,
+  const dark = darkBody ? m.shellDark : m.shell;
+  const smoke = new THREE.MeshPhysicalMaterial({
+    color: 0x3a3430, transparent: true, opacity: 0.38, roughness: 0.04, metalness: 0.1,
+    clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.5, depthWrite: false,
   });
 
   // Wanne, Rückwand mit Zuführungen, Seitenwangen
@@ -268,11 +408,16 @@ export function createAMS(m) {
     ams.add(lid);
   }
   ams.add(box(W, 0.012, 0.012, dark, 0, H - 0.006, D / 2 - 0.006)); // Deckelkante
+  // Griffmulden an den Seiten und Schriftzug vorne
+  for (const sx of [-1, 1]) ams.add(rbox(0.004, 0.02, 0.09, 0.002, m.black, sx * (W / 2 + 0.0005), baseH + 0.08, 0.02));
+  const logo = createLabel('Bambu Lab', 0.006, darkBody ? '#d8d8d8' : '#3a3d42');
+  logo.position.set(0, H - 0.006, D / 2 + 0.0006); // auf der Deckelkante
+  ams.add(logo);
 
   // Pro Fach: zwei Laufrollen, Zuführung hinten, Status-LED vorne
   const slots = [];
   const spacing = 0.085;
-  const led = new THREE.MeshBasicMaterial({ color: 0xf4f8ff });
+  const led = m.ledStrip;
   for (let i = 0; i < AMS_SLOTS; i++) {
     const x = (i - (AMS_SLOTS - 1) / 2) * spacing;
     // Laufrollen parallel zur Spulenachse, die Spule liegt vorne und hinten darauf
@@ -283,7 +428,12 @@ export function createAMS(m) {
       ams.add(roller);
     }
     ams.add(rbox(0.03, 0.04, 0.025, 0.004, m.black, x, baseH + 0.03, -D / 2 + 0.042));
-    ams.add(box(0.012, 0.004, 0.002, led, x, baseH * 0.5, D / 2 + 0.001));
+    ams.add(box(0.012, 0.004, 0.002, led, x + 0.03, baseH * 0.5, D / 2 + 0.001));
+    // Auswurftaste pro Fach
+    const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.003, 14), m.shellMid);
+    btn.rotation.x = Math.PI / 2;
+    btn.position.set(x + 0.018, baseH * 0.5, D / 2 + 0.0015);
+    ams.add(btn);
     slots.push(new THREE.Vector3(x, baseH + 0.091, 0.01)); // Spule liegt auf den Rollen
   }
 
