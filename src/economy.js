@@ -7,9 +7,10 @@ export const GAME_MINUTES_PER_SECOND = 1 / 3; // Spielzeit: 1 echte Sekunde = 20
 
 // Drucker:
 //   location: 'storage' (Karton im Abstellraum) | 'carried' (in der Hand) | 'table' (aufgestellt)
-//   filament / filamentGrams: eingelegte Spule und Restgewicht
+//   spools: Fächer für Spulen ({ filamentId, grams } oder null) – 1 Fach oder 4 beim AMS
+//   activeSlot: Fach, aus dem gedruckt wird
 //   speedId: gewählte Geschwindigkeitsstufe
-//   job: { templateId, filamentId, progress 0…1, status: 'printing' | 'paused' | 'done' } oder null
+//   job: { templateId, filamentId, slot, progress 0…1, status: 'printing' | 'paused' | 'done' } oder null
 export class Economy {
   constructor() {
     this.money = START_MONEY;
@@ -68,7 +69,7 @@ export class Economy {
     if (!this.withdraw(model.price)) return null;
     const printer = {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
-      filament: null, filamentGrams: 0, speedId: 'standard', job: null,
+      spools: Array(model.spoolSlots).fill(null), activeSlot: 0, speedId: 'standard', job: null,
     };
     this.printers.push(printer);
     this.notify();
@@ -123,20 +124,47 @@ export class Economy {
     this.notify();
   }
 
-  // Legt eine Spule ein und gibt die bisher eingelegte zurück ({ filamentId, grams } oder null)
+  activeSpool(printer) {
+    return printer.spools[printer.activeSlot] ?? null;
+  }
+
+  // Fach, in das eine neue Spule käme: erstes freies, bei nur einem Fach immer dieses (Tausch). -1 = AMS voll.
+  loadTarget(printer) {
+    const free = printer.spools.indexOf(null);
+    if (free !== -1) return free;
+    return printer.spools.length === 1 ? 0 : -1;
+  }
+
+  // Fach, aus dem beim Herausnehmen die Spule kommt: das letzte belegte. -1 = alles leer.
+  unloadTarget(printer) {
+    return printer.spools.findLastIndex((s) => s !== null);
+  }
+
+  // Legt eine Spule ein und gibt die dadurch verdrängte zurück ({ filamentId, grams } oder null)
   loadFilament(printerId, filamentId, grams) {
     const p = this.printerById(printerId);
-    const previous = this.takeLoadedSpool(p);
-    p.filament = filamentId;
-    p.filamentGrams = grams;
+    const slot = this.loadTarget(p);
+    if (slot === -1) return null;
+    const previous = this.takeSpool(p, slot);
+    p.spools[slot] = { filamentId, grams };
+    if (!this.activeSpool(p)) p.activeSlot = slot; // leeres aktives Fach: neue Spule gleich auswählen
     this.notify();
     return previous;
   }
 
   unloadFilament(printerId) {
-    const previous = this.takeLoadedSpool(this.printerById(printerId));
+    const p = this.printerById(printerId);
+    const slot = this.unloadTarget(p);
+    const previous = slot === -1 ? null : this.takeSpool(p, slot);
     this.notify();
     return previous;
+  }
+
+  setActiveSlot(printerId, slot) {
+    const p = this.printerById(printerId);
+    if (this.isBusy(p)) return;
+    p.activeSlot = slot;
+    this.notify();
   }
 
   // ---------- Drucken ----------
@@ -150,22 +178,24 @@ export class Economy {
     if (printer.location !== 'table') return 'Drucker ist nicht aufgestellt';
     if (this.isBusy(printer)) return 'Druckt gerade';
     if (printer.job?.status === 'done') return 'Erst das fertige Teil entnehmen';
-    if (!printer.filament) return 'Kein Filament eingelegt';
-    const material = filamentById(printer.filament).material;
+    const spool = this.activeSpool(printer);
+    if (!spool) return printer.spools.length > 1 ? 'Gewähltes AMS-Fach ist leer' : 'Kein Filament eingelegt';
+    const material = filamentById(spool.filamentId).material;
     if (!template.materials.includes(material)) return `Braucht ${template.materials.join(' / ')}`;
     const { x, y, z } = template.size;
     const b = printer.model.build;
     const fitsFlat = (x <= b.x && y <= b.y) || (y <= b.x && x <= b.y);
     if (!fitsFlat || z > b.z) return 'Passt nicht in den Bauraum';
-    if (printer.filamentGrams < template.grams) return 'Zu wenig Filament auf der Spule';
+    if (spool.grams < template.grams) return 'Zu wenig Filament auf der Spule';
     return null;
   }
 
   startPrint(printerId, template) {
     const p = this.printerById(printerId);
     if (this.printProblem(p, template)) return false;
-    p.filamentGrams -= template.grams; // Material wird beim Start fest eingeplant
-    p.job = { templateId: template.id, filamentId: p.filament, progress: 0, status: 'printing' };
+    const spool = this.activeSpool(p);
+    spool.grams -= template.grams; // Material wird beim Start fest eingeplant
+    p.job = { templateId: template.id, filamentId: spool.filamentId, slot: p.activeSlot, progress: 0, status: 'printing' };
     this.notify();
     return true;
   }
@@ -263,13 +293,10 @@ export class Economy {
     this.filaments.get(filamentId).push(grams);
   }
 
-  // Nimmt die eingelegte Spule heraus. Leere Spulen werden entsorgt (Rückgabe null).
-  takeLoadedSpool(printer) {
-    const spool = printer.filament && printer.filamentGrams > 0
-      ? { filamentId: printer.filament, grams: printer.filamentGrams }
-      : null;
-    printer.filament = null;
-    printer.filamentGrams = 0;
-    return spool;
+  // Nimmt die Spule aus einem Fach. Leere Spulen werden entsorgt (Rückgabe null).
+  takeSpool(printer, slot) {
+    const spool = printer.spools[slot];
+    printer.spools[slot] = null;
+    return spool && spool.grams > 0 ? spool : null;
   }
 }

@@ -3,7 +3,7 @@
 import { PRINTERS } from './catalog.js';
 
 const KEY = 'druckercenter-save';
-const VERSION = 1;
+const VERSION = 2; // 2: Drucker mit Spulenfächern (AMS)
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -36,8 +36,8 @@ export function saveGame(economy, orders, progress) {
         modelId: p.model.id,
         location: p.location === 'table' ? 'table' : 'storage',
         slot: p.location === 'table' ? p.slot : null,
-        filament: p.filament,
-        filamentGrams: p.filamentGrams,
+        spools: p.spools.map((spool) => (spool ? { ...spool } : null)),
+        activeSlot: p.activeSlot,
         speedId: p.speedId,
         job: p.job ? { ...p.job } : null,
       })),

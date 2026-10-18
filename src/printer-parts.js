@@ -193,9 +193,36 @@ export function createTouchscreen(w, h, title, m) {
   return screen;
 }
 
-export function createTube(points, radius, material) {
-  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-  return new THREE.Mesh(new THREE.TubeGeometry(curve, 64, radius, 8, false), material);
+// Flexibler Schlauch/Kabel: Anfang fest am Gerät, Ende folgt dem Druckkopf.
+// startDir/endDir geben an, in welche Richtung der Schlauch an den Enden herausläuft.
+export function createFlexTube({ start, startDir, endOffset, endDir, radius, material }) {
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  mesh.userData.flex = {
+    start: new THREE.Vector3(...start),
+    startDir: new THREE.Vector3(...startDir).normalize(),
+    endOffset: new THREE.Vector3(...endOffset), // Anschlusspunkt relativ zur Kopfmitte
+    endDir: new THREE.Vector3(...endDir).normalize(),
+    radius,
+    lastEnd: new THREE.Vector3(Infinity, Infinity, Infinity),
+  };
+  return mesh;
+}
+
+// Biegt den Schlauch neu, wenn sich das Ende bewegt hat (end in Koordinaten des Elternobjekts)
+export function updateFlexTube(mesh, end) {
+  const f = mesh.userData.flex;
+  if (f.lastEnd.distanceToSquared(end) < 1e-8) return;
+  f.lastEnd.copy(end);
+  // Weiche Kurve: Griffe entlang der Austrittsrichtungen, länger bei größerem Abstand
+  const handle = Math.max(0.05, f.start.distanceTo(end) * 0.55);
+  const curve = new THREE.CubicBezierCurve3(
+    f.start,
+    f.start.clone().addScaledVector(f.startDir, handle),
+    end.clone().addScaledVector(f.endDir, handle),
+    end.clone()
+  );
+  mesh.geometry.dispose();
+  mesh.geometry = new THREE.TubeGeometry(curve, 40, f.radius, 8, false);
 }
 
 // Spulenhalter: Sockel mit Stange entlang +x
@@ -209,6 +236,63 @@ export function createSpoolHolder(length, m) {
   cap.rotation.z = Math.PI / 2;
   holder.add(cap);
   return holder;
+}
+
+// AMS (Automatic Material System): Box für 4 Spulen mit getöntem Klarsicht-Deckel.
+// Ursprung unten mittig, Vorderseite +z. userData.slots: Spulenmitten – die Spulen stehen nebeneinander,
+// Achse nach links/rechts (x), so dass man von vorne die Wicklung sieht.
+// userData.outlet: Anschluss des Filamentschlauchs hinten.
+export const AMS_SLOTS = 4;
+
+export function createAMS(m) {
+  const ams = new THREE.Group();
+  const W = 0.36;
+  const H = 0.245;
+  const D = 0.285;
+  const baseH = 0.03;
+  const dark = m.shellDark;
+  const smoke = new THREE.MeshStandardMaterial({
+    color: 0x8fa3b8, transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0.2, depthWrite: false,
+  });
+
+  // Wanne, Rückwand mit Zuführungen, Seitenwangen
+  ams.add(rbox(W, baseH, D, 0.01, dark, 0, baseH / 2, 0));
+  ams.add(rbox(W, H - baseH, 0.03, 0.008, dark, 0, baseH + (H - baseH) / 2, -D / 2 + 0.015));
+  for (const sx of [-1, 1]) ams.add(box(0.012, H - baseH, D - 0.03, dark, sx * (W / 2 - 0.006), baseH + (H - baseH) / 2, 0.015));
+
+  // Klarsicht-Deckel oben und vorne
+  const lidTop = box(W - 0.024, 0.005, D - 0.03, smoke, 0, H - 0.0025, 0.015);
+  const lidFront = box(W - 0.024, H - baseH - 0.005, 0.005, smoke, 0, baseH + (H - baseH) / 2, D / 2 - 0.0025);
+  for (const lid of [lidTop, lidFront]) {
+    lid.userData.noShadow = true;
+    ams.add(lid);
+  }
+  ams.add(box(W, 0.012, 0.012, dark, 0, H - 0.006, D / 2 - 0.006)); // Deckelkante
+
+  // Pro Fach: zwei Laufrollen, Zuführung hinten, Status-LED vorne
+  const slots = [];
+  const spacing = 0.085;
+  const led = new THREE.MeshBasicMaterial({ color: 0xf4f8ff });
+  for (let i = 0; i < AMS_SLOTS; i++) {
+    const x = (i - (AMS_SLOTS - 1) / 2) * spacing;
+    // Laufrollen parallel zur Spulenachse, die Spule liegt vorne und hinten darauf
+    for (const dz of [-0.06, 0.06]) {
+      const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.07, 12), m.steel);
+      roller.rotation.z = Math.PI / 2;
+      roller.position.set(x, baseH + 0.005, 0.01 + dz);
+      ams.add(roller);
+    }
+    ams.add(rbox(0.03, 0.04, 0.025, 0.004, m.black, x, baseH + 0.03, -D / 2 + 0.042));
+    ams.add(box(0.012, 0.004, 0.002, led, x, baseH * 0.5, D / 2 + 0.001));
+    slots.push(new THREE.Vector3(x, baseH + 0.091, 0.01)); // Spule liegt auf den Rollen
+  }
+
+  // Sammelstück hinten, aus dem der Schlauch zum Drucker kommt
+  ams.add(cylinder(0.012, 0.012, 0.02, 16, m.black, 0, 0.05, -D / 2 - 0.008));
+  ams.userData.slots = slots;
+  ams.userData.outlet = new THREE.Vector3(0, 0.05, -D / 2 - 0.018);
+  ams.userData.height = H;
+  return ams;
 }
 
 // Gummifüße unter einer Grundfläche w × d, Oberseite bei y = height

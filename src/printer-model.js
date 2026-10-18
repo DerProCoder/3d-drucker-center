@@ -1,21 +1,54 @@
 // 3D-Modelle der Drucker. Ursprung mittig am Boden, Vorderseite zeigt nach +z.
 // Bambu-Modelle sind nach den echten Geräten modelliert (Maße in Metern).
+//
+// Jedes Modell legt in userData ab:
+//   printRig: { partParent, plateCenter, head, pose(state) } – partParent trägt das gedruckte Teil (das Bett),
+//             pose stellt die Achsen für einen Druckzustand ein:
+//             state = { mode: 'idle' | 'printing' | 'done', x, z (Düse relativ zur Plattenmitte), layerY, partHeight }
+//   spoolSlots: [{ position, axis }] – wo eingelegte Spulen sitzen (1 Spulenhalter oder 4 AMS-Fächer)
+//   flexTubes: Schläuche/Kabel, die dem Druckkopf folgen
 import * as THREE from 'three';
 import {
   createMaterials, rbox, box, createStepper, createLinearRail, createBelt, createBuildPlate,
-  createToolhead, createTouchscreen, createTube, createSpoolHolder, addFeet,
+  createToolhead, createTouchscreen, createFlexTube, updateFlexTube, createSpoolHolder, addFeet, createAMS,
 } from './printer-parts.js';
 
-// Was die Druck-Animation braucht: plateCenter (Mitte der Plattenoberfläche) und optional
-// zAxis (fährt mit der Schichthöhe), head + headX (fährt seitlich hin und her), nozzleGap (Düsenabstand in Ruhe)
-function setPrintRig(g, rig) {
-  g.userData.printRig = rig;
+// Flexibler Schlauch/Kabel vom Gerät zum Druckkopf (Anfang in Modellkoordinaten)
+function addFlexTube(g, options) {
+  const tube = createFlexTube(options);
+  g.add(tube);
+  (g.userData.flexTubes ??= []).push(tube);
 }
 
-// Schlauch/Kabel in Modellkoordinaten an den Druckkopf hängen, damit sie seiner Bewegung folgen
-function attachToHead(head, object) {
-  object.position.sub(head.position);
-  head.add(object);
+const tubeEnd = new THREE.Vector3();
+
+// Biegt alle Schläuche passend zur aktuellen Kopfposition. Aufrufen, nachdem sich die Achsen bewegt haben.
+export function updatePrinterTubes(model) {
+  const tubes = model.userData.flexTubes;
+  const head = model.userData.printRig?.head;
+  if (!tubes || !head) return;
+  model.updateMatrixWorld(true);
+  for (const tube of tubes) {
+    tubeEnd.copy(tube.userData.flex.endOffset);
+    head.localToWorld(tubeEnd);
+    model.worldToLocal(tubeEnd);
+    updateFlexTube(tube, tubeEnd);
+  }
+}
+
+// Bettschubser (A1-Serie): Kopf fährt X, Bett fährt Y (vor/zurück), Portal fährt Z (hoch)
+function bedSlingerPose({ zAxis, bedAxis, head, headX, plateX, nozzleGap }) {
+  return ({ mode, x, z, layerY, partHeight }) => {
+    if (mode === 'printing') {
+      zAxis.position.y = layerY - nozzleGap + 0.0005; // Düse sitzt auf der aktuellen Schicht
+      head.position.x = plateX + x;
+      bedAxis.position.z = -z; // Bett fährt entgegen, damit die Düse relativ zur Platte wandert
+    } else {
+      zAxis.position.y = mode === 'done' ? Math.max(0, partHeight - nozzleGap + 0.02) : 0; // geparkt über dem Teil
+      head.position.x = headX;
+      bedAxis.position.z = 0;
+    }
+  };
 }
 
 // ---------- Bambu Lab A1 mini: freitragender Arm an einer Säule hinten rechts ----------
@@ -49,7 +82,7 @@ function buildA1Mini(g) {
   yMotor.position.set(baseX + 0.03, baseTop + 0.021, -baseD / 2 + 0.03);
   g.add(yMotor);
 
-  // Druckbett auf Träger – fährt beim Drucken vor und zurück (Y-Achse)
+  // Druckbett auf Träger – fährt beim Drucken vor und zurück
   const bedZ = 0.02;
   const carriageTop = baseTop + 0.015;
   const bedAxis = new THREE.Group();
@@ -70,11 +103,15 @@ function buildA1Mini(g) {
   const headY = plateTop + nozzleGap + head.userData.nozzleBelowCenter;
   const headZ = beamZ + beamD / 2 + head.userData.depth / 2;
   head.position.set(headX, headY, headZ);
-  // Alles, was beim Drucken mit der Schichthöhe hoch- und runterfährt
-  const zAxis = new THREE.Group();
+  const zAxis = new THREE.Group(); // alles, was mit der Schichthöhe hoch- und runterfährt
   zAxis.add(head);
   g.add(zAxis);
-  setPrintRig(g, { zAxis, bedAxis, head, headX, nozzleGap, plateCenter: new THREE.Vector3(baseX, plateTop, bedZ) });
+  g.userData.printRig = {
+    partParent: bedAxis, // gedruckte Teile liegen auf dem Bett und fahren mit
+    head,
+    plateCenter: new THREE.Vector3(baseX, plateTop, bedZ),
+    pose: bedSlingerPose({ zAxis, bedAxis, head, headX, plateX: baseX, nozzleGap }),
+  };
 
   // Z-Säule hinten rechts mit eigenem Fuß und Führungsschlitz
   const colW = 0.05;
@@ -108,23 +145,18 @@ function buildA1Mini(g) {
   holder.rotation.y = Math.PI;
   holder.position.set(colX, colH, colZ);
   g.add(holder);
+  g.userData.spoolSlots = [{ position: new THREE.Vector3(colX - 0.06, colH + 0.022, colZ), axis: 'x' }];
 
   // PTFE-Schlauch vom Spulenhalter zum Druckkopf, Flachkabel von der Säule zum Druckkopf
-  const headTop = headY + head.userData.topAboveCenter;
-  attachToHead(head, createTube([
-    [colX - 0.03, colH + 0.025, colZ],
-    [colX - 0.08, colH + 0.06, colZ + 0.01],
-    [headX + 0.03, headTop + 0.1, headZ - 0.01],
-    [headX, headTop, headZ - 0.004],
-  ], 0.0022, m.ptfe));
-  attachToHead(head, createTube([
-    [colX - colW / 2, colH - 0.05, colZ - 0.01],
-    [colX - 0.09, colH + 0.005, colZ - 0.02],
-    [headX + 0.025, headTop + 0.05, headZ - 0.03],
-    [headX + 0.014, headTop - 0.006, headZ - 0.02],
-  ], 0.003, m.black));
-
-  g.userData.spoolAnchor = new THREE.Vector3(colX - 0.06, colH + 0.022, colZ);
+  const top = head.userData.topAboveCenter;
+  addFlexTube(g, {
+    start: [colX - 0.03, colH + 0.025, colZ], startDir: [-0.6, 1, 0.1],
+    endOffset: [0, top, -0.004], endDir: [0, 1, 0], radius: 0.0022, material: m.ptfe,
+  });
+  addFlexTube(g, {
+    start: [colX - colW / 2, colH - 0.05, colZ - 0.01], startDir: [-1, 0.4, 0],
+    endOffset: [0.014, top - 0.006, -0.02], endDir: [0.2, 1, -0.3], radius: 0.003, material: m.black,
+  });
 }
 
 // ---------- Bambu Lab A1: Portal aus zwei Säulen und Querstrebe ----------
@@ -154,7 +186,7 @@ function buildA1(g) {
   yMotor.position.set(0.035, baseTop + 0.021, -baseD / 2 + 0.03);
   g.add(yMotor);
 
-  // Druckbett – fährt beim Drucken vor und zurück (Y-Achse)
+  // Druckbett – fährt beim Drucken vor und zurück
   const bedZ = 0;
   const carriageTop = baseTop + 0.015;
   const bedAxis = new THREE.Group();
@@ -178,7 +210,12 @@ function buildA1(g) {
   const zAxis = new THREE.Group();
   zAxis.add(head);
   g.add(zAxis);
-  setPrintRig(g, { zAxis, bedAxis, head, headX, nozzleGap, plateCenter: new THREE.Vector3(0, plateTop, bedZ) });
+  g.userData.printRig = {
+    partParent: bedAxis, // gedruckte Teile liegen auf dem Bett und fahren mit
+    head,
+    plateCenter: new THREE.Vector3(0, plateTop, bedZ),
+    pose: bedSlingerPose({ zAxis, bedAxis, head, headX, plateX: 0, nozzleGap }),
+  };
 
   // Portal: zwei Säulen mit Führungsschlitzen innen, Querstrebe oben
   const upW = 0.035;
@@ -189,8 +226,7 @@ function buildA1(g) {
   for (const sx of [-1, 1]) {
     g.add(rbox(upW, upH, upD, 0.01, m.shell, sx * upX, baseTop + upH / 2, beamZ));
     g.add(box(0.003, upH - 0.06, 0.018, m.shellDark, sx * (inner + 0.0005), baseTop + upH / 2, beamZ));
-    // X-Schlitten an den Säulen
-    zAxis.add(rbox(0.022, 0.056, upD - 0.008, 0.005, m.shellDark, sx * (inner - 0.011), headY, beamZ));
+    zAxis.add(rbox(0.022, 0.056, upD - 0.008, 0.005, m.shellDark, sx * (inner - 0.011), headY, beamZ)); // X-Schlitten
   }
   g.add(rbox(baseW, 0.03, upD, 0.012, m.shell, 0, frameH - 0.015, beamZ));
   g.add(box(baseW * 0.5, 0.006, 0.002, m.shellDark, 0, frameH - 0.015, beamZ + upD / 2 + 0.001));
@@ -220,94 +256,199 @@ function buildA1(g) {
   holder.rotation.y = Math.PI / 2;
   holder.position.set(holderX, frameH, beamZ);
   g.add(holder);
+  g.userData.spoolSlots = [{ position: new THREE.Vector3(holderX, frameH + 0.022, beamZ - 0.06), axis: 'z' }];
 
   // PTFE-Schlauch und Flachkabel
-  const headTop = headY + head.userData.topAboveCenter;
-  attachToHead(head, createTube([
-    [holderX, frameH + 0.025, beamZ - 0.02],
-    [holderX - 0.02, frameH + 0.08, beamZ + 0.03],
-    [headX + 0.03, headTop + 0.12, headZ],
-    [headX, headTop, headZ - 0.004],
-  ], 0.0022, m.ptfe));
-  attachToHead(head, createTube([
-    [-0.06, frameH - 0.03, beamZ - 0.01],
-    [-0.04, frameH - 0.05, beamZ - 0.03],
-    [headX - 0.01, headTop + 0.06, headZ - 0.035],
-    [headX + 0.012, headTop - 0.006, headZ - 0.02],
-  ], 0.003, m.black));
-
-  g.userData.spoolAnchor = new THREE.Vector3(holderX, frameH + 0.022, beamZ - 0.06);
+  const top = head.userData.topAboveCenter;
+  addFlexTube(g, {
+    start: [holderX, frameH + 0.025, beamZ - 0.02], startDir: [-0.2, 1, 0.5],
+    endOffset: [0, top, -0.004], endDir: [0, 1, 0], radius: 0.0022, material: m.ptfe,
+  });
+  addFlexTube(g, {
+    start: [-0.06, frameH - 0.03, beamZ - 0.035], startDir: [0.2, -0.3, -1],
+    endOffset: [0.012, top - 0.006, -0.02], endDir: [0, 1, -0.6], radius: 0.003, material: m.black,
+  });
 }
 
-// ---------- Platzhalter: geschlossener Würfel (ForgeCube) ----------
+// ---------- Bambu Lab P1P / P1S / P2S: CoreXY-Würfel mit AMS auf dem Dach ----------
+// Kopf fährt X und Y (vor/zurück) unter der Decke, das Bett fährt nach unten (Z).
+// P1P: offenes Gerüst ohne Wände und Tür. P1S/P2S: Seitenwände, Glastür vorne, Glasdeckel oben.
 
-function buildEnclosed(g, { w, h, d }, accent) {
-  const m = {
-    body: new THREE.MeshStandardMaterial({ color: 0x1f2124, roughness: 0.6 }),
-    alu: new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.7, roughness: 0.35 }),
-    bed: new THREE.MeshStandardMaterial({ color: 0x2a2a2c, metalness: 0.5, roughness: 0.3 }),
-    accent: new THREE.MeshStandardMaterial({ color: accent, roughness: 0.45 }),
-    display: new THREE.MeshBasicMaterial({ color: new THREE.Color(accent).lerp(new THREE.Color(0xffffff), 0.55) }),
-    glass: new THREE.MeshStandardMaterial({
-      color: 0x223344, transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.2, depthWrite: false,
-    }),
-  };
-  const baseH = 0.08;
-  g.add(box(w, baseH, d, m.body, 0, baseH / 2, 0));
-  g.add(box(0.095, 0.05, 0.014, m.body, w * 0.28, 0.045, d / 2 + 0.007));
-  const display = new THREE.Mesh(new THREE.PlaneGeometry(0.078, 0.036), m.display);
-  display.position.set(w * 0.28, 0.045, d / 2 + 0.0145);
-  g.add(display);
+const CUBE_VARIANTS = {
+  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true },
+  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true },
+  p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false },
+};
 
-  const postH = h - baseH - 0.03;
-  const post = 0.025;
+function buildBambuCube(g, variant) {
+  const { title, w, d, h, enclosed } = variant;
+  const m = createMaterials();
+  const frame = new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.55, metalness: 0.2 });
+  const panel = new THREE.MeshStandardMaterial({ color: 0x2c2e33, roughness: 0.6 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x1f2a36, transparent: true, opacity: 0.3, roughness: 0.04, metalness: 0.2, depthWrite: false,
+  });
+  const carbon = new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.35, metalness: 0.3 });
+  const FOOT = 0.01;
+  const baseH = 0.07;
+  const baseTop = FOOT + baseH;
+  const post = 0.03;
+  const topH = 0.03;
+
+  // Unterbau und Gerüst: Eckpfosten und oberer Rahmen
+  addFeet(g, w, d, FOOT, m);
+  g.add(rbox(w, baseH, d, 0.012, frame, 0, FOOT + baseH / 2, 0));
+  const postH = h - baseTop - topH;
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      g.add(box(post, postH, post, m.body, sx * (w / 2 - post / 2), baseH + postH / 2, sz * (d / 2 - post / 2)));
+      g.add(rbox(post, postH, post, 0.004, frame, sx * (w / 2 - post / 2), baseTop + postH / 2, sz * (d / 2 - post / 2)));
+    }
+    g.add(rbox(post, topH, d, 0.006, frame, sx * (w / 2 - post / 2), h - topH / 2, 0)); // Rahmen links/rechts
+  }
+  g.add(rbox(w, topH, post, 0.006, frame, 0, h - topH / 2, -d / 2 + post / 2));    // Rahmen hinten
+  // Vorderes Display-Paneel unter dem oberen Rahmen
+  const fasciaH = 0.045;
+  g.add(rbox(w, fasciaH + topH, 0.022, 0.006, frame, 0, h - (fasciaH + topH) / 2, d / 2 - 0.011));
+
+  if (enclosed) {
+    // Seitenwände und Rückwand, Glasdeckel oben, Glastür vorne mit Rahmen und Griff
+    const wallH = h - baseTop - topH;
+    for (const sx of [-1, 1]) g.add(box(0.006, wallH, d - post * 2, panel, sx * (w / 2 - 0.004), baseTop + wallH / 2, 0));
+    g.add(box(w - post * 2, wallH, 0.006, panel, 0, baseTop + wallH / 2, -d / 2 + 0.004));
+    // Glasdeckel zwischen hinterem Rahmen und vorderem Paneel
+    const lid = box(w - post * 2, 0.005, d - post - 0.022, glass, 0, h - 0.0025, (post - 0.022) / 2);
+    lid.userData.noShadow = true;
+    g.add(lid);
+    const doorH = h - baseTop - topH - fasciaH;
+    const door = box(w - post * 2, doorH, 0.005, glass, 0, baseTop + doorH / 2, d / 2 - 0.003);
+    door.userData.noShadow = true;
+    g.add(door);
+    g.add(box(w - post * 2, 0.012, 0.008, frame, 0, baseTop + 0.006, d / 2 - 0.002)); // Türunterkante
+    g.add(rbox(0.014, 0.16, 0.022, 0.005, frame, w / 2 - post - 0.03, baseTop + doorH * 0.55, d / 2 + 0.01)); // Griff
+  } else {
+    // P1P: offen, nur Querstreben oben vorne für das AMS
+    g.add(rbox(w, topH, post, 0.006, frame, 0, h - topH / 2, d / 2 - post / 2));
+  }
+
+  // Bildschirm (P2S größer, Touch) – P1-Serie mit Tasten daneben
+  const [sw, sh] = variant.screen;
+  const screenX = -w / 2 + 0.035 + sw / 2;
+  const screenY = h - (fasciaH + topH) / 2; // mittig im vorderen Paneel
+  const screen = createTouchscreen(sw, sh, title, m);
+  screen.position.set(screenX, screenY, d / 2 + 0.002);
+  g.add(screen);
+  if (variant.buttons) {
+    for (let i = 0; i < 4; i++) {
+      const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.004, 12), m.shell);
+      btn.rotation.x = Math.PI / 2;
+      btn.position.set(screenX + sw / 2 + 0.014 + (i % 2) * 0.012, screenY + (i < 2 ? 0.007 : -0.007), d / 2 + 0.002);
+      g.add(btn);
     }
   }
-  g.add(box(w, 0.03, d, m.body, 0, h - 0.015, 0));
-  g.add(box(w * 0.6, 0.008, 0.01, m.accent, 0, h - 0.015, d / 2 + 0.005));
+  // Innenbeleuchtung unter dem vorderen Paneel
+  const light = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.008), new THREE.MeshBasicMaterial({ color: 0xfff6e8 }));
+  light.rotation.x = Math.PI / 2;
+  light.position.set(0, h - topH - fasciaH - 0.001, d / 2 - 0.03);
+  g.add(light);
 
-  const glassY = baseH + postH / 2;
-  const panels = [
-    box(0.004, postH, d - post * 2, m.glass, -w / 2 + post / 2, glassY, 0),
-    box(0.004, postH, d - post * 2, m.glass, w / 2 - post / 2, glassY, 0),
-    box(w - post * 2, postH, 0.004, m.glass, 0, glassY, -d / 2 + post / 2),
-    box(w - post * 2, postH, 0.004, m.glass, 0, glassY, d / 2 - post / 2),
-  ];
-  for (const p of panels) {
-    p.userData.noShadow = true;
-    g.add(p);
-  }
-  g.add(box(0.012, 0.12, 0.012, m.accent, w / 2 - post - 0.03, glassY, d / 2 + 0.004));
-
-  g.add(box(w * 0.78, 0.012, d * 0.78, m.bed, 0, baseH + 0.06, 0));
-  setPrintRig(g, { plateCenter: new THREE.Vector3(0, baseH + 0.066, 0) });
-  const railY = h - 0.07;
+  // CoreXY-Mechanik unter der Decke: Y-Führungen links/rechts, X-Brücke mit Kopf fährt vor/zurück
+  const railY = h - topH - 0.018;
+  const railX = w / 2 - post - 0.012;
   for (const sx of [-1, 1]) {
-    g.add(box(0.02, 0.02, d - post * 2 - 0.02, m.alu, sx * (w / 2 - post - 0.02), railY, 0));
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, d - post * 2, 12), m.steel);
+    rod.rotation.x = Math.PI / 2;
+    rod.position.set(sx * railX, railY, 0);
+    g.add(rod);
+    const belt = createBelt(d - post * 2 - 0.02, m);
+    belt.position.set(sx * (railX - 0.012), railY + 0.008, 0);
+    g.add(belt);
+    // Motoren hinten oben in den Ecken
+    const motor = createStepper(m);
+    motor.position.set(sx * (railX - 0.02), railY + 0.004, -d / 2 + post + 0.024);
+    g.add(motor);
   }
-  g.add(box(w - post * 2 - 0.04, 0.02, 0.02, m.alu, 0, railY, -0.03));
-  g.add(box(0.06, 0.07, 0.05, m.accent, -0.05, railY - 0.04, -0.005));
 
-  g.userData.spoolAnchor = new THREE.Vector3(w / 2 + 0.06, h * 0.6, 0);
+  const head = createToolhead(m);
+  const headY = railY - 0.012;
+  head.position.set(0, headY, 0);
+  const gantry = new THREE.Group(); // X-Brücke, fährt in Y-Richtung (vor/zurück)
+  gantry.add(head);
+  for (const dy of [0.008, -0.012]) {
+    const xRod = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, railX * 2, 12), carbon);
+    xRod.rotation.z = Math.PI / 2;
+    xRod.position.set(0, railY + dy, -head.userData.depth / 2 - 0.006);
+    gantry.add(xRod);
+  }
+  for (const sx of [-1, 1]) gantry.add(rbox(0.03, 0.04, 0.045, 0.005, frame, sx * railX, railY, -0.012)); // Gleitschuhe
+  g.add(gantry);
+
+  // Druckbett auf Z-Träger, fährt nach unten; drei Gewindespindeln
+  const nozzleY = headY - head.userData.nozzleBelowCenter;
+  const nozzleGap = 0.12;
+  const plateTop = nozzleY - nozzleGap;
+  const bedAxis = new THREE.Group();
+  const plate = createBuildPlate(0.256, m);
+  plate.position.set(0, plateTop - plate.userData.topY, 0);
+  bedAxis.add(plate);
+  bedAxis.add(box(0.29, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, -0.16)); // Träger hinten
+  for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, 0.3, frame, sx * 0.13, plateTop - plate.userData.topY - 0.008, -0.02));
+  g.add(bedAxis);
+  for (const sx of [-1, 0, 1]) { // drei Gewindespindeln hinten, damit der Blick durch die Tür frei bleibt
+    const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, railY - baseTop - 0.03, 10), m.steel);
+    screw.position.set(sx * 0.13, baseTop + (railY - baseTop - 0.03) / 2, -0.17);
+    g.add(screw);
+  }
+  const lowestPlate = baseTop + 0.012;
+
+  g.userData.printRig = {
+    partParent: bedAxis, // gedruckte Teile liegen auf dem Bett und fahren mit
+    head,
+    plateCenter: new THREE.Vector3(0, plateTop, 0),
+    pose: ({ mode, x, z, layerY, partHeight }) => {
+      if (mode === 'printing') {
+        bedAxis.position.y = nozzleGap - layerY - 0.0005; // Bett hebt die aktuelle Schicht an die Düse
+        head.position.x = x;
+        gantry.position.z = z;
+      } else {
+        // Fertig: Bett so weit absenken, dass das Teil frei unter der Düse steht
+        const down = mode === 'done' ? nozzleGap - partHeight - 0.03 : 0;
+        bedAxis.position.y = Math.max(Math.min(0, down), lowestPlate - plateTop);
+        head.position.x = 0;
+        gantry.position.z = 0;
+      }
+    },
+  };
+
+  // AMS auf dem Dach, Schlauch hinten heraus und von oben zum Kopf, Kabelkette innen
+  const ams = createAMS(m);
+  ams.position.set(0, h, -0.01);
+  g.add(ams);
+  g.userData.spoolSlots = ams.userData.slots.map((p) => ({ position: p.clone().add(ams.position), axis: 'x' }));
+  const outlet = ams.userData.outlet.clone().add(ams.position);
+  const top = head.userData.topAboveCenter;
+  addFlexTube(g, {
+    start: outlet.toArray(), startDir: [0, -0.4, -1],
+    endOffset: [0, top, -0.004], endDir: [0, 1, 0], radius: 0.0022, material: m.ptfe,
+  });
+  addFlexTube(g, {
+    start: [0, railY + 0.01, -d / 2 + post + 0.01], startDir: [0, 0, 1],
+    endOffset: [0.012, top - 0.006, -0.02], endDir: [0, 1, -0.6], radius: 0.003, material: m.black,
+  });
 }
 
 const BUILDERS = {
   'a1-mini': (g) => buildA1Mini(g),
   a1: (g) => buildA1(g),
-  enclosed: (g, model) => buildEnclosed(g, model.size, model.accent),
+  p1p: (g) => buildBambuCube(g, CUBE_VARIANTS.p1p),
+  p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
+  p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
 };
-
-// Die Spule hängt am Spulenhalter: spoolAnchor = Mitte der Spule, spoolAxis = Richtung der Halterstange
-const SPOOL_AXIS = { 'a1-mini': 'x', a1: 'z', enclosed: 'x' };
 
 export function createPrinterModel(model) {
   const group = new THREE.Group();
   BUILDERS[model.style](group, model);
+  updatePrinterTubes(group); // Schläuche in Ruheposition biegen
   group.userData.model = model;
-  group.userData.spoolAxis = SPOOL_AXIS[model.style];
   return group;
 }
 

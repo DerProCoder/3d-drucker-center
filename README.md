@@ -64,11 +64,11 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat, was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** z. B. einen Bambu Lab A1 mini. Du startest mit 20.000 €.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 20.000 €.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
+5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
 7. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
 8. **Liefern:** Hast du alle bestellten Teile, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
 
