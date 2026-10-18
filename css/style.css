@@ -958,3 +958,7 @@ kbd {
 #shop .taskbar-start { cursor: var(--cursor-hand); }
 .dev-list { display: flex; flex-direction: column; gap: 10px; }
 .dev-option { gap: 8px; }
+
+/* Personal-App */
+.staff .staff-avatar { font-size: 1.8rem; line-height: 1; }
+.staff.hire { border-style: dashed; }

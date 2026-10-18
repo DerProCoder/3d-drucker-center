@@ -8,6 +8,7 @@ import { Economy, GAME_MINUTES_PER_SECOND } from './core/economy.js';
 import { Orders, REGULAR_STARS } from './core/orders.js';
 import { Progress } from './core/progress.js';
 import { Upgrades } from './core/upgrades.js';
+import { Staff } from './core/staff.js';
 import { GameClock } from './core/game-clock.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
@@ -22,6 +23,7 @@ import { createWorkshop } from './world/workshop.js';
 import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
+import { createWorkers } from './world/workers.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
@@ -41,7 +43,8 @@ const orders = new Orders(economy, progress);
 const achievements = new Achievements();
 const upgrades = new Upgrades(economy);
 const gameClock = new GameClock();
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock };
+const staff = new Staff(economy);
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -60,9 +63,9 @@ achievements.onUnlock = (a) => {
   hud.showAchievement(a);
   sound.play('achievement');
 };
-// Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
+// Getragene Spulen (carry und workers werden weiter unten angelegt) landen beim Speichern im Regal
 const autosave = startAutosave(game, hud.showSaved, () => ({
-  spools: carry.spools,
+  spools: [...carry.spools, ...workers.carriedSpools()],
   nozzles: carry.nozzle ? 1 : 0,
 }));
 
@@ -349,6 +352,15 @@ const throwing = createThrowing({
   },
 });
 scene.add(throwing.group);
+
+// Azubis laufen durch Halle und Lager und helfen mit (Aufgaben aus core/staff.js)
+const workers = createWorkers({ economy, staff });
+scene.add(workers.group);
+staff.onEvent = (type, d) => {
+  if (type === 'hired') hud.notify(`🧑‍🔧 Azubi ${d.worker.name} ist eingestellt und kommt durch die Lagertür`, 'good');
+  else if (type === 'fired') hud.notify(`👋 Azubi ${d.worker.name} hat die Halle verlassen`, 'info');
+  sound.play('pop');
+};
 economy.subscribe(() => {
   workshop.sync();
   storage.sync();
@@ -393,6 +405,8 @@ const printerCam = createPrinterCam({ renderer, scene, economy, workshop });
 const shop = createShop(economy, {
   orders,
   achievements,
+  staff,
+  staffStatus: (id) => workers.statusOf(id),
   cam: printerCam,
   upgrades,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
@@ -423,7 +437,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group],
+  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -532,6 +546,7 @@ renderer.setAnimationLoop(() => {
   workshop.animate(dt);
   cat.update(dt);
   throwing.update(dt);
+  workers.update(dt);
   hall.update(dt);
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
   economy.advanceDeliveries(dt);

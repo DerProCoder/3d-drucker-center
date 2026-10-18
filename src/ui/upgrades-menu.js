@@ -56,7 +56,7 @@ export function createUpgradesMenu(upgrades, economy) {
         })}
       </div>
       <p class="slots power-note">💸 Laufende Kosten, abgebucht zu jeder vollen Spielstunde: <strong>${euro.format(economy.costPerHour)} / h</strong>
-        (Miete ${euro.format(RENT_PER_HOUR)} + Strom ${euro.format(economy.powerPerHour)} für alle aufgestellten Drucker)</p>`;
+        (Miete ${euro.format(RENT_PER_HOUR)} + Strom ${euro.format(economy.powerPerHour)} für alle aufgestellten Drucker${economy.wagesPerHour ? ` + Lohn ${euro.format(economy.wagesPerHour)}` : ""})</p>`;
   }
 
   // Gibt den Text für die Erfolgsmeldung zurück oder null

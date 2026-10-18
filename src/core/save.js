@@ -29,7 +29,7 @@ export function deleteSave() {
 
 // carried: { spools, nozzles } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -100,6 +100,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
     clock: { minutes: clock.minutes },
+    staff: staff ? { workers: staff.workers.map((w) => ({ ...w })), nextId: staff.nextId } : undefined,
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -135,7 +136,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -213,7 +214,13 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   orders.notify();
   progress.notify();
   upgrades.notify();
+  if (staff && data.staff) {
+    staff.workers = data.staff.workers;
+    staff.nextId = data.staff.nextId;
+    staff.syncWages();
+  }
   clock.notify();
+  staff?.notify();
   return true;
 }
 

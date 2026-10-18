@@ -93,6 +93,7 @@ export class Economy {
     this.money = START_MONEY;
     this.unlimited = false;          // Entwicklermenü: unendlich Geld
     this.instantDelivery = false;    // Entwicklermenü: Pakete kommen sofort
+    this.wagesPerHour = 0;           // Lohn fürs Personal (setzt core/staff.js)
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
     this.shelf = [];                 // Spulen im Regal
@@ -118,7 +119,7 @@ export class Economy {
   }
 
   get costPerHour() {
-    return RENT_PER_HOUR + this.powerPerHour;
+    return RENT_PER_HOUR + this.powerPerHour + this.wagesPerHour;
   }
 
   get bankrupt() {
