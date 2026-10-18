@@ -1,7 +1,9 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
 // „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
-import { ACCESSORIES, FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
+import {
+  ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
+} from './catalog.js';
 import { ACHIEVEMENTS } from './achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
@@ -127,10 +129,33 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
           </div>
         </div>`;
     }).join('');
+    const spare = SPARE_PARTS.map((part) => {
+      let blocked = null;
+      if (!economy.partsRacks.length) blocked = 'Erst Ersatzteilregal aufstellen';
+      else if (economy.partsRackSpace <= 0) blocked = 'Ersatzteilregal voll';
+      else if (!economy.canAfford(part.price)) blocked = 'Zu wenig Geld';
+      return `
+        <div class="card">
+          <div class="card-head">
+            <span class="accessory-icon">🔩</span>
+            <div>
+              <div class="card-title">${part.name}</div>
+              <div class="card-sub">${part.hint}</div>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span class="stock">Im Ersatzteilregal: ${economy.spareNozzles}</span>
+            <span class="price">${euro.format(part.price)}</span>
+            ${buyButton(`spare:${part.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
     return `<p class="slots">Lieferung ins Regal im Abstellraum · Freie Plätze: <strong>${shelfFree}</strong>
       · Offen gelagerte Spulen ziehen mit der Zeit Feuchtigkeit 💧 – feuchtes Filament verursacht Fehldrucke.</p>
       ${sections}
-      <section><h3>Zubehör</h3><div class="grid">${accessories}</div></section>`;
+      <section><h3>Zubehör</h3><div class="grid">${accessories}</div></section>
+      <section><h3>Ersatzteile <span class="hint">Düsen nutzen sich beim Drucken ab – Lieferung direkt ins Ersatzteilregal am Druckertisch</span></h3>
+        <div class="grid">${spare}</div></section>`;
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
@@ -164,9 +189,33 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
           </div>
         </div>`;
     }).join('');
+    const rackSlots = economy.freeRackSlots;
+    const furniture = FURNITURE.map((f) => {
+      let blocked = null;
+      if (rackSlots <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.canAfford(f.price)) blocked = 'Zu wenig Geld';
+      const owned = economy.furniture.filter((x) => x.type.id === f.id).length;
+      return `
+        <div class="card">
+          <div class="card-head">
+            <span class="accessory-icon">${f.id === 'filament-rack' ? '🗄️' : '🧰'}</span>
+            <div>
+              <div class="card-title">${f.name}</div>
+              <div class="card-sub">${f.hint} · steht zwischen zwei Druckern</div>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span class="stock">Im Besitz: ${owned}</span>
+            <span class="price">${euro.format(f.price)}</span>
+            ${buyButton(`furniture:${f.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
     return `
       <p class="slots">Lieferung als Karton in den Abstellraum · Freie Plätze auf dem Druckertisch: <strong>${slots}</strong></p>
-      <div class="grid">${cards}</div>`;
+      <div class="grid">${cards}</div>
+      <section><h3>Einrichtung <span class="hint">Regale für die Lücken zwischen den Druckern · freie Regalplätze: ${rackSlots}</span></h3>
+        <div class="grid">${furniture}</div></section>`;
   }
 
   function renderAchievements() {
@@ -276,7 +325,13 @@ export function createShop(economy, { orders, achievements, cam, freePrinterSlot
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
     if (!id) return;
-    if (id.startsWith('accessory:')) {
+    if (id.startsWith('furniture:')) {
+      const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
+      if (economy.freeRackSlots > 0 && economy.buyFurniture(f)) toast(`Gekauft: ${f.name} – Karton steht im Abstellraum`);
+    } else if (id.startsWith('spare:')) {
+      const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
+      if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);
+    } else if (id.startsWith('accessory:')) {
       const a = ACCESSORIES.find((x) => `accessory:${x.id}` === id);
       if (economy.buyAccessory(a)) toast(`Gekauft: ${a.name} – steht im Abstellraum`);
     } else if (app === 'filaments') {

@@ -943,3 +943,6 @@ kbd {
   background: #000;
 }
 .risk.info { color: #cfd6e4; }
+.wear.ok { color: #7ee08a; }
+.wear.warn { color: #f2c419; }
+.wear.bad { color: #ff8a7a; font-weight: 600; }

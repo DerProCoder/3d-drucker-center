@@ -48,7 +48,10 @@ achievements.onUnlock = (a) => {
   sound.play('achievement');
 };
 // Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
-const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved, () => carry.spools);
+const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved, () => ({
+  spools: carry.spools,
+  nozzles: carry.nozzle ? 1 : 0,
+}));
 
 // Spielereignisse → Meldungen, Geräusche und Erfolge
 economy.onEvent = (type, d) => {
@@ -89,6 +92,19 @@ economy.onEvent = (type, d) => {
     case 'part-collected':
     case 'part-picked':
       sound.play('pop');
+      break;
+    case 'nozzle-worn':
+      hud.notify(`🔧 ${name}: Düse ist abgenutzt – Fehldrucke werden häufiger. Ersatzdüse bereitlegen!`, 'bad');
+      sound.play('warn');
+      break;
+    case 'nozzle-dead':
+      hud.notify(`🔧 ${name}: Düse verschlissen – ohne Ersatzdüse startet kein neuer Druck`, 'bad');
+      sound.play('error');
+      break;
+    case 'nozzle-replaced':
+      hud.notify(`🔩 ${name}: neue Düse eingebaut`, 'good');
+      sound.play('pop');
+      achievements.add('nozzlesReplaced');
       break;
     case 'nozzle-cleared':
       hud.notify(`🪡 ${name}: Düse wieder frei`, 'good');

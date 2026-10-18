@@ -4,7 +4,7 @@ import {
   FAILURES, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
 } from './catalog.js';
 import {
-  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, WET, batchGrams, batchMinutes, plateLayout,
+  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, batchGrams, batchMinutes, plateLayout,
 } from './economy.js';
 
 export function formatMinutes(minutes) {
@@ -114,6 +114,14 @@ export function createPrinterMenu(economy) {
       <select data-count>${options}</select></label>`;
   }
 
+  // Düsenverschleiß: ab NOZZLE_WORN gelb, verschlissen rot
+  function nozzleInfo(p) {
+    const wear = p.nozzleWear ?? 0;
+    const cls = wear >= 1 ? 'bad' : wear >= NOZZLE_WORN ? 'warn' : 'ok';
+    const text = wear >= 1 ? 'verschlissen – Ersatzdüse einbauen' : `${Math.round(wear * 100)} % abgenutzt`;
+    return `<dl class="specs"><dt>Düse</dt><dd class="wear ${cls}">🔧 ${text}</dd></dl>`;
+  }
+
   function card(p) {
     const onTable = p.location === 'table';
     const status = statusOf(p);
@@ -149,6 +157,7 @@ export function createPrinterMenu(economy) {
         <div class="status ${status.cls}" data-status>${status.text}</div>
         <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
         ${filament}
+        ${nozzleInfo(p)}
         <label class="field">Druckvorlage
           <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
         </label>

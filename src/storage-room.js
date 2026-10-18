@@ -6,6 +6,7 @@ import { WET, spoolLabel } from './economy.js';
 import { createSpool } from './spool.js';
 import { createPrinterBox } from './printer-box.js';
 import { MAX_SPOOLS } from './carry.js';
+import { furnitureSize } from './furniture.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
@@ -300,8 +301,8 @@ export function createStorageRoom({ economy, carry, collision }) {
   zoneArea.rotation.x = -Math.PI / 2;
   zoneArea.position.set(BOX_X, 0.01, zcz);
   zoneArea.userData.interaction = {
-    hint: () => (carry.printer ? 'Linksklick: Karton abstellen' : null),
-    action: () => { if (carry.printer) carry.returnToStorage(); },
+    hint: () => (carry.printer || carry.furniture ? 'Linksklick: Karton abstellen' : null),
+    action: () => { if (carry.printer || carry.furniture) carry.returnToStorage(); },
   };
   group.add(zoneArea);
 
@@ -340,7 +341,8 @@ export function createStorageRoom({ economy, carry, collision }) {
   function spoolInteraction(spool) {
     return {
       hint: () => {
-        if (carry.printer) return 'Hände voll – erst den Karton abstellen (Q)';
+        if (carry.printer || carry.furniture) return 'Hände voll – erst den Karton abstellen (Q)';
+        if (carry.nozzle) return 'Hände voll – erst die Ersatzdüse zurücklegen (Q)';
         if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
         const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
         const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
@@ -363,6 +365,15 @@ export function createStorageRoom({ economy, carry, collision }) {
     };
   }
 
+  function furnitureBoxInteraction(item) {
+    return {
+      hint: () => (carry.isEmpty ? `Linksklick: Karton ${item.type.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
+      action: () => {
+        if (carry.isEmpty && economy.takeFurnitureFromStorage(item.id)) carry.holdFurniture(item);
+      },
+    };
+  }
+
   function sync() {
     contents.clear();
     dryer.visible = economy.hasDryer;
@@ -379,12 +390,19 @@ export function createStorageRoom({ economy, carry, collision }) {
     }
 
     const boxColliders = [];
-    for (const printer of economy.printers) {
-      const spot = printer.storageSpot;
-      if (printer.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
-      const crate = createPrinterBox(printer.model);
+    // Kartons in der Lieferzone: Drucker und Regale
+    const crates = [
+      ...economy.printers.map((p) => ({ item: p, make: () => createPrinterBox(p.model), interaction: boxInteraction(p) })),
+      ...economy.furniture.map((f) => ({
+        item: f, make: () => createPrinterBox(f.type, furnitureSize(f.type), 'Einrichtung'), interaction: furnitureBoxInteraction(f),
+      })),
+    ];
+    for (const { item, make, interaction } of crates) {
+      const spot = item.storageSpot;
+      if (item.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
+      const crate = make();
       crate.position.set(BOX_X, 0, BOX_SPOTS_Z[spot]);
-      crate.userData.interaction = boxInteraction(printer);
+      crate.userData.interaction = interaction;
       contents.add(crate);
       const { w, d: depth } = crate.userData.size;
       boxColliders.push({

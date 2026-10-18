@@ -2,7 +2,8 @@
 // die Drucker – und schubst fertige Teile, die keiner abholt, gern auf den Boden. Linksklick streichelt ihn.
 // Bewegung über Delta-Zeit. Das Herunterwerfen selbst erledigt economy.knockPartOff.
 import * as THREE from 'three';
-import { PRINTER_SLOTS_X } from './workshop.js';
+import { PRINTER_SLOTS_X, RACK_SLOTS_X } from './workshop.js';
+import { furnitureSize } from './furniture.js';
 
 const NAME = 'Kater Düsentrieb';
 const WALK_SPEED = 0.7;     // m/s
@@ -152,7 +153,10 @@ export function createCat({ economy, tableHeight, onEvent }) {
     const printer = done.length && Math.random() < 0.6
       ? done[Math.floor(Math.random() * done.length)]
       : onTable[Math.floor(Math.random() * onTable.length)];
-    return { printerId: printer.id, x: PRINTER_SLOTS_X[printer.slot] + SEAT_OFFSET_X };
+    // Regalplatz i liegt rechts neben Druckerplatz i: steht dort ein Regal, sitzt er oben drauf
+    const rack = economy.furniture.find((f) => f.location === 'table' && f.slot === printer.slot);
+    if (rack) return { printerId: printer.id, x: RACK_SLOTS_X[rack.slot], y: furnitureSize(rack.type).y };
+    return { printerId: printer.id, x: PRINTER_SLOTS_X[printer.slot] + SEAT_OFFSET_X, y: 0 };
   }
 
   function decide() {
@@ -162,7 +166,7 @@ export function createCat({ economy, tableHeight, onEvent }) {
       if (s) {
         walkTo(s.x, TABLE_FRONT_Z, () => {
           seat = s;
-          startJump(new THREE.Vector3(s.x, tableHeight, TABLE_SEAT_Z), 'onTable');
+          startJump(new THREE.Vector3(s.x, tableHeight + s.y, s.y ? 0 : TABLE_SEAT_Z), 'onTable');
         });
         return;
       }

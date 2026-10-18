@@ -3,7 +3,8 @@
 // Bewusst ohne Three.js, damit die Logik unabhängig vom Rendering bleibt.
 import { FAILURES, SPOOL_GRAMS, filamentById, filamentLabel, speedById, templateById } from './catalog.js';
 
-export const START_MONEY = 1000; // €
+
+export const START_MONEY = 5000; // €
 export const GAME_MINUTES_PER_SECOND = 1 / 3; // Spielzeit: 1 echte Sekunde = 20 Spielsekunden
 export const START_TIME = 8 * 60;  // Spielbeginn: Tag 1, 8:00 Uhr (Spielminuten)
 export const RENT_PER_HOUR = 3;    // € Hallenmiete pro Spielstunde
@@ -12,6 +13,9 @@ export const BANKRUPT_AT = -500;   // so weit lässt die Bank das Konto überzie
 export const WET = 0.5;            // ab dieser Feuchte gilt eine Spule als feucht
 export const DAMP = 0.4;           // ab dieser Feuchte steigt das Fehldruckrisiko
 export const NOZZLE_POKES = 5;     // so oft muss man eine verstopfte Düse freistechen
+export const NOZZLE_LIFE_HOURS = 48; // so viele Druckstunden (bei 100 %) hält eine Düse
+export const NOZZLE_WORN = 0.75;   // ab diesem Verschleiß steigt das Fehldruckrisiko
+export const RACK_SLOT_COUNT = 3;  // Regalplätze in den Lücken zwischen den 4 Druckerplätzen
 export const PLATE_GAP = 5;        // mm Abstand zwischen Teilen auf der Druckplatte
 export const MAX_PER_PLATE = 16;   // mehr Teile auf einmal lässt das Spiel nicht zu
 const BATCH_TIME_SHARE = 0.9;      // jedes weitere Teil braucht 90 % der Zeit (Aufheizen, Kalibrieren nur einmal)
@@ -68,12 +72,16 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   activeSlot: Fach, aus dem gedruckt wird
 //   speedId: gewählte Geschwindigkeitsstufe
 //   clogged / nozzlePokes: verstopfte Düse und wie oft schon gestochert wurde
+//   nozzleWear: Verschleiß der Düse 0…1 – bei 1 ist sie hinüber und muss getauscht werden
 //   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
 //          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament', failure?: Schlüssel aus FAILURES }
 //        oder null
 // Fertige Teile haben eine Farbe: Schlüssel `${templateId}|${filamentId}` → Anzahl
 // Regal: Spulen mit festem Platz { filamentId, grams, moisture, shelfSlot }, damit beim Herausnehmen nichts nachrutscht
 // Kartons im Abstellraum haben ebenso einen festen Platz (storageSpot)
+// Einrichtung (Regale am Druckertisch): { id, type (aus FURNITURE), location, slot, storageSpot,
+//   spools (Filament-Regal: Fächer mit Spule oder null), nozzles (Ersatzteilregal: Anzahl Ersatzdüsen) }
+//   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (slot 0…RACK_SLOT_COUNT-1).
 // Lose Teile: hat der Kater vom Tisch geworfen, liegen auf dem Boden { id, templateId, filamentId, x, z, rotY }
 export class Economy {
   constructor() {
@@ -85,6 +93,8 @@ export class Economy {
     this.finishedParts = new Map();
     this.looseParts = [];
     this.accessories = new Set();    // gekauftes Zubehör (IDs aus ACCESSORIES)
+    this.furniture = [];             // Regale (siehe oben)
+    this.nextFurnitureId = 1;
     this.nextPrinterId = 1;
     this.nextLooseId = 1;
     this.listeners = new Set();
@@ -141,6 +151,10 @@ export class Economy {
   updateMoisture(gameMinutes) {
     const shelfRate = this.hasDryer ? MOISTURE_PER_MINUTE.dryer : MOISTURE_PER_MINUTE.shelf;
     for (const s of this.shelf) s.moisture = clamp01(s.moisture + shelfRate * gameMinutes);
+    // Das Filament-Regal am Tisch ist offen wie das Lagerregal ohne Trockenschrank
+    for (const f of this.furniture) {
+      for (const s of f.spools ?? []) if (s) s.moisture = clamp01(s.moisture + MOISTURE_PER_MINUTE.shelf * gameMinutes);
+    }
     for (const p of this.printers) {
       const rate = p.spools.length > 1 ? MOISTURE_PER_MINUTE.ams : MOISTURE_PER_MINUTE.open;
       for (const s of p.spools) if (s) s.moisture = clamp01(s.moisture + rate * gameMinutes);
@@ -189,7 +203,7 @@ export class Economy {
     const printer = {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
       spools: Array(model.spoolSlots).fill(null), activeSlot: 0, speedId: 'standard', job: null,
-      clogged: false, nozzlePokes: 0, storageSpot: this.freeStorageSpot(),
+      clogged: false, nozzlePokes: 0, nozzleWear: 0, storageSpot: this.freeStorageSpot(),
     };
     this.printers.push(printer);
     this.notify();
@@ -323,7 +337,8 @@ export class Economy {
     if (this.isBusy(printer)) return 'Druckt gerade';
     if (printer.job?.status === 'done') return 'Erst das fertige Teil entnehmen';
     if (printer.job?.status === 'failed') return 'Erst den Fehldruck am Drucker wegräumen';
-    if (printer.clogged) return 'Düse verstopft – am Drucker freistechen';
+    if (printer.clogged) return 'Düse verstopft – freistechen oder Ersatzdüse einbauen';
+    if ((printer.nozzleWear ?? 0) >= 1) return 'Düse verschlissen – Ersatzdüse einbauen';
     const spool = this.activeSpool(printer);
     if (!spool) return printer.spools.length > 1 ? 'Gewähltes AMS-Fach ist leer' : 'Kein Filament eingelegt';
     const material = filamentById(spool.filamentId).material;
@@ -359,6 +374,8 @@ export class Economy {
     if (material === 'TPU' && speed > 100) risk += 0.2;           // Gummi mag es langsam
     if (template.size.z > 100 && speed > 100) risk += 0.04;       // hohe Teile wackeln
     if (spool.moisture > DAMP) risk += (spool.moisture - DAMP) * 0.4; // klatschnass: +24 %
+    const wear = printer.nozzleWear ?? 0;
+    if (wear > NOZZLE_WORN) risk += (wear - NOZZLE_WORN) * 0.6;     // abgenutzte Düse: bis +15 %
     if (speed < 100) risk *= 0.5;
     risk = 1 - (1 - risk) ** (1 + 0.25 * (count - 1));
     return Math.min(0.95, risk);
@@ -480,6 +497,8 @@ export class Economy {
         changed = true;
       }
 
+      this.wearNozzle(p, step * batchMinutes(template, count));
+
       // Pannen: das Risiko gilt für den ganzen Druck und wird auf die Fortschrittsschritte verteilt
       const risk = this.failureRisk(p, template, spool ?? p.spools[job.slot], count);
       if (step > 0 && this.random() < 1 - (1 - risk) ** step) {
@@ -508,7 +527,7 @@ export class Economy {
       spaghetti: 3,
       detached: template.size.z > 60 ? 2 : 0.5,
       warp: material === 'ABS' && !printer.model.enclosed ? 8 : 0.4,
-      clog: 0.8 + moisture * 5 + (material === 'TPU' ? 2 : 0),
+      clog: 0.8 + moisture * 5 + (material === 'TPU' ? 2 : 0) + (printer.nozzleWear ?? 0) * 3,
     };
     let roll = this.random() * Object.values(weights).reduce((a, b) => a + b, 0);
     let failure = 'spaghetti';
@@ -526,6 +545,169 @@ export class Economy {
       printer.nozzlePokes = 0;
     }
     this.emit('print-failed', { printer, template, failure, info: FAILURES[failure] });
+  }
+
+  // ---------- Düsenverschleiß ----------
+
+  // printedMinutes: gedruckte Zeit bei 100 %. Schnelle Stufen nutzen die Düse stärker ab.
+  wearNozzle(printer, printedMinutes) {
+    const before = printer.nozzleWear ?? 0;
+    const speedFactor = speedById(printer.speedId).percent > 100 ? 1.3 : 1;
+    printer.nozzleWear = Math.min(1, before + (printedMinutes * speedFactor) / (NOZZLE_LIFE_HOURS * 60));
+    if (before < NOZZLE_WORN && printer.nozzleWear >= NOZZLE_WORN) this.emit('nozzle-worn', { printer });
+    if (before < 1 && printer.nozzleWear >= 1) this.emit('nozzle-dead', { printer });
+  }
+
+  // Ersatzdüse einbauen: neu, frei, nicht verstopft. Nicht während eines Drucks.
+  replaceNozzle(printerId) {
+    const p = this.printerById(printerId);
+    if (!p || this.isBusy(p)) return false;
+    p.nozzleWear = 0;
+    p.clogged = false;
+    p.nozzlePokes = 0;
+    this.emit('nozzle-replaced', { printer: p });
+    this.notify();
+    return true;
+  }
+
+  // ---------- Einrichtung: Regale am Druckertisch ----------
+
+  furnitureById(id) {
+    return this.furniture.find((f) => f.id === id);
+  }
+
+  // Steht auf diesem Druckerplatz schon ein Drucker?
+  tableSlotUsed(slot) {
+    return this.printers.some((p) => p.location === 'table' && p.slot === slot);
+  }
+
+  // Steht auf diesem Regalplatz (zwischen zwei Druckern) schon ein Regal?
+  rackSlotUsed(slot) {
+    return this.furniture.some((f) => f.location === 'table' && f.slot === slot);
+  }
+
+  // Wie viele Regale noch gekauft werden können (egal ob schon aufgestellt)
+  get freeRackSlots() {
+    return RACK_SLOT_COUNT - this.furniture.length;
+  }
+
+  buyFurniture(type) {
+    if (!this.withdraw(type.price)) return null;
+    const item = {
+      id: this.nextFurnitureId++, type, location: 'storage', slot: null, storageSpot: this.freeStorageSpot(),
+      spools: type.id === 'filament-rack' ? Array(type.capacity).fill(null) : null,
+      nozzles: 0,
+    };
+    this.furniture.push(item);
+    this.notify();
+    return item;
+  }
+
+  takeFurnitureFromStorage(id) {
+    const f = this.furnitureById(id);
+    if (f?.location !== 'storage') return false;
+    f.location = 'carried';
+    f.storageSpot = null;
+    this.notify();
+    return true;
+  }
+
+  returnFurnitureToStorage(id) {
+    const f = this.furnitureById(id);
+    if (!f) return;
+    f.location = 'storage';
+    f.slot = null;
+    f.storageSpot = this.freeStorageSpot();
+    this.notify();
+  }
+
+  placeFurniture(id, slot) {
+    const f = this.furnitureById(id);
+    if (!f || slot < 0 || slot >= RACK_SLOT_COUNT || this.rackSlotUsed(slot)) return;
+    f.location = 'table';
+    f.slot = slot;
+    this.notify();
+  }
+
+  isFurnitureEmpty(f) {
+    return !f.nozzles && !(f.spools ?? []).some(Boolean);
+  }
+
+  // Leeres Regal wieder vom Tisch nehmen (z. B. um den Platz für einen Drucker frei zu machen)
+  pickUpFurniture(id) {
+    const f = this.furnitureById(id);
+    if (f?.location !== 'table' || !this.isFurnitureEmpty(f)) return false;
+    f.location = 'carried';
+    f.slot = null;
+    this.notify();
+    return true;
+  }
+
+  // Spule ins erste freie Fach des Filament-Regals legen. Gibt zurück, ob Platz war.
+  putSpoolInRack(rackId, spool) {
+    const f = this.furnitureById(rackId);
+    const free = f?.spools?.indexOf(null) ?? -1;
+    if (free === -1) return false;
+    f.spools[free] = { ...spool };
+    this.notify();
+    return true;
+  }
+
+  takeSpoolFromRack(rackId, index) {
+    const f = this.furnitureById(rackId);
+    const spool = f?.spools?.[index];
+    if (!spool) return null;
+    f.spools[index] = null;
+    this.notify();
+    return spool;
+  }
+
+  // Aufgestellte Ersatzteilregale und wie viele Düsen noch hineinpassen
+  get partsRacks() {
+    return this.furniture.filter((f) => f.type.id === 'parts-rack' && f.location === 'table');
+  }
+
+  get partsRackSpace() {
+    return this.partsRacks.reduce((sum, f) => sum + f.type.capacity - f.nozzles, 0);
+  }
+
+  get spareNozzles() {
+    return this.partsRacks.reduce((sum, f) => sum + f.nozzles, 0);
+  }
+
+  // Ersatzteile werden direkt ins Ersatzteilregal geliefert
+  buySparePart(part) {
+    const rack = this.partsRacks.find((f) => f.nozzles < f.type.capacity);
+    if (!rack || !this.withdraw(part.price)) return false;
+    rack.nozzles++;
+    this.notify();
+    return true;
+  }
+
+  takeNozzleFromRack(rackId) {
+    const f = this.furnitureById(rackId);
+    if (!f?.nozzles) return false;
+    f.nozzles--;
+    this.notify();
+    return true;
+  }
+
+  putNozzleInRack(rackId) {
+    const f = this.furnitureById(rackId);
+    if (!f || f.nozzles >= f.type.capacity) return false;
+    f.nozzles++;
+    this.notify();
+    return true;
+  }
+
+  // Düse aus der Hand zurück: ins erste Ersatzteilregal mit Platz (notfalls ins erste überhaupt)
+  returnNozzle() {
+    const racks = this.furniture.filter((f) => f.type.id === 'parts-rack');
+    const rack = racks.find((f) => f.nozzles < f.type.capacity) ?? racks[0];
+    if (!rack) return false;
+    rack.nozzles++;
+    this.notify();
+    return true;
   }
 
   // ---------- Fertige Teile ----------
@@ -630,7 +812,8 @@ export class Economy {
 
   // Erster freier Kartonplatz in der Lieferzone
   freeStorageSpot() {
-    const used = new Set(this.printers.filter((p) => p.location === 'storage').map((p) => p.storageSpot));
+    const used = new Set([...this.printers, ...this.furniture]
+      .filter((p) => p.location === 'storage').map((p) => p.storageSpot));
     let spot = 0;
     while (used.has(spot)) spot++;
     return spot;

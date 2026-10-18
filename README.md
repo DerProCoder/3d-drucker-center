@@ -66,7 +66,7 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat (Material und meist auch die Farbe), was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 1.000 € – überleg dir gut, womit du anfängst.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 5.000 € – überleg dir gut, womit du anfängst.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
@@ -91,7 +91,16 @@ Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Dr
 - **Fehldruck** (⚠️): Spaghetti, abgelöstes oder verzogenes Teil. Hingehen und auf den Drucker klicken, um das Bett freizuräumen – das Filament ist verloren. Das Risiko steht vor dem Start im Druckermenü: Höhere Geschwindigkeit, **ABS ohne Gehäuse** (A1, A1 mini) und **feuchtes Filament** machen Fehldrucke wahrscheinlicher, „Leise“ halbiert das Risiko.
 - **Verstopfte Düse** (🪡): Fünfmal auf den Drucker klicken, um sie freizustechen.
 - **Filament leer** (🧵): Der Drucker hält an, bis du eine Spule in derselben Sorte und Farbe einlegst – dann druckt er von selbst weiter. Das **AMS** wechselt automatisch auf ein anderes Fach mit derselben Spule.
+- **Düsenverschleiß** (🔧): Jede Düse hält rund 48 Druckstunden, schnelle Stufen nutzen sie stärker ab. Den Zustand zeigt das Druckermenü. Ab 75 % gibt es mehr Fehldrucke, bei 100 % startet kein neuer Druck. **Ersatzdüsen** gibt es im Filament-Shop, sie landen direkt im Ersatzteilregal. Düse aus dem Regal nehmen und auf den Drucker klicken – das hilft auch bei einer verstopften Düse.
 - **Feuchtes Filament** (💧): Spulen im Regal ziehen mit der Zeit Feuchtigkeit, im AMS langsamer. Der **Filament-Trockenschrank** aus dem Filament-Shop hält das Regal trocken und trocknet feuchte Spulen wieder.
+
+### Regale am Druckertisch
+
+Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Drucker als Karton in den Abstellraum und werden **in die Lücken zwischen den Druckern** gestellt (3 Regalplätze) – die 4 Druckerplätze bleiben frei.
+
+- **Filament-Regal** (8 Spulen): Spulen in der Hand aufs Regal klicken legt sie ab, auf eine Spule zielen nimmt genau diese. So hast du die nächsten Farben direkt neben den Druckern.
+- **Ersatzteilregal** (12 Ersatzdüsen): Gekaufte Ersatzdüsen landen hier. Klick nimmt eine Düse in die Hand.
+- Ein **leeres** Regal kannst du wieder aufheben und woanders hinstellen.
 
 ### Kater Düsentrieb
 

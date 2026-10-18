@@ -1,6 +1,7 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, fertige Teile, Aufträge, Level und Erfolge.
 // Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-import { PRINTERS, templateById } from './catalog.js';
+import { PRINTERS, furnitureById, templateById } from './catalog.js';
+import { RACK_SLOT_COUNT } from './economy.js';
 
 const KEY = 'druckercenter-save';
 const VERSION = 3; // 2: Drucker mit Spulenfächern (AMS) · 3: Spielzeit, Feuchte, Pannen, farbige Teile, Erfolge
@@ -23,13 +24,26 @@ export function deleteSave() {
   storage()?.removeItem(KEY);
 }
 
-// carried: Spulen in der Hand ({ filamentId, grams, moisture }) – werden als „im Regal“ gespeichert,
-// damit beim Neuladen nichts verloren geht
-export function saveGame(economy, orders, progress, achievements, carried = []) {
+// carried: { spools, nozzles } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“
+// gespeichert, damit beim Neuladen nichts verloren geht
+export function saveGame(economy, orders, progress, achievements, carried = {}) {
+  const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
   let free = 0;
-  for (const spool of carried) {
+  const furniture = economy.furniture.map((f) => ({
+    id: f.id,
+    typeId: f.type.id,
+    // Getragene Regale landen beim Laden wieder im Abstellraum
+    location: f.location === 'table' ? 'table' : 'storage',
+    slot: f.location === 'table' ? f.slot : null,
+    storageSpot: f.location === 'table' ? null : f.storageSpot,
+    spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
+    nozzles: f.nozzles,
+  }));
+  const partsRack = furniture.find((f) => f.typeId === 'parts-rack');
+  if (partsRack) partsRack.nozzles += carried.nozzles ?? 0;
+  for (const spool of carriedSpools) {
     while (used.has(free)) free++;
     used.add(free);
     shelf.push({ filamentId: spool.filamentId, grams: spool.grams, moisture: spool.moisture ?? 0, shelfSlot: free });
@@ -55,12 +69,15 @@ export function saveGame(economy, orders, progress, achievements, carried = []) 
         speedId: p.speedId,
         clogged: p.clogged,
         nozzlePokes: p.nozzlePokes,
+        nozzleWear: p.nozzleWear ?? 0,
         job: p.job ? { ...p.job } : null,
       })),
       shelf,
       finishedParts: [...economy.finishedParts],
       looseParts: economy.looseParts.map((l) => ({ ...l })),
       accessories: [...economy.accessories],
+      furniture,
+      nextFurnitureId: economy.nextFurnitureId,
     },
     orders: {
       open: orders.open.map((o) => ({ ...o })),
@@ -130,6 +147,22 @@ export function loadGame(economy, orders, progress, achievements) {
   economy.finishedParts = new Map(e.finishedParts);
   economy.looseParts = e.looseParts ?? [];
   economy.accessories = new Set(e.accessories ?? []);
+  economy.furniture = (e.furniture ?? [])
+    .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) }))
+    .filter((f) => f.type);
+  economy.nextFurnitureId = e.nextFurnitureId ?? 1;
+  // Regale ohne gültigen oder mit doppeltem Regalplatz (ältere Zwischenstände) zurück in den Abstellraum
+  const usedRackSlots = new Set();
+  for (const f of economy.furniture) {
+    if (f.location !== 'table') continue;
+    if (f.slot >= RACK_SLOT_COUNT || usedRackSlots.has(f.slot)) {
+      f.location = 'storage';
+      f.slot = null;
+      f.storageSpot = economy.freeStorageSpot();
+    } else {
+      usedRackSlots.add(f.slot);
+    }
+  }
 
   orders.open = data.orders.open;
   orders.nextId = data.orders.nextId;
