@@ -239,6 +239,23 @@ function iconBuild(ctx, x, y, s) {
   ctx.fillRect(x + s * 0.33, y + s * 0.62, s * 0.34, s * 0.1);
 }
 
+// Personal: Kopf mit grüner Kappe und Schultern
+function iconStaff(ctx, x, y, s) {
+  ctx.fillStyle = '#00ae42';
+  ctx.beginPath();
+  ctx.ellipse(x + s * 0.5, y + s * 0.98, s * 0.4, s * 0.32, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = '#e8b996';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.5, y + s * 0.42, s * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#00ae42';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.5, y + s * 0.36, s * 0.21, Math.PI, 0);
+  ctx.fill();
+  ctx.fillRect(x + s * 0.5, y + s * 0.33, s * 0.28, s * 0.05);
+}
+
 function iconCam(ctx, x, y, s) {
   ctx.fillStyle = '#2f3540';
   roundRect(ctx, x, y + s * 0.2, s * 0.72, s * 0.6, s * 0.1);
@@ -263,7 +280,7 @@ function iconCam(ctx, x, y, s) {
 const ICONS = {
   trophy: iconTrophy,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
-  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild,
+  orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)

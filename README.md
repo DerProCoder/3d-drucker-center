@@ -116,6 +116,18 @@ Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – 
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
+## Personal
+
+In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lohn pro Spielstunde, höchstens 2). Sie kommen durch die Lagertür, laufen über den Gang neben den Drucktischen und kümmern sich selbst um:
+
+1. Fehldrucke wegräumen
+2. Verstopfte Düsen freistechen
+3. Fertige Teile abnehmen
+4. Neues Filament aus dem Lager holen, wenn ein Drucker darauf wartet
+5. Teile aufheben, die der Kater vom Tisch geworfen hat
+
+Ohne Arbeit warten sie am Pausenplatz. Zielst du auf einen Azubi, siehst du, was er gerade tut. Entlassen geht in derselben App.
+
 ## Halle ausbauen
 
 Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
@@ -161,6 +173,7 @@ src/
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
     upgrades.js       Ausbau: Drucktische, Regalebenen
+    staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
@@ -171,6 +184,7 @@ src/
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
     cat.js            Kater Düsentrieb
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
+    workers.js        Azubis als Figuren: Laufwege durch Halle und Lager, Arbeiten, Spule tragen
     interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
     collision.js      Kollision der Spielfigur
     graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
@@ -187,7 +201,7 @@ src/
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
     shop.js           PC-Desktop mit Apps, Taskleiste und Mauszeiger
     desktop.js        Bildschirm und App-Symbole
-    printer-menu.js · orders-menu.js · upgrades-menu.js   Apps Druckermenü, Aufträge, Ausbau
+    printer-menu.js · orders-menu.js · upgrades-menu.js · staff-menu.js   Apps Druckermenü, Aufträge, Ausbau, Personal
     printer-cam.js    App Drucker-Cam
     printer-preview.js  Produktbilder der Drucker für den Shop
     pc-apps.js        Notizen und Rechner

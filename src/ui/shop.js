@@ -10,6 +10,7 @@ import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
 import { createUpgradesMenu } from './upgrades-menu.js';
+import { createStaffMenu } from './staff-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
@@ -26,6 +27,7 @@ const APPS = [
   { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
   { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
+  { id: 'staff', name: 'Personal', icon: 'staff', live: true },
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
@@ -41,7 +43,10 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
 // orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
 // upgrades: Hallen-Ausbau (upgrades.js)
-export function createShop(economy, { orders, achievements, cam, upgrades, freePrinterSlots, freeShelfSpace, onClose }) {
+// staff: Personal (staff.js), staffStatus(id): was ein Mitarbeiter gerade tut
+export function createShop(economy, {
+  orders, achievements, cam, upgrades, staff, staffStatus, freePrinterSlots, freeShelfSpace, onClose,
+}) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -87,6 +92,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
   const printerMenu = createPrinterMenu(economy);
   const ordersMenu = createOrdersMenu(orders, economy);
   const upgradesMenu = createUpgradesMenu(upgrades, economy);
+  const staffMenu = createStaffMenu(staff, staffStatus);
   const notes = createNotesApp();
   const calc = createCalcApp();
 
@@ -266,7 +272,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     balanceEl.textContent = !info.live ? '' : economy.unlimited ? '∞ €' : euro.format(economy.money);
     const scroll = contentEl.scrollTop;
     const renderers = {
-      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render,
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
       cam: cam.render, dev: renderDev,
     };
@@ -368,6 +374,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     updateClock();
     if (app === 'control') printerMenu.liveUpdate(contentEl);
     if (app === 'orders') ordersMenu.liveUpdate(contentEl);
+    if (app === 'staff') staffMenu.liveUpdate(contentEl);
     // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
     if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)) {
       if ((liveTicks = (liveTicks + 1) % 4) === 0) render();
@@ -381,6 +388,11 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     }
     if (app === 'dev') {
       handleDev(e);
+      return;
+    }
+    if (app === 'staff') {
+      const message = staffMenu.handleClick(e);
+      if (message) toast(message);
       return;
     }
     if (app === 'upgrades') {
@@ -443,6 +455,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
   economy.subscribe(refresh);
   orders.subscribe(refresh);
   upgrades.subscribe(refresh);
+  staff.subscribe(refresh);
 
   return { open, close, isOpen };
 }
