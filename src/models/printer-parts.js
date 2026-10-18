@@ -229,16 +229,17 @@ export function createToolhead(m, style = 'a1') {
   head.add(logo);
   head.add(box(0.012, 0.0015, 0.001, m.led, 0, -h / 2 + 0.012, d / 2 + 0.0098));
 
-  // Lüftergitter links (Bauteilkühlung): konzentrische Ringe
-  const grille = new THREE.Group();
-  grille.add(new THREE.Mesh(new THREE.CircleGeometry(0.0185, 32), m.black));
-  for (const r of [0.007, 0.012, 0.017]) {
-    grille.add(new THREE.Mesh(new THREE.TorusGeometry(r, 0.0011, 6, 32), m.shellDark));
+  // Lüfter links (Bauteilkühlung, groß) und rechts (Kühlkörper, klein): Rotor hinter einem Gitter aus Ringen.
+  // Die Rotoren liegen in userData.fans und drehen sich beim Drucken (workshop.js).
+  const fans = [];
+  for (const [side, radius, y] of [[-1, 0.0185, -0.005], [1, 0.012, 0.012]]) {
+    const fan = createFan(radius, m);
+    fan.rotation.y = side * Math.PI / 2;
+    fan.position.set(side * (w / 2 + 0.0008), y, 0.002);
+    head.add(fan);
+    fans.push(fan.userData.rotor);
   }
-  grille.add(new THREE.Mesh(new THREE.CircleGeometry(0.0045, 20), m.shellDark));
-  grille.rotation.y = -Math.PI / 2;
-  grille.position.set(-w / 2 - 0.0008, -0.005, 0.002);
-  head.add(grille);
+  head.userData.fans = fans;
 
   // Schneidhebel oben links, PTFE-Kupplung oben
   head.add(rbox(0.008, 0.012, 0.007, 0.002, m.shell, -w / 2 + 0.006, h / 2 + 0.004, d / 2 - 0.006));
@@ -255,6 +256,36 @@ export function createToolhead(m, style = 'a1') {
   head.userData.nozzleBelowCenter = h / 2 + 0.02;
   head.userData.topAboveCenter = h / 2 + 0.009;
   return head;
+}
+
+// Kleiner Axiallüfter: dunkler Rahmen, Rotor mit sieben Blättern, davor Gitterringe. Ursprung in der Mitte,
+// Luftseite nach +z. userData.rotor dreht sich um seine z-Achse.
+function createFan(radius, m) {
+  const fan = new THREE.Group();
+  fan.add(new THREE.Mesh(new THREE.CircleGeometry(radius, 32), m.black));
+  const rotor = new THREE.Group();
+  rotor.position.z = 0.0005;
+  const blade = new THREE.BoxGeometry(radius * 0.32, radius * 0.78, 0.0006);
+  for (let i = 0; i < 7; i++) {
+    const pivot = new THREE.Group();
+    pivot.rotation.z = (i / 7) * Math.PI * 2;
+    const mesh = new THREE.Mesh(blade, m.shellMid);
+    mesh.position.y = radius * 0.5;
+    mesh.rotation.y = 0.45; // angestellt wie ein echtes Lüfterblatt
+    pivot.add(mesh);
+    rotor.add(pivot);
+  }
+  fan.add(rotor);
+  for (const f of [0.38, 0.65, 0.92]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(radius * f, radius * 0.06, 6, 32), m.shellDark);
+    ring.position.z = 0.0013;
+    fan.add(ring);
+  }
+  const hub = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.25, 20), m.shellDark);
+  hub.position.z = 0.0016;
+  fan.add(hub);
+  fan.userData.rotor = rotor;
+  return fan;
 }
 
 // Touchscreen mit Bambu-ähnlicher Statusanzeige. Ursprung in der Mitte, Anzeige nach +z.

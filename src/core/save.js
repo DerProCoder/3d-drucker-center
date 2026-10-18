@@ -38,9 +38,10 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: f.location === 'table' ? 'table' : 'storage',
+    location: f.location === 'table' || f.location === 'shipping' ? f.location : 'storage',
     slot: f.location === 'table' ? f.slot : null,
-    storageSpot: f.location === 'table' ? null : f.storageSpot,
+    storageSpot: f.location === 'storage' ? f.storageSpot : null,
+    arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
     nozzles: f.nozzles,
   }));
@@ -56,6 +57,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     savedAt: Date.now(),
     economy: {
       money: economy.money,
+      unlimited: economy.unlimited,
+      instantDelivery: economy.instantDelivery,
       pendingCosts: economy.pendingCosts,
       nextPrinterId: economy.nextPrinterId,
       nextLooseId: economy.nextLooseId,
@@ -63,9 +66,10 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       printers: economy.printers.map((p) => ({
         id: p.id,
         modelId: p.model.id,
-        location: p.location === 'table' ? 'table' : 'storage',
+        location: p.location === 'table' || p.location === 'shipping' ? p.location : 'storage',
         slot: p.location === 'table' ? p.slot : null,
-        storageSpot: p.location === 'table' ? null : p.storageSpot,
+        storageSpot: p.location === 'storage' ? p.storageSpot : null,
+        arriveIn: p.arriveIn,
         spools: p.spools.map((spool) => (spool ? { ...spool } : null)),
         activeSlot: p.activeSlot,
         speedId: p.speedId,
@@ -90,7 +94,11 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     },
     progress: { xp: progress.xp },
     achievements: { stats: { ...achievements.stats }, unlocked: [...achievements.unlocked] },
-    upgrades: { tables: upgrades.tables, shelfLevels: upgrades.shelfLevels },
+    upgrades: {
+      tables: upgrades.tables, tablesOrdered: upgrades.tablesOrdered,
+      shelfLevels: upgrades.shelfLevels, shelfOrdered: upgrades.shelfOrdered,
+      deliveries: upgrades.deliveries.map((d) => ({ ...d })),
+    },
     clock: { minutes: clock.minutes },
   };
   try {
@@ -141,6 +149,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
 
   const e = data.economy;
   economy.money = e.money;
+  economy.unlimited = !!e.unlimited;
+  economy.instantDelivery = !!e.instantDelivery;
   // Spieluhr: eigener Eintrag (ab #5) oder früher in economy.time gespeichert
   clock.minutes = data.clock?.minutes ?? e.time ?? clock.minutes;
   economy.pendingCosts = e.pendingCosts ?? 0;
@@ -159,10 +169,15 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data.upgrades) {
     upgrades.tables = data.upgrades.tables;
     upgrades.shelfLevels = data.upgrades.shelfLevels;
+    upgrades.tablesOrdered = data.upgrades.tablesOrdered ?? upgrades.tables;
+    upgrades.shelfOrdered = data.upgrades.shelfOrdered ?? upgrades.shelfLevels;
+    upgrades.deliveries = data.upgrades.deliveries ?? [];
   } else {
     const highestSlot = Math.max(-1, ...economy.printers.filter((p) => p.location === 'table').map((p) => p.slot));
     upgrades.tables = Math.max(1, Math.ceil((highestSlot + 1) / SLOTS_PER_TABLE));
     upgrades.shelfLevels = upgrades.maxShelfLevels;
+    upgrades.tablesOrdered = upgrades.tables;
+    upgrades.shelfOrdered = upgrades.shelfLevels;
   }
 
   economy.furniture = (e.furniture ?? [])

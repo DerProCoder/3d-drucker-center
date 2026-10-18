@@ -25,6 +25,8 @@ export function createPrinterMenu(economy) {
   }
 
   function statusOf(p) {
+    if (p.location === 'shipping') return { text: `Unterwegs – kommt in ${Math.ceil(p.arriveIn)} s`, cls: 'idle' };
+    if (p.location === 'floor') return { text: 'Liegt auf dem Boden – aufheben und auf den Tisch stellen', cls: 'idle' };
     if (p.location === 'storage') return { text: 'Noch im Karton im Abstellraum', cls: 'idle' };
     if (p.location === 'carried') return { text: 'Wird gerade getragen', cls: 'idle' };
     const job = p.job;

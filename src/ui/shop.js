@@ -1,6 +1,7 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+// Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
 } from '../core/catalog.js';
@@ -28,7 +29,12 @@ const APPS = [
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
+  // versteckt: kein Symbol, nur über dreimal Windows-Symbol
+  { id: 'dev', name: 'Entwicklermenü', icon: 'start', live: true, small: true, hidden: true },
 ];
+const VISIBLE_APPS = APPS.filter((a) => !a.hidden);
+const SECRET_CLICKS = 3;
+const SECRET_SECONDS = 1.5; // so schnell hintereinander muss man klicken
 const appById = (id) => APPS.find((a) => a.id === id);
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
@@ -43,7 +49,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
   root.style.backgroundImage = `url(${wallpaperDataUrl()})`;
   root.innerHTML = `
     <div class="desktop-icons">
-      ${APPS.map((a) => `
+      ${VISIBLE_APPS.map((a) => `
         <button class="desktop-icon" data-open="${a.id}">
           <img src="${icons.get(a.id)}" alt=""><span>${a.name}</span><span class="icon-badge" data-badge="${a.id}"></span>
         </button>`).join('')}
@@ -62,7 +68,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
       <button class="taskbar-power" title="PC verlassen (Esc)">⏻ PC verlassen</button>
       <div class="taskbar-apps">
         <img class="taskbar-start" src="${iconDataUrl('start', 24)}" alt="">
-        ${APPS.map((a) => `<button class="taskbar-app" data-open="${a.id}" title="${a.name}"><img src="${icons.get(a.id)}" alt="${a.name}"></button>`).join('')}
+        ${VISIBLE_APPS.map((a) => `<button class="taskbar-app" data-open="${a.id}" title="${a.name}"><img src="${icons.get(a.id)}" alt="${a.name}"></button>`).join('')}
       </div>
       <div class="taskbar-clock"></div>
     </div>
@@ -257,17 +263,71 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     titleEl.textContent = info.name;
     titleIconEl.src = icons.get(app);
     windowEl.classList.toggle('small', !!info.small);
-    balanceEl.textContent = info.live ? euro.format(economy.money) : '';
+    balanceEl.textContent = !info.live ? '' : economy.unlimited ? '∞ €' : euro.format(economy.money);
     const scroll = contentEl.scrollTop;
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
-      cam: cam.render,
+      cam: cam.render, dev: renderDev,
     };
     contentEl.innerHTML = renderers[app]();
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     contentEl.scrollTop = scroll;
   }
+
+  // Entwicklermenü: unendlich Geld, Geld dazu, Lieferungen sofort
+  function renderDev() {
+    const toggle = (id, on, label, text) => `
+      <div class="card dev-option">
+        <div class="card-head"><div>
+          <div class="card-title">${label}</div>
+          <div class="card-sub">${text}</div>
+        </div></div>
+        <div class="card-foot"><span class="stock">${on ? 'An' : 'Aus'}</span>
+          <button class="${on ? 'danger' : 'buy'}" data-dev="${id}">${on ? 'Ausschalten' : 'Einschalten'}</button></div>
+      </div>`;
+    return `
+      <p class="slots">🛠️ Psst – geheimes Entwicklermenü. Nicht weitersagen!</p>
+      <div class="dev-list">
+        ${toggle('unlimited', economy.unlimited, '💰 Unendlich Geld', 'Alles kaufen, ohne dass Geld abgeht. Miete und Strom werden auch nicht berechnet.')}
+        ${toggle('instant', economy.instantDelivery, '🚀 Lieferung sofort', 'Pakete, Tische und Regalebenen kommen ohne Wartezeit an.')}
+        <div class="card dev-option">
+          <div class="card-head"><div><div class="card-title">💶 Taschengeld</div><div class="card-sub">1.000 € aufs Konto</div></div></div>
+          <div class="card-foot"><span class="stock"></span><button class="buy" data-dev="money">+1.000 €</button></div>
+        </div>
+      </div>`;
+  }
+
+  function handleDev(e) {
+    const id = e.target.closest('[data-dev]')?.dataset.dev;
+    if (id === 'unlimited') {
+      economy.unlimited = !economy.unlimited;
+      economy.notify();
+      toast(economy.unlimited ? '💰 Unendlich Geld an' : 'Unendlich Geld aus');
+    } else if (id === 'instant') {
+      economy.instantDelivery = !economy.instantDelivery;
+      if (economy.instantDelivery) { // was schon unterwegs ist, kommt gleich an
+        for (const item of economy.shipments) item.arriveIn = 0;
+        for (const d of upgrades.deliveries) d.arriveIn = 0;
+      }
+      economy.notify();
+      toast(economy.instantDelivery ? '🚀 Lieferungen kommen sofort' : 'Lieferungen dauern wieder');
+    } else if (id === 'money') {
+      economy.earn(1000);
+      toast('+1.000 € aufs Konto');
+    }
+  }
+
+  // Dreimal schnell aufs Windows-Symbol: Entwicklermenü öffnen
+  let secretClicks = [];
+  root.querySelector('.taskbar-start').addEventListener('click', () => {
+    const now = performance.now();
+    secretClicks = [...secretClicks.filter((t) => now - t < SECRET_SECONDS * 1000), now];
+    if (secretClicks.length < SECRET_CLICKS) return;
+    secretClicks = [];
+    openApp('dev');
+    toast('🛠️ Entwicklermenü freigeschaltet');
+  });
 
   function openApp(id) {
     app = id;
@@ -301,17 +361,26 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     if (app === 'notes') notes.handleInput(e);
   });
 
+  let liveTicks = 0;
   // Fortschrittsbalken im Druckermenü, Fristen bei den Aufträgen und die Uhr laufen live mit
   setInterval(() => {
     if (!isOpen()) return;
     updateClock();
     if (app === 'control') printerMenu.liveUpdate(contentEl);
     if (app === 'orders') ordersMenu.liveUpdate(contentEl);
+    // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
+    if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)) {
+      if ((liveTicks = (liveTicks + 1) % 4) === 0) render();
+    }
   }, 250);
 
   contentEl.addEventListener('click', (e) => {
     if (app === 'control') {
       printerMenu.handleClick(e);
+      return;
+    }
+    if (app === 'dev') {
+      handleDev(e);
       return;
     }
     if (app === 'upgrades') {
@@ -336,7 +405,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
     if (!id) return;
     if (id.startsWith('furniture:')) {
       const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
-      if (upgrades.rackSlots - economy.furniture.length > 0 && economy.buyFurniture(f)) toast(`Gekauft: ${f.name} – Karton steht im Abstellraum`);
+      if (upgrades.rackSlots - economy.furniture.length > 0 && economy.buyFurniture(f)) toast(`Bestellt: ${f.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
     } else if (id.startsWith('spare:')) {
       const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
       if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);
@@ -348,7 +417,7 @@ export function createShop(economy, { orders, achievements, cam, upgrades, freeP
       if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${f.material} ${f.color} – liegt im Lagerregal`);
     } else if (app === 'printers') {
       const p = PRINTERS.find((x) => x.id === id);
-      if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Gekauft: ${p.name} – steht im Abstellraum`);
+      if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Bestellt: ${p.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
     }
   });
 
