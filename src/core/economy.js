@@ -1,10 +1,13 @@
 // Wirtschaft und Besitz: Kontostand, Spielzeit mit stündlicher Abrechnung (Miete + Strom), Drucker (Standort,
 // Spulen, Druckauftrag, Pannen), Filamentlager mit Feuchte, fertige Teile, Zubehör.
 // Bewusst ohne Three.js, damit die Logik unabhängig vom Rendering bleibt.
-import { FAILURES, SPOOL_GRAMS, filamentById, filamentLabel, speedById, templateById } from './catalog.js';
+import { FAILURES, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, speedById, templateById } from './catalog.js';
 
 
-export const START_MONEY = 5000; // €
+// Start klein: 150 €, ein A1 mini auf dem ersten Tisch und eine Rolle PLA im Regal (siehe giveStarterKit)
+export const START_MONEY = 150; // €
+const STARTER_PRINTER = 'a1-mini';
+const STARTER_FILAMENT = 'pla-weiß';
 export const GAME_MINUTES_PER_SECOND = 1 / 3; // Spielzeit: 1 echte Sekunde = 20 Spielsekunden
 export const RENT_PER_HOUR = 3;    // € Hallenmiete pro Spielstunde
 export const IDLE_POWER_SHARE = 0.15; // Stromverbrauch im Leerlauf, Anteil vom Verbrauch beim Drucken
@@ -207,6 +210,14 @@ export class Economy {
     this.printers.push(printer);
     this.notify();
     return printer;
+  }
+
+  // Startausstattung für ein neues Spiel: A1 mini auf Platz 0 des ersten Tisches, eine Rolle PLA im Regal
+  giveStarterKit() {
+    const printer = this.addPrinter(PRINTERS.find((m) => m.id === STARTER_PRINTER));
+    this.placePrinter(printer.id, 0);
+    this.storeSpool({ filamentId: filamentById(STARTER_FILAMENT).id, grams: SPOOL_GRAMS, moisture: 0 });
+    this.notify();
   }
 
   buyFilament(filament) {

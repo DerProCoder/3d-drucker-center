@@ -26,7 +26,7 @@ import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
 import { enableShadows } from './world/util.js';
-import { PRINTERS, speedById } from './core/catalog.js';
+import { speedById } from './core/catalog.js';
 import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './world/graphics.js';
 
 const WALK_SPEED = 4;          // m/s
@@ -46,9 +46,7 @@ const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
 } else {
-  // Startausstattung: ein A1 mini steht schon auf dem ersten Tisch
-  const starter = economy.addPrinter(PRINTERS.find((m) => m.id === 'a1-mini'));
-  economy.placePrinter(starter.id, 0);
+  economy.giveStarterKit();
 }
 const hud = createHud(economy, orders, progress, gameClock);
 // Zu jeder vollen Spielstunde Miete und Strom abbuchen
