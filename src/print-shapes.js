@@ -188,7 +188,44 @@ function toolHolder() {
   return extrudeUp(block, 80);
 }
 
+// Benchy, das berühmte Testboot: Rumpf mit spitzem Bug, Kajüte mit Fenstern, Schornstein
+function benchy() {
+  const parts = [];
+  // Rumpf im Grundriss: hinten gerade, vorne spitz, nach oben ausgestellt (zwei Lagen)
+  const hull = (w, len) => {
+    const sh = new THREE.Shape();
+    sh.moveTo(-len / 2, -w / 2);
+    sh.lineTo(len * 0.15, -w / 2);
+    sh.quadraticCurveTo(len * 0.45, -w / 2, len / 2, 0);
+    sh.quadraticCurveTo(len * 0.45, w / 2, len * 0.15, w / 2);
+    sh.lineTo(-len / 2, w / 2);
+    sh.closePath();
+    return sh;
+  };
+  parts.push(extrudeUp(hull(24, 50), 6));
+  const upper = extrudeUp(hull(31, 60), 12);
+  upper.translate(0, 6, 0);
+  parts.push(upper);
+  // Kajüte mit Fensteröffnungen (als Löcher im Grundriss wäre es zu, daher Rahmen aus vier Pfosten + Dach)
+  for (const [x, z] of [[-14, -9], [-14, 9], [4, -9], [4, 9]]) {
+    const post = new THREE.BoxGeometry(3, 16, 3);
+    post.translate(x, 26, z);
+    parts.push(post);
+  }
+  const cabinBase = new THREE.BoxGeometry(21, 4, 21);
+  cabinBase.translate(-5, 20, 0);
+  const roof = new THREE.BoxGeometry(25, 3, 25);
+  roof.translate(-5, 35.5, 0);
+  parts.push(cabinBase, roof);
+  // Schornstein
+  const chimney = new THREE.CylinderGeometry(3.5, 4, 11, 16);
+  chimney.translate(-11, 42.5, 0);
+  parts.push(chimney);
+  return merge(parts);
+}
+
 const BUILDERS = {
+  benchy,
   keychain, 'cable-clips': cableClips, 'phone-stand': phoneStand, 'phone-case': phoneCase,
   gears, vase, dragon, 'tool-holder': toolHolder,
 };

@@ -22,6 +22,29 @@ export function loadQuality() {
   }
 }
 
+// Welche Grafikkarte WebGL benutzt. software: true, wenn der Browser ohne Grafikkarte rendert
+// (SwiftShader, „Microsoft Basic Render Driver“, llvmpipe) – dann ruckelt alles stark.
+export function gpuInfo(renderer) {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+  const software = /swiftshader|basic render|llvmpipe|software/i.test(name);
+  // „ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x…) Direct3D11 …)“ → „NVIDIA GeForce RTX 3060“
+  const short = name.replace(/^ANGLE \([^,]*,\s*/, '').replace(/\s*\(0x[0-9a-f]+\).*$/i, '').replace(/\s*Direct3D.*$/i, '').replace(/\)$/, '');
+  return { name: short || name, software };
+}
+
+// Höchstens so viele Pixel pro Bild (Megapixel) je Grafikstufe. Auf großen oder sehr breiten Monitoren
+// (z. B. 5120 × 1440) rechnet das Spiel intern mit weniger Pixeln und skaliert hoch – sonst kommt besonders eine
+// integrierte Grafik nicht hinterher, Bilder stauen sich und Eingaben kommen erst Sekunden später an.
+const PIXEL_BUDGET = { hoch: 8e6, mittel: 4e6, niedrig: 2e6 };
+const MAX_PIXEL_RATIO = { hoch: 2, mittel: 1.5, niedrig: 1 };
+
+export function fitPixelRatio(renderer, quality, width, height) {
+  const budget = Math.sqrt(PIXEL_BUDGET[quality] / (width * height));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO[quality], budget));
+}
+
 export function saveQuality(quality) {
   try {
     localStorage.setItem(QUALITY_KEY, quality);
@@ -106,7 +129,21 @@ function animateDust(dust, dt, time) {
 export function setupGraphics(renderer, scene, camera, quality) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.95;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Niedrig: harte Schatten mit kleinerer Schattenkarte, die nur 10× pro Sekunde neu berechnet wird, und ohne
+  // die Deckenspots (jedes Licht kostet in jedem Pixel Rechenzeit) – dafür ist das Himmelslicht heller.
+  const low = quality === 'niedrig';
+  fitPixelRatio(renderer, quality, window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.type = low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+  if (low) {
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
+    scene.traverse((o) => {
+      if (o.isLight && o.castShadow) o.shadow.mapSize.set(1024, 1024);
+      if (o.isSpotLight) o.visible = false;
+      if (o.isHemisphereLight) o.intensity += 0.9;
+    });
+  }
 
   // Umgebung für Spiegelungen auf Metall, Lack und dem Boden
   const pmrem = new THREE.PMREMGenerator(renderer);
@@ -114,7 +151,7 @@ export function setupGraphics(renderer, scene, camera, quality) {
   scene.environmentIntensity = 0.35;
   pmrem.dispose();
 
-  const dust = createDust();
+  const dust = createDust(low ? 300 : 900);
   scene.add(dust);
 
   let composer = null;
@@ -138,10 +175,15 @@ export function setupGraphics(renderer, scene, camera, quality) {
   }
 
   let time = 0;
+  let shadowTimer = 0;
   return {
     render(dt) {
       time += dt;
       animateDust(dust, dt, time);
+      if (low && (shadowTimer += dt) >= 0.1) {
+        shadowTimer = 0;
+        renderer.shadowMap.needsUpdate = true;
+      }
       if (!composer) {
         renderer.render(scene, camera);
         return;
@@ -150,6 +192,9 @@ export function setupGraphics(renderer, scene, camera, quality) {
       composer.render(dt);
     },
     setSize(w, h) {
+      fitPixelRatio(renderer, quality, w, h);
+      renderer.setSize(w, h);
+      composer?.setPixelRatio(renderer.getPixelRatio());
       composer?.setSize(w, h); // passt auch alle Passes an
     },
   };

@@ -52,33 +52,34 @@ export const SPEED_MODES = [
 
 export const speedById = (id) => SPEED_MODES.find((s) => s.id === id);
 
-// build: Bauraum in mm (Breite × Tiefe × Höhe), powerCostPerMonth: Stromkosten in € pro Monat
+// build: Bauraum in mm (Breite × Tiefe × Höhe), powerPerHour: Stromkosten in € pro Spielstunde beim Drucken
+// (im Leerlauf nur ein Bruchteil, siehe economy.js), enclosed: geschlossenes Gehäuse – ohne verzieht sich ABS gern
 // spoolSlots: wie viele Spulen gleichzeitig eingelegt sein können (1 = Spulenhalter, 4 = AMS)
 // style wählt das 3D-Modell in printer-model.js, accent färbt die Klassen-Plakette im Shop
 export const PRINTERS = [
   {
     id: 'a1-mini', name: 'Bambu Lab A1 mini', tier: 'Einsteiger', price: 180,
-    build: { x: 180, y: 180, z: 180 }, materials: ['PLA', 'PETG'], powerCostPerMonth: 25,
+    build: { x: 180, y: 180, z: 180 }, materials: ['PLA', 'PETG'], powerPerHour: 0.4, enclosed: false,
     spoolSlots: 1, style: 'a1-mini', accent: '#2f7de1',
   },
   {
     id: 'a1', name: 'Bambu Lab A1', tier: 'Mittelklasse', price: 220,
-    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS'], powerCostPerMonth: 35,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS'], powerPerHour: 0.6, enclosed: false,
     spoolSlots: 1, style: 'a1', accent: '#e1572f',
   },
   {
     id: 'p1p', name: 'Bambu Lab P1P', tier: 'Fortgeschritten', price: 400,
-    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'TPU'], powerCostPerMonth: 40,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'TPU'], powerPerHour: 0.7, enclosed: false,
     spoolSlots: 4, style: 'p1p', accent: '#5b6472',
   },
   {
     id: 'p1s', name: 'Bambu Lab P1S', tier: 'Profi', price: 550,
-    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 45,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 0.8, enclosed: true,
     spoolSlots: 4, style: 'p1s', accent: '#22b573',
   },
   {
     id: 'p2s', name: 'Bambu Lab P2S', tier: 'Profi+', price: 700,
-    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 50,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 0.9, enclosed: true,
     spoolSlots: 4, style: 'p2s', accent: '#9b59ff',
   },
 ];
@@ -88,6 +89,7 @@ export const formatBuildVolume = ({ x, y, z }) => `${x} × ${y} × ${z} mm`;
 // Was man drucken kann. grams: Filamentverbrauch, minutes: Druckzeit bei 100 %,
 // size: Abmessungen in mm (Breite × Tiefe × Höhe, muss in den Bauraum passen). Die 3D-Form steht in print-shapes.js.
 export const PRINT_TEMPLATES = [
+  { id: 'benchy', name: 'Benchy', grams: 12, minutes: 45, size: { x: 60, y: 31, z: 48 }, materials: ['PLA', 'PETG'] },
   { id: 'keychain', name: 'Schlüsselanhänger', grams: 8, minutes: 25, size: { x: 50, y: 30, z: 6 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'] },
   { id: 'cable-clips', name: 'Kabelclip-Set', grams: 15, minutes: 40, size: { x: 66, y: 50, z: 12 }, materials: ['PLA', 'PETG', 'ABS'] },
   { id: 'phone-stand', name: 'Handyhalter', grams: 45, minutes: 100, size: { x: 90, y: 80, z: 110 }, materials: ['PLA', 'PETG', 'ABS'] },
@@ -101,3 +103,21 @@ export const PRINT_TEMPLATES = [
 export const templateById = (id) => PRINT_TEMPLATES.find((t) => t.id === id);
 
 export const SPOOL_GRAMS = 1000; // eine volle Spule
+
+// Zubehör aus dem Filament-Shop. Wird einmal gekauft und steht dann im Abstellraum.
+export const ACCESSORIES = [
+  {
+    id: 'dryer', name: 'Filament-Trockenschrank', price: 129,
+    hint: 'Hält die Spulen im Regal trocken und trocknet feuchte Spulen wieder',
+  },
+];
+
+export const accessoryById = (id) => ACCESSORIES.find((a) => a.id === id);
+
+// Fehldrucke: was auf dem Druckbett passiert, wenn etwas schiefgeht
+export const FAILURES = {
+  spaghetti: { name: 'Spaghetti', text: 'Das Teil hat sich gelöst – jetzt liegt ein Haufen Filament-Spaghetti auf dem Bett' },
+  detached: { name: 'Abgelöst', text: 'Das Teil ist vom Druckbett gerissen und umgekippt' },
+  warp: { name: 'Verzogen', text: 'Die Ecken haben sich hochgebogen (Warping)' },
+  clog: { name: 'Düse verstopft', text: 'Aus der Düse kommt nichts mehr – erst freistechen, dann geht es weiter' },
+};

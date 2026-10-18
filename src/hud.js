@@ -1,5 +1,7 @@
 // HUD oben links: Level mit XP-Balken, Kontostand (zählt animiert hoch/runter, mit +/−-Einblendungen),
-// Stromkosten und offene Aufträge. Dazu die Level-Up-Einblendung und das Speichern-Symbol.
+// Spieluhr, laufende Kosten und offene Aufträge. Dazu die Level-Up-Einblendung, Meldungen (Pannen, Lieferungen …),
+// Erfolge und das Speichern-Symbol.
+import { BANKRUPT_AT } from './economy.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
@@ -20,8 +22,10 @@ export function createHud(economy, orders, progress) {
       <span class="hud-money-value" data-field="money"></span>
       <div class="hud-money-popups"></div>
     </div>
-    <div class="hud-row"><span class="hud-label">⚡ Stromkosten</span><span class="hud-value" data-field="power"></span></div>
+    <div class="hud-row"><span class="hud-label">🕒 Uhrzeit</span><span class="hud-value" data-field="clock"></span></div>
+    <div class="hud-row"><span class="hud-label">💸 Miete + Strom</span><span class="hud-value" data-field="costs"></span></div>
     <div class="hud-row"><span class="hud-label">📋 Aufträge</span><span class="hud-value" data-field="orders"></span></div>
+    <div class="hud-warning hidden" data-field="warning"></div>
   `;
   document.body.appendChild(hud);
 
@@ -66,8 +70,21 @@ export function createHud(economy, orders, progress) {
     }
     lastMoney = eco.money;
     moneyEl.classList.toggle('negative', eco.money < 0);
-    field('power').textContent = `${euro.format(eco.powerCostPerMonth)} / Monat`;
+    field('costs').textContent = `${euro.format(eco.costPerHour)} / h`;
+    const warning = field('warning');
+    warning.classList.toggle('hidden', eco.money >= 0);
+    warning.textContent = `Konto im Minus! Ab ${euro.format(BANKRUPT_AT)} macht die Bank die Halle dicht.`;
   });
+
+  // Uhr und Kosten ändern sich laufend – aber nur neu schreiben, wenn sich die Anzeige ändert
+  let lastClock = '';
+  function update() {
+    const text = `Tag ${economy.day} · ${economy.clock}`;
+    if (text === lastClock) return;
+    lastClock = text;
+    field('clock').textContent = text;
+    field('costs').textContent = `${euro.format(economy.costPerHour)} / h`;
+  }
 
   orders.subscribe((o) => {
     field('orders').textContent = `${o.open.length} offen`;
@@ -114,5 +131,37 @@ export function createHud(economy, orders, progress) {
     saveTimer = setTimeout(() => saveEl.classList.remove('visible'), 1500);
   }
 
-  return { showLevelUp, showSaved };
+  // Meldungen rechts oben: kind 'good' | 'bad' | 'info', verschwinden nach ein paar Sekunden
+  const feed = document.createElement('div');
+  feed.id = 'feed';
+  document.body.appendChild(feed);
+
+  function notify(text, kind = 'info') {
+    const el = document.createElement('div');
+    el.className = `feed-item ${kind}`;
+    el.textContent = text;
+    feed.prepend(el);
+    while (feed.children.length > 5) feed.lastChild.remove();
+    setTimeout(() => el.classList.add('leaving'), 5200);
+    setTimeout(() => el.remove(), 5800);
+  }
+
+  // Erfolg freigeschaltet: Pokal-Banner oben in der Mitte
+  const trophy = document.createElement('div');
+  trophy.id = 'achievement';
+  document.body.appendChild(trophy);
+  let trophyTimer = null;
+
+  function showAchievement(a) {
+    trophy.innerHTML = `<span class="achievement-icon">${a.icon}</span>
+      <div><div class="achievement-small">Erfolg freigeschaltet</div>
+      <div class="achievement-name">${a.name}</div><div class="achievement-text">${a.text}</div></div>`;
+    trophy.classList.remove('visible');
+    void trophy.offsetWidth;
+    trophy.classList.add('visible');
+    clearTimeout(trophyTimer);
+    trophyTimer = setTimeout(() => trophy.classList.remove('visible'), 4000);
+  }
+
+  return { showLevelUp, showSaved, notify, showAchievement, update };
 }

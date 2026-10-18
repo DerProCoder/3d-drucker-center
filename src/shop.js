@@ -1,7 +1,8 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
-// „Filament-Shop“ und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
-// dazu „Notizen“ und „Rechner“.
-import { FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
+// „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
+// dazu „Erfolge“, „Notizen“ und „Rechner“.
+import { ACCESSORIES, FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
+import { ACHIEVEMENTS } from './achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
@@ -19,6 +20,7 @@ const APPS = [
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
+  { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
 ];
@@ -26,8 +28,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-// orders: Kundenaufträge (orders.js)
-export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js)
+export function createShop(economy, { orders, achievements, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -105,7 +107,29 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
           <div class="grid">${cards}</div>
         </section>`;
     }).join('');
-    return `<p class="slots">Lieferung ins Regal im Abstellraum · Freie Plätze: <strong>${shelfFree}</strong></p>${sections}`;
+    const accessories = ACCESSORIES.map((a) => {
+      const owned = economy.accessories.has(a.id);
+      const blocked = owned ? 'Gekauft ✔' : economy.canAfford(a.price) ? null : 'Zu wenig Geld';
+      return `
+        <div class="card">
+          <div class="card-head">
+            <span class="accessory-icon">🔥</span>
+            <div>
+              <div class="card-title">${a.name}</div>
+              <div class="card-sub">${a.hint}</div>
+            </div>
+          </div>
+          <div class="card-foot">
+            <span class="stock">Wird in den Abstellraum geliefert</span>
+            <span class="price">${euro.format(a.price)}</span>
+            ${owned ? `<button class="buy" disabled>${blocked}</button>` : buyButton(`accessory:${a.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
+    return `<p class="slots">Lieferung ins Regal im Abstellraum · Freie Plätze: <strong>${shelfFree}</strong>
+      · Offen gelagerte Spulen ziehen mit der Zeit Feuchtigkeit 💧 – feuchtes Filament verursacht Fehldrucke.</p>
+      ${sections}
+      <section><h3>Zubehör</h3><div class="grid">${accessories}</div></section>`;
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
@@ -129,7 +153,8 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
             <dt>Bauraum</dt><dd>${formatBuildVolume(p.build)}</dd>
             <dt>Materialien</dt><dd>${p.materials.join(', ')}</dd>
             <dt>Filament</dt><dd>${p.spoolSlots > 1 ? `AMS mit ${p.spoolSlots} Fächern` : '1 Spule'}</dd>
-            <dt>Stromkosten</dt><dd>${euro.format(p.powerCostPerMonth)} / Monat</dd>
+            <dt>Gehäuse</dt><dd>${p.enclosed ? 'geschlossen' : 'offen (ABS verzieht sich)'}</dd>
+            <dt>Strom beim Drucken</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>
           <div class="card-foot">
             <span class="stock">Im Besitz: ${economy.printersOfModel(p.id)}</span>
@@ -140,6 +165,28 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
     }).join('');
     return `
       <p class="slots">Lieferung als Karton in den Abstellraum · Freie Plätze auf dem Druckertisch: <strong>${slots}</strong></p>
+      <div class="grid">${cards}</div>`;
+  }
+
+  function renderAchievements() {
+    const cards = ACHIEVEMENTS.map((a) => {
+      const done = achievements.unlocked.has(a.id);
+      return `
+        <div class="card achievement ${done ? 'unlocked' : 'locked'}">
+          <div class="card-head">
+            <span class="achievement-icon">${done ? a.icon : '🔒'}</span>
+            <div>
+              <div class="card-title">${a.name}</div>
+              <div class="card-sub">${a.text}</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+    const s = achievements.stats;
+    return `
+      <p class="slots">Freigeschaltet: <strong>${achievements.unlocked.size} / ${ACHIEVEMENTS.length}</strong>
+        · Drucke: ${s.printsDone} · Fehldrucke: ${s.failures} · Verdruckt: ${(s.grams / 1000).toFixed(2)} kg
+        · Kater gestreichelt: ${s.catPets}×</p>
       <div class="grid">${cards}</div>`;
   }
 
@@ -160,7 +207,7 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
     const scroll = contentEl.scrollTop;
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
-      control: printerMenu.render, notes: notes.render, calc: calc.render,
+      control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
     };
     contentEl.innerHTML = renderers[app]();
     contentEl.scrollTop = scroll;
@@ -222,7 +269,10 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
     if (!id) return;
-    if (app === 'filaments') {
+    if (id.startsWith('accessory:')) {
+      const a = ACCESSORIES.find((x) => `accessory:${x.id}` === id);
+      if (economy.buyAccessory(a)) toast(`Gekauft: ${a.name} – steht im Abstellraum`);
+    } else if (app === 'filaments') {
       const f = FILAMENTS.find((x) => x.id === id);
       if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${f.material} ${f.color} – liegt im Lagerregal`);
     } else if (app === 'printers') {
