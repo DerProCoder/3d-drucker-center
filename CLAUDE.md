@@ -8,7 +8,8 @@ FPV-Browserspiel: 3D-Druckerhalle betreiben (Filament kaufen, Stromkosten zahlen
 - HUD/Menüs als HTML/CSS-Overlay, Spielstand in localStorage
 
 ## Entwicklung
-- Auf dem Rechner sind kein Node.js und kein Git installiert, deshalb gibt es bewusst keinen Build-Schritt.
+- Auf dem Entwicklungsrechner ist kein Node.js installiert, deshalb gibt es bewusst keinen Build-Schritt.
+- Für Spieler steht die Anleitung in `README.md` (Getting Started) – bei neuen Features dort Steuerung/Ablauf nachziehen.
 - Lokal starten: `powershell -ExecutionPolicy Bypass -File .\serve.ps1`, danach http://localhost:8080 öffnen.
   `file://` funktioniert nicht, weil ES-Module dort blockiert werden.
 - Prüfen ohne Node: Server auf einem freien Port starten, dann Chrome headless mit
