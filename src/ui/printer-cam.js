@@ -1,6 +1,7 @@
 // Drucker-Cam: Live-Bild eines aufgestellten Druckers für die PC-App, wie die Kamera im echten Gerät.
 // Rendert die Szene aus einer Kamera schräg vor dem Druckbett in ein kleines Bild (10 Bilder pro Sekunde)
 // und malt es mit Einblendungen (REC, Uhrzeit, Fortschritt) auf ein Canvas im PC-Fenster.
+// Drucker mit KI-Kamera (X2D) liefern ein schärferes Bild, die anderen sind etwas weicher.
 import * as THREE from 'three';
 import { templateById } from '../core/catalog.js';
 
@@ -51,6 +52,11 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
     ctx.shadowColor = 'rgba(0,0,0,0.8)';
     ctx.shadowBlur = 4;
     ctx.fillText('REC', 30, 11);
+    if (p.model.aiCamera) {
+      ctx.fillStyle = '#ff9a4a';
+      ctx.fillText('HD · KI-Erkennung aktiv', 70, 11);
+      ctx.fillStyle = '#ffffff';
+    }
     ctx.textAlign = 'right';
     ctx.fillText(now.toLocaleTimeString('de-DE'), W - 10, 11);
     ctx.textAlign = 'left';
@@ -105,6 +111,11 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
       image.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
     }
     ctx.putImageData(image, 0, 0);
+    if (!p.model.aiCamera) { // einfache Kamera: leicht unscharf
+      ctx.filter = 'blur(0.8px)';
+      ctx.drawImage(canvas, 0, 0);
+      ctx.filter = 'none';
+    }
     overlay(p);
   }
 

@@ -94,8 +94,9 @@ function cylinder(rTop, rBottom, h, segments, material, x = 0, y = 0, z = 0) {
 
 // Schriftzug als flache Fläche (z. B. „Bambu Lab“), Ursprung in der Mitte, zeigt nach +z.
 // height: Schrifthöhe in Metern, die Breite ergibt sich aus dem Text.
+// glow: Schrift leuchtet selbst (heller als Weiß, damit der Bloom-Effekt sie strahlen lässt)
 const labelCache = new Map();
-export function createLabel(text, height, color = '#ffffff', weight = 700) {
+export function createLabel(text, height, color = '#ffffff', weight = 700, glow = 0) {
   const key = `${text}|${color}|${weight}`;
   if (!labelCache.has(key)) {
     const canvas = document.createElement('canvas');
@@ -115,10 +116,10 @@ export function createLabel(text, height, color = '#ffffff', weight = 700) {
   }
   const { texture, aspect } = labelCache.get(key);
   const h = height * (84 / 64);
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(h * aspect, h),
-    new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 0.4, depthWrite: false })
-  );
+  const material = glow
+    ? new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, color: new THREE.Color(1, 1, 1).multiplyScalar(glow) })
+    : new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 0.4, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(h * aspect, h), material);
   mesh.userData.noShadow = true;
   return mesh;
 }
@@ -210,36 +211,40 @@ export function createBuildPlate(size, m) {
   return plate;
 }
 
+// Bauteillüfter vorne auf dem Druckkopf, mit grauem Ring als Blende. Der Rotor kommt in userData.fans
+// und dreht sich beim Drucken (workshop.js).
+function addFrontFan(head, radius, y, z, m) {
+  const fan = createFan(radius, m);
+  fan.position.set(0, y, z);
+  head.add(fan);
+  const bezel = new THREE.Mesh(new THREE.TorusGeometry(radius * 1.03, radius * 0.07, 8, 48), m.shellMid);
+  bezel.position.set(0, y, z + 0.0003);
+  head.add(bezel);
+  head.userData.fans = [fan.userData.rotor];
+}
+
 // Druckkopf, Ursprung in der Mitte des Gehäuses, Rückseite bei z = -depth/2.
 // style 'a1': helle Frontabdeckung (A1-Serie) · 'p1': etwas breiter und ganz dunkel (P1/P2-Serie)
-export function createToolhead(m, style = 'a1') {
+// bigFan: großer Lüfter vorne wie beim X2D (P2S), sonst ein etwas kleinerer
+export function createToolhead(m, style = 'a1', { bigFan = false } = {}) {
   const head = new THREE.Group();
-  const w = style === 'p1' ? 0.064 : 0.055;
-  const h = 0.075;
+  const w = bigFan ? 0.07 : style === 'p1' ? 0.064 : 0.055;
+  const h = bigFan ? 0.08 : 0.075;
   const d = 0.045;
   const front = style === 'p1' ? m.shellDark : m.shell; // P1-Kopf ist ganz dunkel
 
   head.add(rbox(w, h, d, 0.006, m.shellDark));
-  // Frontabdeckung mit abgesetzter unterer Kante
+  // Frontabdeckung, bei kleinem Lüfter mit abgesetzter unterer Kante und Status-LED
   head.add(rbox(w + 0.003, h - 0.004, 0.01, 0.004, front, 0, 0.001, d / 2 + 0.003));
-  head.add(rbox(w - 0.008, 0.012, 0.002, 0.003, m.shellDark, 0, -h / 2 + 0.012, d / 2 + 0.0085));
-  // Schriftzug und Status-LED
-  const logo = createLabel('Bambu Lab', 0.0055, style === 'p1' ? '#e8e8e8' : '#3a3d42');
-  logo.position.set(0, 0.018, d / 2 + 0.0085);
-  head.add(logo);
-  head.add(box(0.012, 0.0015, 0.001, m.led, 0, -h / 2 + 0.012, d / 2 + 0.0098));
-
-  // Lüfter links (Bauteilkühlung, groß) und rechts (Kühlkörper, klein): Rotor hinter einem Gitter aus Ringen.
-  // Die Rotoren liegen in userData.fans und drehen sich beim Drucken (workshop.js).
-  const fans = [];
-  for (const [side, radius, y] of [[-1, 0.0185, -0.005], [1, 0.012, 0.012]]) {
-    const fan = createFan(radius, m);
-    fan.rotation.y = side * Math.PI / 2;
-    fan.position.set(side * (w / 2 + 0.0008), y, 0.002);
-    head.add(fan);
-    fans.push(fan.userData.rotor);
+  if (!bigFan) {
+    head.add(rbox(w - 0.008, 0.012, 0.002, 0.003, m.shellDark, 0, -h / 2 + 0.012, d / 2 + 0.0085));
+    head.add(box(0.012, 0.0015, 0.001, m.led, 0, -h / 2 + 0.012, d / 2 + 0.0098));
   }
-  head.userData.fans = fans;
+  const logo = createLabel('Bambu Lab', bigFan ? 0.0068 : 0.0055, style === 'p1' ? '#e8e8e8' : '#3a3d42');
+  logo.position.set(0, bigFan ? 0.028 : 0.022, d / 2 + 0.0085);
+  head.add(logo);
+  if (bigFan) addFrontFan(head, 0.026, -0.009, d / 2 + 0.0085, m);
+  else addFrontFan(head, 0.016, -0.001, d / 2 + 0.0085, m);
 
   // Schneidhebel oben links, PTFE-Kupplung oben
   head.add(rbox(0.008, 0.012, 0.007, 0.002, m.shell, -w / 2 + 0.006, h / 2 + 0.004, d / 2 - 0.006));
@@ -251,6 +256,39 @@ export function createToolhead(m, style = 'a1') {
   head.add(cylinder(0.0045, 0.0045, 0.004, 6, m.brass, 0, -h / 2 - 0.013, -0.002));
   const tip = cylinder(0.0008, 0.0035, 0.005, 16, m.brass, 0, -h / 2 - 0.0175, -0.002);
   head.add(tip);
+
+  head.userData.depth = d;
+  head.userData.nozzleBelowCenter = h / 2 + 0.02;
+  head.userData.topAboveCenter = h / 2 + 0.009;
+  return head;
+}
+
+// Dual-Nozzle-Druckkopf (X2D): breiter und dunkel, vorne ein großer Bauteillüfter, darüber das leuchtende
+// „Bambu Lab“-Logo, unten zwei Düsen nebeneinander. Gleiche userData wie createToolhead.
+export function createDualToolhead(m) {
+  const head = new THREE.Group();
+  const w = 0.074;
+  const h = 0.08;
+  const d = 0.05;
+
+  head.add(rbox(w, h, d, 0.007, m.shellDark));
+  head.add(rbox(w + 0.003, h - 0.004, 0.008, 0.005, m.black, 0, 0.001, d / 2 + 0.002));
+  // Großer Lüfter vorne, darüber das leuchtende Logo
+  addFrontFan(head, 0.026, -0.009, d / 2 + 0.0065, m);
+  const logo = createLabel('Bambu Lab', 0.0068, '#ffffff', 700, 3);
+  logo.position.set(0, 0.028, d / 2 + 0.0065);
+  head.add(logo);
+
+  // Oben zwei PTFE-Kupplungen (eine pro Düse)
+  for (const sx of [-1, 1]) head.add(cylinder(0.0055, 0.0055, 0.009, 16, m.black, sx * 0.012, h / 2 + 0.0045, -0.004));
+
+  // Unterseite: Luftleitblech, zwei Heizblöcke mit Düsen
+  head.add(rbox(0.06, 0.01, 0.014, 0.003, m.shellDark, 0, -h / 2 - 0.003, d / 2 - 0.004));
+  for (const sx of [-1, 1]) {
+    head.add(box(0.014, 0.011, 0.018, m.alu, sx * 0.012, -h / 2 - 0.0055, -0.002));
+    head.add(cylinder(0.0042, 0.0042, 0.004, 6, m.brass, sx * 0.012, -h / 2 - 0.013, -0.002));
+    head.add(cylinder(0.0008, 0.0033, 0.005, 16, m.brass, sx * 0.012, -h / 2 - 0.0175, -0.002));
+  }
 
   head.userData.depth = d;
   head.userData.nozzleBelowCenter = h / 2 + 0.02;

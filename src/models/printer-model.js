@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import {
   createMaterials, rbox, box, createStepper, createLinearRail, createBelt, createBuildPlate,
   createToolhead, createTouchscreen, createFlexTube, updateFlexTube, createSpoolHolder, addFeet, createAMS,
-  createLabel, createVents, createFanGrille,
+  createLabel, createVents, createFanGrille, createDualToolhead,
 } from './printer-parts.js';
 
 // Lüftungsschlitze an beiden Seiten eines Sockels (Mitte bei x, Seitenflächen bei x ± w/2)
@@ -307,9 +307,16 @@ function buildA1(g) {
 // bis oben durch, vorne eine große Glastür mit schwarzem Siebdruckrand, darüber die Frontleiste mit Display,
 // oben ein Glasdeckel im Rahmen. Der P1P ist das offene Gerüst: Sockel, vier runde Eckstreben, oberer Rahmen.
 const CUBE_VARIANTS = {
-  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x232427 },
-  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x2a2b2f },
-  p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false, fascia: 0.05, color: 0x34363b },
+  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x232427, railDrop: 0.015 },
+  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x2a2b2f, railDrop: 0.015 },
+  p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false, fascia: 0.05, color: 0x34363b, darkAms: true,
+    bigFan: true, railDrop: 0.04 }, // großer Lüfter vorne wie beim X2D
+  // X2D: wie der P1S aufgebaut, dazu Seitenfenster rechts, großes Display, Kamera und Dual-Nozzle-Kopf
+  x2d: {
+    title: 'X2D', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.13, 0.078], buttons: false, fascia: 0.07,
+    color: 0x2a2b2f, darkAms: true, sideWindow: true, camera: true, dualHead: true,
+    railDrop: 0.06, // Mechanik tiefer, damit Lüfter und Logo am Kopf unter der hohen Frontleiste sichtbar sind
+  },
 };
 
 function buildBambuCube(g, variant) {
@@ -339,11 +346,39 @@ function buildBambuCube(g, variant) {
   if (enclosed) {
     // Seitenwände durchgehend vom Sockel bis oben, Rückwand dazwischen
     const sideH = h - FOOT;
-    for (const sx of [-1, 1]) g.add(rbox(0.022, sideH, d, R, body, sx * (w / 2 - 0.011), FOOT + sideH / 2, 0));
     const wallH = h - baseTop;
+    for (const sx of [-1, 1]) {
+      const wx = sx * (w / 2 - 0.011);
+      if (variant.sideWindow && sx === 1) {
+        // Rechte Wand mit Fenster: Rahmen aus vier Teilen um eine Glasscheibe
+        const winH = 0.17;
+        const winD = 0.22;
+        const winY = baseTop + (h - baseTop - bandH) / 2;
+        const bottom = winY - winH / 2 - FOOT;
+        const top = h - (winY + winH / 2);
+        g.add(rbox(0.022, bottom, d, R, body, wx, FOOT + bottom / 2, 0));
+        g.add(rbox(0.022, top, d, R, body, wx, h - top / 2, 0));
+        const stripD = (d - winD) / 2;
+        for (const sz of [-1, 1]) g.add(rbox(0.022, winH + 0.01, stripD, 0.006, body, wx, winY, sz * (winD / 2 + stripD / 2)));
+        const pane = box(0.004, winH, winD, glass, wx, winY, 0);
+        pane.userData.noShadow = true;
+        g.add(pane);
+        // Schwarzer Siebdruckrand außen am Fenster
+        for (const [bh, bd, by, bz] of [
+          [0.008, winD, winY + winH / 2 - 0.004, 0], [0.008, winD, winY - winH / 2 + 0.004, 0],
+          [winH, 0.008, winY, winD / 2 - 0.004], [winH, 0.008, winY, -winD / 2 + 0.004],
+        ]) {
+          const strip = box(0.0005, bh, bd, frit, wx + 0.0025, by, bz);
+          strip.userData.noShadow = true;
+          g.add(strip);
+        }
+      } else {
+        g.add(rbox(0.022, sideH, d, R, body, wx, FOOT + sideH / 2, 0));
+        // Innen dunkle Verkleidung
+        g.add(box(0.002, wallH - topH, d - 0.04, panel, sx * (w / 2 - 0.0225), baseTop + (wallH - topH) / 2, 0));
+      }
+    }
     g.add(rbox(w - 0.03, wallH, 0.016, 0.006, body, 0, baseTop + wallH / 2, -d / 2 + 0.008));
-    // Innen dunkle Verkleidung
-    for (const sx of [-1, 1]) g.add(box(0.002, wallH - topH, d - 0.04, panel, sx * (w / 2 - 0.0225), baseTop + (wallH - topH) / 2, 0));
     g.add(box(w - 0.046, wallH - topH, 0.002, panel, 0, baseTop + (wallH - topH) / 2, -d / 2 + 0.017));
     const fan = createFanGrille(0.075, m);
     fan.position.set(w / 4, baseTop + (wallH - topH) * 0.55, -d / 2 + 0.024);
@@ -410,6 +445,20 @@ function buildBambuCube(g, variant) {
   light.position.set(0, h - bandH - 0.001, d / 2 - 0.03);
   g.add(light);
 
+  // Kamera oben links hinter der Frontleiste, Blick schräg nach unten aufs Bett
+  if (variant.camera) {
+    const cam = new THREE.Group();
+    cam.add(rbox(0.03, 0.018, 0.016, 0.004, m.black));
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.004, 20), glass);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(-0.004, 0, -0.0095);
+    cam.add(lens);
+    cam.add(box(0.002, 0.002, 0.001, m.statusGreen, 0.009, 0.004, -0.0085)); // Aufnahme-LED
+    cam.position.set(-w / 2 + 0.06, h - bandH - 0.012, d / 2 - 0.035);
+    cam.rotation.x = -0.5; // Linse (–z) zeigt ins Gerät und schräg nach unten
+    g.add(cam);
+  }
+
   // Bauraum: dunkle Bodenplatte, Abfallschacht hinten links, Lüftungsschlitze hinten am Sockel
   g.add(box(w - post * 2, 0.004, d - post * 2, panel, 0, baseTop + 0.002, 0));
   const chute = rbox(0.045, 0.06, 0.05, 0.004, m.black, -w / 2 + post + 0.03, baseTop + 0.03, -d / 2 + post + 0.03);
@@ -421,7 +470,7 @@ function buildBambuCube(g, variant) {
   g.add(rearVents);
 
   // CoreXY-Mechanik unter der Decke: Y-Führungen links/rechts, X-Brücke mit Kopf fährt vor/zurück
-  const railY = h - topH - 0.018;
+  const railY = h - topH - 0.018 - (variant.railDrop ?? 0);
   const railX = w / 2 - post - 0.012;
   for (const sx of [-1, 1]) {
     const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, d - post * 2, 12), m.steel);
@@ -437,7 +486,7 @@ function buildBambuCube(g, variant) {
     g.add(motor);
   }
 
-  const head = createToolhead(m, 'p1');
+  const head = variant.dualHead ? createDualToolhead(m) : createToolhead(m, 'p1', { bigFan: !!variant.bigFan });
   const headY = railY - 0.026; // etwas tiefer, damit der Kopf unter dem vorderen Paneel zu sehen ist
   head.position.set(0, headY, 0);
   const gantry = new THREE.Group(); // X-Brücke, fährt in Y-Richtung (vor/zurück)
@@ -489,7 +538,7 @@ function buildBambuCube(g, variant) {
   };
 
   // AMS auf dem Dach, Schlauch hinten heraus und von oben zum Kopf, Kabelkette innen
-  const ams = createAMS(m, { dark: variant === CUBE_VARIANTS.p2s });
+  const ams = createAMS(m, { dark: !!variant.darkAms });
   ams.position.set(0, h, -0.01);
   g.add(ams);
   g.userData.spoolSlots = ams.userData.slots.map((p) => ({ position: p.clone().add(ams.position), axis: 'x' }));
@@ -511,6 +560,7 @@ const BUILDERS = {
   p1p: (g) => buildBambuCube(g, CUBE_VARIANTS.p1p),
   p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
   p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
+  x2d: (g) => buildBambuCube(g, CUBE_VARIANTS.x2d),
 };
 
 export function createPrinterModel(model) {

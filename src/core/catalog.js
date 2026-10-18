@@ -82,6 +82,13 @@ export const PRINTERS = [
     build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 0.9, enclosed: true,
     spoolSlots: 4, style: 'p2s', accent: '#9b59ff',
   },
+  {
+    // nozzles: 2 → jede Düse verschleißt halb so schnell, verstopft eine, druckt die andere weiter
+    // aiCamera: erkennt Spaghetti und abgelöste Teile früh – die Hälfte des Filaments bleibt auf der Spule
+    id: 'x2d', name: 'Bambu Lab X2D', tier: 'Dual-Nozzle', price: 950,
+    build: { x: 256, y: 256, z: 260 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.0, enclosed: true,
+    spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'x2d', accent: '#ff7a1a',
+  },
 ];
 
 export const formatBuildVolume = ({ x, y, z }) => `${x} × ${y} × ${z} mm`;

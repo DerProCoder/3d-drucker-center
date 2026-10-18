@@ -90,9 +90,14 @@ economy.onEvent = (type, d) => {
       break;
     case 'print-failed':
       hud.notify(`⚠️ ${name}: Fehldruck – ${d.info.name}! Am Drucker nachsehen.`, 'bad');
+      if (d.saved > 0) hud.notify(`📷 ${name}: KI-Kamera hat früh gestoppt – ${d.saved} g Filament gerettet`, 'info');
       sound.play('error');
       achievements.add('failures');
       if (d.failure === 'spaghetti') achievements.add('spaghetti');
+      break;
+    case 'nozzle-switched':
+      hud.notify(`🔀 ${name}: Düse verstopft – die zweite Düse druckt weiter. Danach freistechen!`, 'bad');
+      sound.play('warn');
       break;
     case 'out-of-filament':
       hud.notify(`🧵 ${name}: Filament leer – neue Spule ${d.filament.material} ${d.filament.color} einlegen`, 'bad');

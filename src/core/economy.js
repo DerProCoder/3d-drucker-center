@@ -587,10 +587,11 @@ export class Economy {
       // Pannen: das Risiko gilt für den ganzen Druck und wird auf die Fortschrittsschritte verteilt
       const risk = this.failureRisk(p, template, spool ?? p.spools[job.slot], count);
       if (step > 0 && this.random() < 1 - (1 - risk) ** step) {
-        job.progress = Math.max(0.05, job.progress + step);
-        this.failPrint(p, template, spool);
         changed = true;
-        continue;
+        if (this.failPrint(p, template, spool ?? p.spools[job.slot])) {
+          job.progress = Math.max(0.05, job.progress + step);
+          continue;
+        }
       }
 
       job.progress += step;
@@ -623,22 +624,40 @@ export class Economy {
         break;
       }
     }
+    // Zwei Düsen: verstopft die eine, übernimmt die andere und der Druck läuft weiter.
+    // Die verstopfte muss vor dem nächsten Druck freigestochen werden.
+    if (failure === 'clog' && (printer.model.nozzles ?? 1) > 1 && !printer.clogged) {
+      printer.clogged = true;
+      printer.nozzlePokes = 0;
+      this.emit('nozzle-switched', { printer });
+      return false;
+    }
     printer.job.status = 'failed';
     printer.job.failure = failure;
     if (failure === 'clog') {
       printer.clogged = true;
       printer.nozzlePokes = 0;
     }
-    this.emit('print-failed', { printer, template, failure, info: FAILURES[failure] });
+    // KI-Kamera erkennt Spaghetti und abgelöste Teile früh: die Hälfte des Filaments bleibt auf der Spule
+    let saved = 0;
+    if (printer.model.aiCamera && (failure === 'spaghetti' || failure === 'detached') && spool) {
+      saved = Math.min(Math.round(printer.job.gramsUsed / 2), SPOOL_GRAMS - spool.grams);
+      spool.grams += saved;
+      printer.job.gramsUsed -= saved;
+    }
+    this.emit('print-failed', { printer, template, failure, info: FAILURES[failure], saved });
+    return true;
   }
 
   // ---------- Düsenverschleiß ----------
 
-  // printedMinutes: gedruckte Zeit bei 100 %. Schnelle Stufen nutzen die Düse stärker ab.
+  // printedMinutes: gedruckte Zeit bei 100 %. Schnelle Stufen nutzen die Düse stärker ab,
+  // bei zwei Düsen teilen sie sich die Arbeit.
   wearNozzle(printer, printedMinutes) {
     const before = printer.nozzleWear ?? 0;
     const speedFactor = speedById(printer.speedId).percent > 100 ? 1.3 : 1;
-    printer.nozzleWear = Math.min(1, before + (printedMinutes * speedFactor) / (NOZZLE_LIFE_HOURS * 60));
+    const nozzles = printer.model.nozzles ?? 1;
+    printer.nozzleWear = Math.min(1, before + (printedMinutes * speedFactor) / (NOZZLE_LIFE_HOURS * 60 * nozzles));
     if (before < NOZZLE_WORN && printer.nozzleWear >= NOZZLE_WORN) this.emit('nozzle-worn', { printer });
     if (before < 1 && printer.nozzleWear >= 1) this.emit('nozzle-dead', { printer });
   }

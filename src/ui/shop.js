@@ -196,6 +196,8 @@ export function createShop(economy, {
             <dt>Materialien</dt><dd>${p.materials.join(', ')}</dd>
             <dt>Filament</dt><dd>${p.spoolSlots > 1 ? `AMS mit ${p.spoolSlots} Fächern` : '1 Spule'}</dd>
             <dt>Gehäuse</dt><dd>${p.enclosed ? 'geschlossen' : 'offen (ABS verzieht sich)'}</dd>
+            ${p.nozzles > 1 ? `<dt>Düsen</dt><dd>${p.nozzles} – halber Verschleiß, Ersatzdüse bei Verstopfung</dd>` : ''}
+            ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – stoppt Fehldrucke früh, spart Filament</dd>' : ''}
             <dt>Strom beim Drucken</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>
           <div class="card-foot">
