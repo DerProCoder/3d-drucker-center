@@ -2,31 +2,31 @@
 // Spiellogik (Wirtschaft, Drucker, Aufträge) kommt in eigene Module unter src/.
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import { createKeyboard, createMouse, createMousePad, createCable } from './peripherals.js';
-import { CollisionWorld } from './collision.js';
-import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
-import { Orders, REGULAR_STARS } from './orders.js';
-import { Progress } from './progress.js';
-import { Upgrades } from './upgrades.js';
-import { GameClock } from './game-clock.js';
-import { createHall } from './hall.js';
-import { Achievements } from './achievements.js';
-import { hasSave, loadGame, deleteSave, startAutosave } from './save.js';
-import { createTitleScreen } from './title-screen.js';
-import { createHud } from './hud.js';
-import { createRoom, roomColliders } from './room.js';
-import { createDesktopScreen } from './desktop.js';
-import { createShop } from './shop.js';
-import { createStorageRoom } from './storage-room.js';
-import { createWorkshop } from './workshop.js';
-import { Carry } from './carry.js';
-import { createCat } from './cat.js';
-import { createSound } from './sound.js';
-import { Interaction } from './interaction.js';
-import { createPrinterCam } from './printer-cam.js';
-import { enableShadows } from './util.js';
-import { PRINTERS, speedById } from './catalog.js';
-import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './graphics.js';
+import { createKeyboard, createMouse, createMousePad, createCable } from './models/peripherals.js';
+import { CollisionWorld } from './world/collision.js';
+import { Economy, GAME_MINUTES_PER_SECOND } from './core/economy.js';
+import { Orders, REGULAR_STARS } from './core/orders.js';
+import { Progress } from './core/progress.js';
+import { Upgrades } from './core/upgrades.js';
+import { GameClock } from './core/game-clock.js';
+import { createHall } from './world/hall.js';
+import { Achievements } from './core/achievements.js';
+import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
+import { createTitleScreen } from './ui/title-screen.js';
+import { createHud } from './ui/hud.js';
+import { createRoom, roomColliders } from './world/room.js';
+import { createDesktopScreen } from './ui/desktop.js';
+import { createShop } from './ui/shop.js';
+import { createStorageRoom } from './world/storage-room.js';
+import { createWorkshop } from './world/workshop.js';
+import { Carry } from './world/carry.js';
+import { createCat } from './world/cat.js';
+import { createSound } from './audio/sound.js';
+import { Interaction } from './world/interaction.js';
+import { createPrinterCam } from './ui/printer-cam.js';
+import { enableShadows } from './world/util.js';
+import { PRINTERS, speedById } from './core/catalog.js';
+import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './world/graphics.js';
 
 const WALK_SPEED = 4;          // m/s
 const EYE_HEIGHT = 1.7;        // m

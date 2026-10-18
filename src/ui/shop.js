@@ -3,8 +3,8 @@
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 import {
   ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
-} from './catalog.js';
-import { ACHIEVEMENTS } from './achievements.js';
+} from '../core/catalog.js';
+import { ACHIEVEMENTS } from '../core/achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';

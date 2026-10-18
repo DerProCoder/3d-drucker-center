@@ -1,5 +1,5 @@
 // Titel- und Pausenbildschirm: Weiterspielen/Spiel starten, Neues Spiel, Grafikstufe.
-import { QUALITY_LEVELS } from './graphics.js';
+import { QUALITY_LEVELS } from '../world/graphics.js';
 
 // onPlay: Maus einfangen und spielen · onNewGame: Spielstand löschen und neu laden
 // onQuality(q): Grafikstufe speichern und neu laden · gpu: { name, software } aus graphics.js

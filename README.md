@@ -143,33 +143,50 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 ## Projektaufbau
 
 ```
-index.html        Einstieg, Import-Map für Three.js
-css/style.css     HUD, Shop- und Menüfenster
-serve.ps1         Lokaler Webserver für Windows
+index.html          Einstieg, Import-Map für Three.js
+css/style.css       HUD, Shop- und Menüfenster
+serve.ps1           Lokaler Webserver für Windows
+.github/workflows/  pages.yml: veröffentlicht main automatisch auf GitHub Pages
 src/
-  main.js         Verdrahtet alles: Szene, Steuerung, Spielschleife
-  economy.js      Spiellogik: Geld, Spielzeit, Kosten, Besitz, Drucke, Pannen, Feuchte (ohne 3D)
-  orders.js       Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern (ohne 3D)
-  progress.js     Level, XP und Titel (ohne 3D)
-  achievements.js Erfolge und Statistik (ohne 3D)
-  upgrades.js     Ausbau: Drucktische, Regalebenen (ohne 3D) · upgrades-menu.js: App „Ausbau“
-  game-clock.js   Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung (ohne 3D)
-  hall.js         Kaufbare Drucktische in der Halle mit Bodenmarkierung
-  furniture.js    3D-Modelle der Regale am Drucktisch und der Ersatzdüse
-  cat.js          Kater Düsentrieb
-  sound.js        Geräusche per WebAudio (ohne Audiodateien)
-  carry.js        Was der Spieler trägt: ein Karton oder bis zu 5 Spulen
-  save.js         Spielstand in localStorage, Autospeichern
-  graphics.js     Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
-  hud.js          HUD, Level-Up-Banner · title-screen.js: Titel- und Pausenbildschirm
-  catalog.js      Drucker, Filamente, Druckvorlagen mit Preisen und Werten
-  room.js         Halle mit Boden, Wänden, Fenstern, Licht
-  storage-room.js Abstellraum mit Regal und Lieferzone
-  workshop.js     Druckertisch: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
-  shop.js         PC-Desktop mit Apps, Taskleiste und Mauszeiger · printer-menu.js: Druckermenü
-                  orders-menu.js: Aufträge · printer-cam.js: Drucker-Cam · pc-apps.js: Notizen und Rechner · desktop.js: Bildschirm & Symbole
-  printer-model.js, printer-parts.js   3D-Modelle der Drucker
-  print-shapes.js 3D-Formen der Druckvorlagen
+  main.js           Verdrahtet alles: Szene, Steuerung, Spielschleife
+  core/             Spiellogik, ohne Three.js und ohne DOM
+    catalog.js        Drucker, Filamente, Druckvorlagen mit Preisen und Werten
+    economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
+    orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern
+    progress.js       Level, XP und Titel
+    achievements.js   Erfolge und Statistik
+    upgrades.js       Ausbau: Drucktische, Regalebenen
+    game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
+    save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
+  world/            3D-Szene und Spielfigur
+    room.js           Halle mit Boden, Wänden, Fenstern, Licht
+    hall.js           Kaufbare Drucktische mit Bodenmarkierung
+    workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
+    storage-room.js   Abstellraum mit Regal und Lieferzone
+    carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
+    cat.js            Kater Düsentrieb
+    interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
+    collision.js      Kollision der Spielfigur
+    graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
+    util.js           Kleine 3D-Helfer (Schatten)
+  models/           Reine 3D-Modelle, ohne Spiellogik
+    printer-model.js, printer-parts.js   Drucker
+    printer-box.js    Lieferkarton
+    print-shapes.js   Formen der Druckvorlagen
+    spool.js          Filamentspule
+    furniture.js      Regale am Drucktisch und Ersatzdüse
+    peripherals.js    Tastatur, Maus, Mauspad, Kabel
+  ui/               HTML-Overlays und PC-Apps
+    hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
+    title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
+    shop.js           PC-Desktop mit Apps, Taskleiste und Mauszeiger
+    desktop.js        Bildschirm und App-Symbole
+    printer-menu.js · orders-menu.js · upgrades-menu.js   Apps Druckermenü, Aufträge, Ausbau
+    printer-cam.js    App Drucker-Cam
+    printer-preview.js  Produktbilder der Drucker für den Shop
+    pc-apps.js        Notizen und Rechner
+  audio/
+    sound.js          Geräusche per WebAudio (ohne Audiodateien)
 ```
 
 Technik: [Three.js](https://threejs.org/) 0.169 als ES-Module direkt im Browser, ohne npm und ohne Build-Tools.

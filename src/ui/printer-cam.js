@@ -2,7 +2,7 @@
 // Rendert die Szene aus einer Kamera schräg vor dem Druckbett in ein kleines Bild (10 Bilder pro Sekunde)
 // und malt es mit Einblendungen (REC, Uhrzeit, Fortschritt) auf ein Canvas im PC-Fenster.
 import * as THREE from 'three';
-import { templateById } from './catalog.js';
+import { templateById } from '../core/catalog.js';
 
 const W = 480;
 const H = 270;

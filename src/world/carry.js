@@ -2,11 +2,11 @@
 // Filamentspulen oder eine Ersatzdüse. Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
 // Spule: { filamentId, grams, moisture }
 import * as THREE from 'three';
-import { filamentById } from './catalog.js';
-import { createSpool } from './spool.js';
-import { createPrinterBox } from './printer-box.js';
-import { createNozzle, furnitureSize } from './furniture.js';
-import { spoolLabel } from './economy.js';
+import { filamentById } from '../core/catalog.js';
+import { createSpool } from '../models/spool.js';
+import { createPrinterBox } from '../models/printer-box.js';
+import { createNozzle, furnitureSize } from '../models/furniture.js';
+import { spoolLabel } from '../core/economy.js';
 
 export const MAX_SPOOLS = 5;
 

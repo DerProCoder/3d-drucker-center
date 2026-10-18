@@ -2,10 +2,10 @@
 // Start/Pause/Abbrechen, fertiges Teil entnehmen.
 import {
   FAILURES, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
-} from './catalog.js';
+} from '../core/catalog.js';
 import {
   DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, batchGrams, batchMinutes, plateLayout,
-} from './economy.js';
+} from '../core/economy.js';
 
 export function formatMinutes(minutes) {
   const total = Math.ceil(minutes);

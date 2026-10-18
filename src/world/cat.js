@@ -3,8 +3,8 @@
 // Bewegung über Delta-Zeit. Das Herunterwerfen selbst erledigt economy.knockPartOff.
 import * as THREE from 'three';
 import { TABLE_ROWS_Z, rackX, rackZ, slotX, slotZ } from './workshop.js';
-import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from './upgrades.js';
-import { furnitureSize } from './furniture.js';
+import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
+import { furnitureSize } from '../models/furniture.js';
 
 const NAME = 'Kater Düsentrieb';
 const WALK_SPEED = 0.7;     // m/s

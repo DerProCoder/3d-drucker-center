@@ -1,6 +1,6 @@
 // Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
-import { filamentById, filamentLabel, templateById } from './catalog.js';
-import { GAME_MINUTES_PER_SECOND } from './economy.js';
+import { filamentById, filamentLabel, templateById } from '../core/catalog.js';
+import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
 import { formatMinutes } from './printer-menu.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });

@@ -2,14 +2,14 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, filamentLabel, templateById, speedById } from './catalog.js';
-import { NOZZLE_POKES, plateLayout, spoolLabel } from './economy.js';
-import { getPrintShape, outlinePoint, outlineLength } from './print-shapes.js';
-import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-model.js';
-import { createSpool } from './spool.js';
-import { createFurnitureModel, createNozzle, furnitureSize } from './furniture.js';
+import { FAILURES, filamentById, filamentLabel, templateById, speedById } from '../core/catalog.js';
+import { NOZZLE_POKES, plateLayout, spoolLabel } from '../core/economy.js';
+import { getPrintShape, outlinePoint, outlineLength } from '../models/print-shapes.js';
+import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
+import { createSpool } from '../models/spool.js';
+import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
-import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from './upgrades.js';
+import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 
 export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
 export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern

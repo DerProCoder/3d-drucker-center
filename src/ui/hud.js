@@ -1,7 +1,7 @@
 // HUD oben links: Level mit XP-Balken, Kontostand (zählt animiert hoch/runter, mit +/−-Einblendungen),
 // Spieluhr, laufende Kosten und offene Aufträge. Dazu die Level-Up-Einblendung, Meldungen (Pannen, Lieferungen …),
 // Erfolge und das Speichern-Symbol.
-import { BANKRUPT_AT } from './economy.js';
+import { BANKRUPT_AT } from '../core/economy.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert

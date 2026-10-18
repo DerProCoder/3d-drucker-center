@@ -1,6 +1,6 @@
 // Produktbilder für den Shop: rendert das echte 3D-Modell jedes Druckers einmalig in ein Bild.
 import * as THREE from 'three';
-import { createPrinterModel } from './printer-model.js';
+import { createPrinterModel } from '../models/printer-model.js';
 
 const WIDTH = 400;
 const HEIGHT = 300;

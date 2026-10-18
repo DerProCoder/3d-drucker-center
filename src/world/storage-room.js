@@ -1,13 +1,13 @@
 // Abstellraum hinter der Südwand: Keller-Look mit Betonboden, Kalksandsteinwänden, Leuchtstoffröhre.
 // Gekaufte Spulen liegen im Schwerlastregal, Drucker stehen als Karton in der Lieferzone.
 import * as THREE from 'three';
-import { filamentById } from './catalog.js';
-import { WET, spoolLabel } from './economy.js';
-import { createSpool } from './spool.js';
-import { createPrinterBox } from './printer-box.js';
+import { filamentById } from '../core/catalog.js';
+import { WET, spoolLabel } from '../core/economy.js';
+import { createSpool } from '../models/spool.js';
+import { createPrinterBox } from '../models/printer-box.js';
 import { MAX_SPOOLS } from './carry.js';
-import { furnitureSize } from './furniture.js';
-import { SPOOLS_PER_SHELF_LEVEL } from './upgrades.js';
+import { furnitureSize } from '../models/furniture.js';
+import { SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
