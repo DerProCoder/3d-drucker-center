@@ -70,6 +70,10 @@ const autosave = startAutosave(game, hud.showSaved, () => ({
 economy.onEvent = (type, d) => {
   const name = d.printer?.model.name;
   switch (type) {
+    case 'delivered':
+      hud.notify(`📦 Lieferung angekommen: ${d.names.join(', ')} – steht im Abstellraum`, 'good');
+      sound.play('pop');
+      break;
     case 'print-started':
       achievements.max('maxPrinting', d.printing);
       break;
@@ -211,6 +215,13 @@ function createTable(width, depth) {
 // Drucktische: der erste steht von Anfang an, weitere kauft man (hall.js)
 const hall = createHall({ createTable, collision, upgrades });
 scene.add(hall.group);
+upgrades.onEvent = (type, d) => {
+  if (type !== 'delivered') return;
+  hud.notify(d.kind === 'table'
+    ? '📦 Drucktisch geliefert – an der grünen Markierung in der Halle aufstellen'
+    : '📦 Neue Regalebene im Abstellraum eingebaut', 'good');
+  sound.play('pop');
+};
 
 // Computertisch rechts neben dem Druckertisch, mit Bildschirm oben und PC darunter
 const computerDesk = createTable(1.4, 0.7);
@@ -521,6 +532,10 @@ renderer.setAnimationLoop(() => {
   workshop.animate(dt);
   cat.update(dt);
   throwing.update(dt);
+  hall.update(dt);
+  // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
+  economy.advanceDeliveries(dt);
+  upgrades.advance(dt);
   hud.update();
   printerSounds(dt);
   updateMovement(dt);

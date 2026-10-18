@@ -49,6 +49,7 @@ export function createHud(economy, orders, progress, clock) {
   }
 
   function animateMoney(now) {
+    if (economy.unlimited) return; // Anzeige bleibt bei ∞
     const target = economy.money;
     const t = Math.min(1, (now - countStart) / (COUNT_SECONDS * 1000));
     shownMoney = countFrom + (target - countFrom) * (1 - (1 - t) ** 3);
@@ -57,7 +58,10 @@ export function createHud(economy, orders, progress, clock) {
   }
 
   economy.subscribe((eco) => {
-    if (lastMoney === null) {
+    if (eco.unlimited) {
+      moneyEl.textContent = '∞ €';
+      shownMoney = eco.money;
+    } else if (lastMoney === null || moneyEl.textContent === '∞ €') {
       moneyEl.textContent = euro.format(eco.money);
       shownMoney = eco.money;
     } else if (eco.money !== lastMoney) {

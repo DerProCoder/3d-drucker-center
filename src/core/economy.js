@@ -68,7 +68,8 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 // Spule: { filamentId, grams, moisture }
 // Drucker:
-//   location: 'storage' (Karton im Abstellraum) | 'carried' (in der Hand) | 'table' (aufgestellt)
+//   location: 'shipping' (bestellt, noch unterwegs: arriveIn Sekunden) | 'storage' (Karton im Abstellraum)
+//             | 'carried' (in der Hand) | 'table' (aufgestellt)
 //             | 'floor' (geworfen, liegt auf dem Boden: floor = { x, z, rotY, boxed })
 //   spools: Fächer für Spulen (Spule oder null) – 1 Fach oder 4 beim AMS
 //   activeSlot: Fach, aus dem gedruckt wird
@@ -85,9 +86,13 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   spools (Filament-Regal: Fächer mit Spule oder null), nozzles (Ersatzteilregal: Anzahl Ersatzdüsen) }
 //   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (3 pro Drucktisch, siehe upgrades.js).
 // Lose Teile: hat der Kater vom Tisch geworfen, liegen auf dem Boden { id, templateId, filamentId, x, z, rotY }
+export const DELIVERY_SECONDS = 60; // so lange (echte Sekunden) ist ein bestelltes Paket unterwegs
+
 export class Economy {
   constructor() {
     this.money = START_MONEY;
+    this.unlimited = false;          // Entwicklermenü: unendlich Geld
+    this.instantDelivery = false;    // Entwicklermenü: Pakete kommen sofort
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
     this.shelf = [];                 // Spulen im Regal
@@ -141,6 +146,7 @@ export class Economy {
 
   // Rechnung abbuchen. Darf ins Minus gehen – dann kann man nichts mehr kaufen.
   charge(amount) {
+    if (this.unlimited) return;
     this.money = Math.round((this.money - amount) * 100) / 100;
     this.notify();
   }
@@ -165,7 +171,40 @@ export class Economy {
   }
 
   canAfford(amount) {
-    return this.money >= amount;
+    return this.unlimited || this.money >= amount;
+  }
+
+  // Wie lange ein Paket gerade unterwegs ist (Sekunden)
+  get deliverySeconds() {
+    return this.instantDelivery ? 0 : DELIVERY_SECONDS;
+  }
+
+  // Bestellte Kartons (Drucker und Regale), die noch unterwegs sind
+  get shipments() {
+    return [...this.printers, ...this.furniture].filter((x) => x.location === 'shipping');
+  }
+
+  // Paket auf den Weg schicken: es landet erst nach deliverySeconds im Abstellraum
+  ship(item) {
+    item.location = 'shipping';
+    item.storageSpot = null;
+    item.arriveIn = this.deliverySeconds;
+  }
+
+  // Läuft in echter Zeit: angekommene Pakete kommen auf einen freien Platz im Abstellraum
+  advanceDeliveries(seconds) {
+    const arrived = [];
+    for (const item of this.shipments) {
+      item.arriveIn -= seconds;
+      if (item.arriveIn > 0) continue;
+      item.location = 'storage';
+      item.storageSpot = this.freeStorageSpot();
+      delete item.arriveIn;
+      arrived.push(item.model?.name ?? item.type.name);
+    }
+    if (!arrived.length) return;
+    this.notify();
+    this.emit('delivered', { names: arrived });
   }
 
   filamentStock(filamentId) {
@@ -197,7 +236,10 @@ export class Economy {
   // Gibt den neuen Drucker zurück oder null, wenn das Geld nicht reicht
   buyPrinter(model) {
     if (!this.withdraw(model.price)) return null;
-    return this.addPrinter(model);
+    const printer = this.addPrinter(model);
+    this.ship(printer);
+    this.notify();
+    return printer;
   }
 
   // Drucker ohne Bezahlen dazubekommen (Startausstattung). Landet wie gekaufte im Abstellraum.
@@ -637,6 +679,7 @@ export class Economy {
       spools: type.id === 'filament-rack' ? Array(type.capacity).fill(null) : null,
       nozzles: 0,
     };
+    this.ship(item);
     this.furniture.push(item);
     this.notify();
     return item;
@@ -837,6 +880,7 @@ export class Economy {
 
   withdraw(amount) {
     if (!this.canAfford(amount)) return false;
+    if (this.unlimited) return true;
     this.money -= amount;
     return true;
   }

@@ -525,6 +525,13 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       const part = model.userData.partMesh;
       const rig = model.userData.printRig;
 
+      // Lüfter am Druckkopf: drehen beim Drucken hoch (schneller bei höherer Stufe), danach laufen sie aus
+      const fanTarget = job?.status === 'printing' ? 40 * (speedById(printer.speedId).percent / 100) : 0;
+      for (const rotor of rig.head.userData.fans ?? []) {
+        rotor.userData.speed = THREE.MathUtils.damp(rotor.userData.speed ?? 0, fanTarget, 1.5, dt);
+        rotor.rotation.z += rotor.userData.speed * dt;
+      }
+
       const state = { mode: 'idle', x: 0, z: 0, layerY: 0, partHeight: 0 };
       if (job && part) {
         const { shape } = part.userData;

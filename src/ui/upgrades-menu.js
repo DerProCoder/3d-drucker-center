@@ -28,18 +28,30 @@ export function createUpgradesMenu(upgrades, economy) {
       </div>`;
   }
 
+  // Lieferstand für die Untertitel der Karten
+  function tableStatus() {
+    if (upgrades.tablesReady > 0) return ' · geliefert, in der Halle aufstellen!';
+    const eta = upgrades.nextTableArrival;
+    return eta === null ? '' : ` · unterwegs, noch ${Math.ceil(eta)} s`;
+  }
+
+  function shelfStatus() {
+    const shelf = upgrades.deliveries.filter((d) => d.kind === 'shelf');
+    return shelf.length ? ` · ${shelf.length} unterwegs, noch ${Math.ceil(Math.min(...shelf.map((d) => d.arriveIn)))} s` : '';
+  }
+
   function render() {
     return `
-      <p class="slots">Bau deine Halle aus. Neue Tische stehen sofort in der Halle, neue Regalebenen im Abstellraum.</p>
+      <p class="slots">Bau deine Halle aus. Bestellungen sind eine Minute unterwegs: Tische stellst du danach an der grünen Markierung in der Halle auf, Regalebenen werden im Abstellraum eingebaut.</p>
       <div class="grid">
         ${card({
           id: 'table', title: 'Drucktisch', perStep: `je ${SLOTS_PER_TABLE} Drucker- und ${RACKS_PER_TABLE} Regalplätze`,
-          sub: `${upgrades.printerSlots} Stellplätze für Drucker, ${upgrades.rackSlots} für Regale`, owned: upgrades.tables, max: upgrades.maxTables,
+          sub: `${upgrades.printerSlots} Stellplätze für Drucker, ${upgrades.rackSlots} für Regale${tableStatus()}`, owned: upgrades.tables, max: upgrades.maxTables,
           price: upgrades.nextTablePrice,
         })}
         ${card({
           id: 'shelf', title: 'Regalebene', perStep: `je ${SPOOLS_PER_SHELF_LEVEL} Spulen`,
-          sub: `Platz für ${upgrades.shelfCapacity} Spulen im Lager`, owned: upgrades.shelfLevels, max: upgrades.maxShelfLevels,
+          sub: `Platz für ${upgrades.shelfCapacity} Spulen im Lager${shelfStatus()}`, owned: upgrades.shelfLevels, max: upgrades.maxShelfLevels,
           price: upgrades.nextShelfPrice,
         })}
       </div>
@@ -50,8 +62,8 @@ export function createUpgradesMenu(upgrades, economy) {
   // Gibt den Text für die Erfolgsmeldung zurück oder null
   function handleClick(e) {
     const id = e.target.closest('[data-upgrade]')?.dataset.upgrade;
-    if (id === 'table' && upgrades.buyTable()) return `Drucktisch ${upgrades.tables} gekauft – steht jetzt in der Halle`;
-    if (id === 'shelf' && upgrades.buyShelfLevel()) return `Regalebene ${upgrades.shelfLevels} gekauft – im Abstellraum`;
+    if (id === 'table' && upgrades.buyTable()) return `Drucktisch bestellt – kommt in ${economy.deliverySeconds} s, dann an der grünen Markierung in der Halle aufstellen`;
+    if (id === 'shelf' && upgrades.buyShelfLevel()) return `Regalebene bestellt – wird in ${economy.deliverySeconds} s im Abstellraum eingebaut`;
     return null;
   }
 
