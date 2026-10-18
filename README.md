@@ -61,14 +61,18 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
 ## So läuft eine Runde
 
-1. **Einkaufen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Im Reiter **Filamente** kaufst du Spulen, im Reiter **Drucker** z. B. einen Bambu Lab A1 mini. Du startest mit 20.000 €.
-2. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
-3. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-4. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-5. **Drucken:** Am PC den Reiter **Druckermenü** (ganz rechts) öffnen, Druckvorlage und Geschwindigkeit wählen und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
-6. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
+Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
-Oben links siehst du deinen Kontostand und die monatlichen Stromkosten der aufgestellten Drucker. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+1. **Auftrag aussuchen:** Am PC im Reiter **Aufträge** siehst du, wer was bestellt hat, was du dafür bekommst und wie lange du Zeit hast.
+2. **Einkaufen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Im Reiter **Filamente** kaufst du Spulen, im Reiter **Drucker** z. B. einen Bambu Lab A1 mini. Du startest mit 20.000 €.
+3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
+4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
+5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+6. **Drucken:** Am PC den Reiter **Druckermenü** (ganz rechts) öffnen, Druckvorlage und Geschwindigkeit wählen und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
+7. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
+8. **Liefern:** Hast du alle bestellten Teile, im Reiter **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
+
+Oben links siehst du deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
 ## Probleme?
 
@@ -89,11 +93,12 @@ serve.ps1         Lokaler Webserver für Windows
 src/
   main.js         Verdrahtet alles: Szene, Steuerung, Spielschleife
   economy.js      Spiellogik: Geld, Besitz, Druckaufträge (ohne 3D)
+  orders.js       Kundenaufträge: Fristen, Lohn, Liefern (ohne 3D)
   catalog.js      Drucker, Filamente, Druckvorlagen mit Preisen und Werten
   room.js         Halle mit Boden, Wänden, Fenstern, Licht
   storage-room.js Abstellraum mit Regal und Lieferzone
   workshop.js     Druckertisch: Aufstellen, Einlegen, Druck-Animation
-  shop.js         PC-Fenster (Shop) · printer-menu.js: Druckermenü
+  shop.js         PC-Fenster (Shop) · printer-menu.js: Druckermenü · orders-menu.js: Aufträge
   printer-model.js, printer-parts.js   3D-Modelle der Drucker
   print-shapes.js 3D-Formen der Druckvorlagen
 ```

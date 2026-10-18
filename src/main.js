@@ -5,6 +5,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { createKeyboard, createMouse, createMousePad, createCable } from './peripherals.js';
 import { CollisionWorld } from './collision.js';
 import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
+import { Orders } from './orders.js';
 import { createHud } from './hud.js';
 import { createRoom, roomColliders } from './room.js';
 import { createDesktopScreen } from './desktop.js';
@@ -22,7 +23,8 @@ const INTERACT_DISTANCE = 2.5; // m
 
 const collision = new CollisionWorld();
 const economy = new Economy();
-createHud(economy);
+const orders = new Orders(economy);
+createHud(economy, orders);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -192,6 +194,7 @@ controls.addEventListener('unlock', () => {
 
 // Shop: Linksklick auf den PC öffnet ihn, Schließen kehrt ins Spiel zurück
 const shop = createShop(economy, {
+  orders,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
   freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage,
@@ -202,7 +205,7 @@ const shop = createShop(economy, {
 });
 
 const pcInteraction = {
-  hint: () => 'Linksklick: PC benutzen (Shop & Druckermenü)',
+  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge & Druckermenü)',
   action: () => {
     shop.open();
     controls.unlock();
@@ -253,7 +256,9 @@ window.addEventListener('resize', () => {
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
-  economy.advancePrints(dt * GAME_MINUTES_PER_SECOND); // Drucke laufen auch bei offenem PC-Fenster weiter
+  // Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter
+  economy.advancePrints(dt * GAME_MINUTES_PER_SECOND);
+  orders.advance(dt * GAME_MINUTES_PER_SECOND);
   workshop.animate(dt);
   updateMovement(dt);
   interaction.update(controls.isLocked);

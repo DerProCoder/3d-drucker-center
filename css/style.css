@@ -144,6 +144,7 @@ canvas { display: block; }
 }
 .shop-tabs button:hover { color: #fff; }
 .shop-tabs .tab-right { margin-left: auto; }
+.shop-tabs .tab-count { color: #f2c419; }
 .shop-tabs button.active { color: #fff; border-bottom-color: #3aa0ff; }
 
 .shop-content {
@@ -255,6 +256,7 @@ canvas { display: block; }
 .status.paused { color: #f2c419; }
 .status.done { color: #fff; background: #2f8f4a; }
 .status.idle { opacity: 0.6; }
+.status.urgent { color: #fff; background: #b5392b; }
 
 .progress {
   height: 6px;

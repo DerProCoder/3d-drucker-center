@@ -1,7 +1,8 @@
-// PC-Fenster: Reiter „Filamente“ und „Drucker“ zum Einkaufen, ganz rechts das „Druckermenü“ zum Steuern.
+// PC-Fenster: Reiter „Filamente“ und „Drucker“ zum Einkaufen, rechts „Aufträge“ und das „Druckermenü“ zum Steuern.
 import { FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
+import { createOrdersMenu } from './orders-menu.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const speedPercents = SPEED_MODES.map((m) => m.percent);
@@ -9,7 +10,8 @@ const speedRange = `${Math.min(...speedPercents)}–${Math.max(...speedPercents)
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js)
+export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, onClose }) {
   const root = document.createElement('div');
   root.id = 'shop';
   root.className = 'hidden';
@@ -23,7 +25,8 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
       <div class="shop-tabs">
         <button data-tab="filaments">Filamente</button>
         <button data-tab="printers">Drucker</button>
-        <button data-tab="control" class="tab-right">Druckermenü</button>
+        <button data-tab="orders" class="tab-right">Aufträge<span class="tab-count"></span></button>
+        <button data-tab="control">Druckermenü</button>
       </div>
       <div class="shop-content"></div>
       <div class="shop-toast"></div>
@@ -35,9 +38,11 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
   const contentEl = root.querySelector('.shop-content');
   const toastEl = root.querySelector('.shop-toast');
   const tabButtons = root.querySelectorAll('[data-tab]');
+  const orderCountEl = root.querySelector('.tab-count');
   let tab = 'filaments';
   let toastTimer = null;
   const printerMenu = createPrinterMenu(economy);
+  const ordersMenu = createOrdersMenu(orders, economy);
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -108,9 +113,12 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
 
   function render() {
     balanceEl.textContent = euro.format(economy.money);
+    orderCountEl.textContent = orders.open.length ? ` (${orders.open.length})` : '';
     tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     const scroll = contentEl.scrollTop;
-    const renderers = { filaments: renderFilaments, printers: renderPrinters, control: printerMenu.render };
+    const renderers = {
+      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, control: printerMenu.render,
+    };
     contentEl.innerHTML = renderers[tab]();
     contentEl.scrollTop = scroll;
   }
@@ -132,14 +140,21 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
     if (tab === 'control' && printerMenu.handleChange(e)) render();
   });
 
-  // Fortschrittsbalken im Druckermenü laufen live mit
+  // Fortschrittsbalken im Druckermenü und Fristen bei den Aufträgen laufen live mit
   setInterval(() => {
-    if (isOpen() && tab === 'control') printerMenu.liveUpdate(contentEl);
+    if (!isOpen()) return;
+    if (tab === 'control') printerMenu.liveUpdate(contentEl);
+    if (tab === 'orders') ordersMenu.liveUpdate(contentEl);
   }, 250);
 
   contentEl.addEventListener('click', (e) => {
     if (tab === 'control') {
       printerMenu.handleClick(e);
+      return;
+    }
+    if (tab === 'orders') {
+      const message = ordersMenu.handleClick(e);
+      if (message) toast(message);
       return;
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
@@ -169,6 +184,7 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
 
   root.querySelector('.shop-close').addEventListener('click', close);
   economy.subscribe(() => { if (isOpen()) render(); });
+  orders.subscribe(() => { if (isOpen()) render(); });
 
   return { open, close, isOpen };
 }
