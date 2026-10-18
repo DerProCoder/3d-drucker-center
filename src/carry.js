@@ -1,12 +1,13 @@
-// Was der Spieler gerade in der Hand hat: entweder ein Druckerkarton oder bis zu MAX_SPOOLS Spulen,
-// vor der Kamera angezeigt. item beschreibt, was ein Klick als Nächstes benutzt:
-//   { kind: 'printer', printerId } | { kind: 'filament', filamentId, grams } (die oberste Spule) | null
-import { filamentById, filamentLabel } from './catalog.js';
+// Was der Spieler gerade in der Hand hat: entweder ein Druckerkarton oder bis zu MAX_SPOOLS Filamentspulen.
+// Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
+// Spule: { filamentId, grams, moisture }
+import * as THREE from 'three';
+import { filamentById } from './catalog.js';
 import { createSpool } from './spool.js';
 import { createPrinterBox } from './printer-box.js';
+import { spoolLabel } from './economy.js';
 
 export const MAX_SPOOLS = 5;
-const SPOOL_SPACING = 0.078; // Abstand der Spulen nebeneinander in der Hand (Spule ist 7 cm breit)
 
 export class Carry {
   constructor(camera, economy, infoEl) {
@@ -14,91 +15,126 @@ export class Carry {
     this.economy = economy;
     this.infoEl = infoEl;
     this.printerId = null;
-    this.spools = []; // { filamentId, grams, mesh } – die letzte ist die oberste
-    this.boxMesh = null;
+    this.spools = [];
+    this.selected = 0;
+    this.mesh = null;
   }
 
-  get item() {
-    if (this.printerId !== null) return { kind: 'printer', printerId: this.printerId };
-    const top = this.spools.at(-1);
-    return top ? { kind: 'filament', filamentId: top.filamentId, grams: top.grams } : null;
+  get isEmpty() {
+    return this.printerId === null && !this.spools.length;
   }
 
-  // Noch Platz für eine Spule? (nicht mit Karton in der Hand)
+  get printer() {
+    return this.printerId === null ? null : this.economy.printerById(this.printerId);
+  }
+
+  get hasSpools() {
+    return this.spools.length > 0;
+  }
+
   get canTakeSpool() {
     return this.printerId === null && this.spools.length < MAX_SPOOLS;
   }
 
-  holdPrinter(printer) {
-    this.returnToStorage();
-    const box = createPrinterBox(printer.model);
-    const { h, d } = box.userData.size;
-    box.position.set(0, -0.32 - h, -0.42 - d / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
-    box.traverse((o) => { o.castShadow = false; });
-    this.camera.add(box);
-    this.boxMesh = box;
-    this.printerId = printer.id;
-    this.updateInfo();
+  get selectedSpool() {
+    return this.spools[this.selected] ?? null;
   }
 
-  // Legt eine Spule oben auf den Stapel. Gibt false zurück, wenn kein Platz ist.
-  holdFilament(filamentId, grams) {
+  holdPrinter(printer) {
+    if (!this.isEmpty) return;
+    this.printerId = printer.id;
+    this.refresh();
+  }
+
+  addSpool(spool) {
     if (!this.canTakeSpool) return false;
-    const spool = createSpool(filamentById(filamentId));
-    spool.traverse((o) => { o.castShadow = false; });
-    this.camera.add(spool);
-    this.spools.push({ filamentId, grams, mesh: spool });
-    this.layoutSpools();
-    this.updateInfo();
+    this.spools.push(spool);
+    this.selected = this.spools.length - 1; // die zuletzt genommene ist gewählt
+    this.refresh();
     return true;
   }
 
-  // Nimmt den obersten Gegenstand aus der Hand und gibt ihn zurück (wie item) oder null
-  takeTop() {
-    const item = this.item;
-    if (item?.kind === 'printer') {
-      this.camera.remove(this.boxMesh);
-      this.boxMesh = null;
-      this.printerId = null;
-    } else if (item) {
-      this.camera.remove(this.spools.pop().mesh);
-      this.layoutSpools();
-    }
-    this.updateInfo();
-    return item;
+  // Nimmt eine Spule aus der Hand (Standard: die gewählte)
+  takeSpool(index = this.selected) {
+    const [spool] = this.spools.splice(index, 1);
+    this.selected = Math.min(this.selected, Math.max(0, this.spools.length - 1));
+    this.refresh();
+    return spool ?? null;
   }
 
-  // Q oder Regal: alles Getragene wandert zurück in den Abstellraum
+  // Gibt den Karton aus der Hand (der Drucker selbst wird von economy umgesetzt)
+  releasePrinter() {
+    const printer = this.printer;
+    this.printerId = null;
+    this.refresh();
+    return printer;
+  }
+
+  // Mausrad: nächste/vorige Spule wählen
+  cycle(direction) {
+    if (this.spools.length < 2) return;
+    this.selected = (this.selected + direction + this.spools.length) % this.spools.length;
+    this.refresh();
+  }
+
+  // Q oder Klick aufs Regal: alles wandert zurück in den Abstellraum
   returnToStorage() {
-    if (this.printerId !== null) this.economy.returnPrinterToStorage(this.takeTop().printerId);
-    while (this.spools.length) {
-      const { filamentId, grams } = this.takeTop();
-      this.economy.returnFilamentToStorage(filamentId, grams);
-    }
+    if (this.printerId !== null) this.economy.returnPrinterToStorage(this.releasePrinter().id);
+    const spools = this.spools;
+    this.spools = [];
+    this.selected = 0;
+    for (const spool of spools) this.economy.returnFilamentToStorage(spool);
+    this.refresh();
   }
 
-  // Spulen nebeneinander unten rechts im Blickfeld, die oberste ganz rechts und leicht angehoben
-  layoutSpools() {
+  // Modell vor der Kamera und Infozeile neu aufbauen
+  refresh() {
+    if (this.mesh) this.camera.remove(this.mesh);
+    this.mesh = null;
+    const printer = this.printer;
+    if (printer) {
+      const box = createPrinterBox(printer.model);
+      const { h, d } = box.userData.size;
+      box.position.set(0, -0.32 - h, -0.42 - d / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
+      this.show(box);
+      this.setInfo(`In der Hand: Karton ${printer.model.name} · Q: zurück ins Lager`);
+      return;
+    }
+    if (!this.spools.length) {
+      this.infoEl.classList.add('hidden');
+      return;
+    }
+    // Spulen als Stapel rechts unten, die gewählte ragt etwas heraus
+    const stack = createSpoolStack(this.spools, this.selected);
+    this.show(stack);
     const n = this.spools.length;
-    this.spools.forEach(({ mesh }, i) => {
-      const top = i === n - 1;
-      mesh.rotation.set(0, 0.4, 0); // schräg, damit Wicklung und Seitenscheibe zu sehen sind
-      mesh.position.set(0.24 - (n - 1 - i) * SPOOL_SPACING, top ? -0.3 : -0.33, -0.55 - (n - 1 - i) * 0.03);
-    });
+    const free = MAX_SPOOLS - n;
+    const room = free ? `noch ${free} frei` : 'Hände voll';
+    const pick = n > 1 ? ` · Mausrad: Spule wählen` : '';
+    this.setInfo(`In der Hand: ${n}/${MAX_SPOOLS} Spulen (${room}) · Gewählt: ${spoolLabel(this.selectedSpool)}${pick} · Q: alle zurück ins Lager`);
   }
 
-  updateInfo() {
-    let text = null;
-    if (this.printerId !== null) {
-      text = `In der Hand: Karton ${this.economy.printerById(this.printerId).model.name} · Q: zurück ins Lager`;
-    } else if (this.spools.length) {
-      const top = this.spools.at(-1);
-      const label = `${filamentLabel(filamentById(top.filamentId))} (${Math.round(top.grams)} g)`;
-      text = this.spools.length === 1
-        ? `In der Hand: Spule ${label} · Q: zurück ins Lager`
-        : `In der Hand: ${this.spools.length}/${MAX_SPOOLS} Spulen · als Nächstes: ${label} · Q: alle zurück ins Lager`;
-    }
-    this.infoEl.textContent = text ?? '';
-    this.infoEl.classList.toggle('hidden', !text);
+  show(mesh) {
+    mesh.traverse((o) => { o.castShadow = false; });
+    this.mesh = mesh;
+    this.camera.add(mesh);
   }
+
+  setInfo(text) {
+    this.infoEl.textContent = text;
+    this.infoEl.classList.remove('hidden');
+  }
+}
+
+// Spulen nebeneinander auf der Achse aufgereiht (wie auf einem Stab), die gewählte ragt etwas nach oben
+function createSpoolStack(spools, selected) {
+  const group = new THREE.Group();
+  group.position.set(0.2, -0.3, -0.55);
+  group.rotation.y = 0.4; // schräg, damit Wicklung und Seitenscheiben zu sehen sind
+  spools.forEach((spool, i) => {
+    const mesh = createSpool(filamentById(spool.filamentId));
+    mesh.position.set((i - (spools.length - 1) / 2) * 0.075, i === selected ? 0.035 : 0, 0);
+    group.add(mesh);
+  });
+  return group;
 }

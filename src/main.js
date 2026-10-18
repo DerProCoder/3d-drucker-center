@@ -5,8 +5,9 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { createKeyboard, createMouse, createMousePad, createCable } from './peripherals.js';
 import { CollisionWorld } from './collision.js';
 import { Economy, GAME_MINUTES_PER_SECOND } from './economy.js';
-import { Orders } from './orders.js';
+import { Orders, REGULAR_STARS } from './orders.js';
 import { Progress } from './progress.js';
+import { Achievements } from './achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './save.js';
 import { createTitleScreen } from './title-screen.js';
 import { createHud } from './hud.js';
@@ -16,10 +17,13 @@ import { createShop } from './shop.js';
 import { createStorageRoom, SHELF_CAPACITY } from './storage-room.js';
 import { createWorkshop, PRINTER_SLOTS_X } from './workshop.js';
 import { Carry } from './carry.js';
+import { createCat } from './cat.js';
+import { createSound } from './sound.js';
 import { Interaction } from './interaction.js';
 import { createPrinterCam } from './printer-cam.js';
 import { enableShadows } from './util.js';
-import { setupGraphics, loadQuality, saveQuality } from './graphics.js';
+import { speedById } from './catalog.js';
+import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './graphics.js';
 
 const WALK_SPEED = 4;          // m/s
 const EYE_HEIGHT = 1.7;        // m
@@ -30,12 +34,89 @@ const collision = new CollisionWorld();
 const economy = new Economy();
 const progress = new Progress();
 const orders = new Orders(economy, progress);
+const achievements = new Achievements();
 const saveFound = hasSave();
-if (saveFound) loadGame(economy, orders, progress);
+if (saveFound) loadGame(economy, orders, progress, achievements);
 const hud = createHud(economy, orders, progress);
-progress.onLevelUp = (level, title) => hud.showLevelUp(level, title);
+const sound = createSound();
+progress.onLevelUp = (level, title) => {
+  hud.showLevelUp(level, title);
+  sound.play('achievement');
+};
+achievements.onUnlock = (a) => {
+  hud.showAchievement(a);
+  sound.play('achievement');
+};
 // Getragene Spulen (carry wird weiter unten angelegt) landen beim Speichern im Regal
-const autosave = startAutosave(economy, orders, progress, hud.showSaved, () => carry.spools);
+const autosave = startAutosave(economy, orders, progress, achievements, hud.showSaved, () => carry.spools);
+
+// Spielereignisse → Meldungen, Geräusche und Erfolge
+economy.onEvent = (type, d) => {
+  const name = d.printer?.model.name;
+  switch (type) {
+    case 'print-started':
+      achievements.max('maxPrinting', d.printing);
+      break;
+    case 'print-done':
+      hud.notify(`✔ ${name}: ${d.count > 1 ? `${d.count} × ` : ''}${d.template.name} fertig`, 'good');
+      sound.play('done');
+      achievements.add('printsDone');
+      achievements.add('grams', d.template.grams * d.count);
+      if (d.template.id === 'benchy') achievements.add('benchys', d.count);
+      if (d.speedId === 'ludicrous') achievements.add('ludicrousDone');
+      break;
+    case 'print-failed':
+      hud.notify(`⚠️ ${name}: Fehldruck – ${d.info.name}! Am Drucker nachsehen.`, 'bad');
+      sound.play('error');
+      achievements.add('failures');
+      if (d.failure === 'spaghetti') achievements.add('spaghetti');
+      break;
+    case 'out-of-filament':
+      hud.notify(`🧵 ${name}: Filament leer – neue Spule ${d.filament.material} ${d.filament.color} einlegen`, 'bad');
+      sound.play('warn');
+      break;
+    case 'ams-refill':
+      hud.notify(`🔁 ${name}: Spule leer – das AMS lädt aus Fach ${d.slot + 1} nach`, 'info');
+      achievements.add('amsRefills');
+      break;
+    case 'print-resumed':
+      hud.notify(`▶ ${name} druckt weiter`, 'info');
+      break;
+    case 'nozzle-poke':
+      sound.play('poke');
+      break;
+    case 'bed-cleared':
+    case 'part-collected':
+    case 'part-picked':
+      sound.play('pop');
+      break;
+    case 'nozzle-cleared':
+      hud.notify(`🪡 ${name}: Düse wieder frei`, 'good');
+      sound.play('pop');
+      achievements.add('nozzlesCleared');
+      break;
+    case 'bill':
+      sound.play('bill');
+      if (economy.money < 0) achievements.max('overdraft', 1);
+      break;
+  }
+};
+
+orders.onEvent = (type, d) => {
+  const { order } = d;
+  if (type === 'delivered') {
+    sound.play('cash');
+    achievements.add('deliveries');
+    if (order.rush) achievements.add('rushDeliveries');
+    if (order.special && order.customer === 'Jonas (12)') achievements.add('jonas');
+    if (d.stars >= REGULAR_STARS) achievements.max('regulars', 1);
+  } else if (type === 'expired') {
+    hud.notify(`⌛ Auftrag von ${order.customer} verfallen – Kunde verärgert (−1 Stern)`, 'bad');
+    sound.play('error');
+  } else if (type === 'new-order') {
+    hud.notify(`📋 Neuer Auftrag von ${order.customer}${order.rush ? ' – EILT!' : ''}`, 'info');
+  }
+};
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -190,6 +271,25 @@ const workshop = createWorkshop({ table: printerTable, tableHeight: TABLE_HEIGHT
 scene.add(workshop.group);
 const storage = createStorageRoom({ economy, carry, collision });
 scene.add(storage.group);
+
+// Kater Düsentrieb streunt durch die Halle
+const cat = createCat({
+  economy,
+  tableHeight: TABLE_HEIGHT,
+  onEvent: (type) => {
+    if (type === 'pet') {
+      sound.play('purr');
+      achievements.add('catPets');
+    } else if (type === 'meow') {
+      sound.play('meow');
+    } else if (type === 'knock') {
+      hud.notify('😼 Kater Düsentrieb hat ein fertiges Teil vom Tisch geworfen! Es liegt vor dem Drucker.', 'bad');
+      sound.play('clunk');
+      achievements.add('knocked');
+    }
+  },
+});
+scene.add(cat.group);
 economy.subscribe(() => {
   workshop.sync();
   storage.sync();
@@ -203,6 +303,7 @@ const title = createTitleScreen({
   overlay,
   hasSave: saveFound,
   quality,
+  gpu: gpuInfo(renderer),
   onPlay: () => controls.lock(),
   onNewGame: () => {
     autosave.disable();
@@ -215,7 +316,10 @@ const title = createTitleScreen({
     location.reload();
   },
 });
-controls.addEventListener('lock', () => title.hide());
+controls.addEventListener('lock', () => {
+  title.hide();
+  sound.unlock(); // Browser erlauben Ton erst nach einer Nutzeraktion
+});
 controls.addEventListener('unlock', () => {
   if (!shop.isOpen()) {
     title.show(true);
@@ -229,11 +333,13 @@ const printerCam = createPrinterCam({ renderer, scene, economy, workshop });
 
 const shop = createShop(economy, {
   orders,
+  achievements,
   cam: printerCam,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   freePrinterSlots: () => PRINTER_SLOTS_X.length - economy.printers.length,
-  freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage,
+  freeShelfSpace: () => SHELF_CAPACITY - economy.spoolsInStorage - carry.spools.length,
   onClose: () => {
+    if (gameOver) return; // Pleite: Maus nicht wieder einfangen
     title.show(true); // falls das erneute Sperren der Maus scheitert
     controls.lock();
   },
@@ -256,16 +362,25 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, printerTable, computerDesk, workshop.group],
+  targets: [room, storage.group, printerTable, computerDesk, workshop.group, cat.group],
 });
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && controls.isLocked) interaction.click();
 });
 
+// Mausrad: welche Spule aus der Hand als Nächstes eingelegt wird
+document.addEventListener('wheel', (e) => {
+  if (controls.isLocked) carry.cycle(Math.sign(e.deltaY));
+});
+
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
+  if (e.code === 'KeyM' && !e.repeat && !shop.isOpen()) {
+    sound.toggleMute();
+    hud.notify(sound.muted ? '🔇 Ton aus' : '🔊 Ton an', 'info');
+  }
 });
 
 const keys = new Set();
@@ -287,20 +402,69 @@ function updateMovement(dt) {
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
 
+// Shader vorab im Hintergrund übersetzen. Sonst übersetzt three.js sie erst, wenn ein Objekt zum ersten Mal
+// ins Bild kommt – unter Windows (ANGLE → Direct3D) dauert das spürbar, das Spiel steht so lange und
+// Tastendrücke kommen erst Sekunden später an. Mehrere Aufrufe kurz hintereinander werden zusammengefasst.
+let compileQueued = false;
+function precompileShaders() {
+  if (compileQueued) return;
+  compileQueued = true;
+  setTimeout(() => {
+    compileQueued = false;
+    renderer.compileAsync(scene, camera).catch(() => { /* dann eben beim ersten Zeichnen */ });
+  }, 50);
+}
+economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  graphics.setSize(window.innerWidth, window.innerHeight);
+  graphics.setSize(window.innerWidth, window.innerHeight); // passt auch Renderer und Pixeldichte an
 });
+
+// Geräusche der druckenden Drucker: lauter, je näher man steht
+const printerPos = new THREE.Vector3();
+function printerSounds(dt) {
+  sound.updatePrinters(economy.printers.filter((p) => p.location === 'table').map((p) => {
+    const pos = workshop.printerPosition(p.id);
+    if (pos) printerPos.copy(pos).setY(TABLE_HEIGHT);
+    return {
+      id: p.id,
+      printing: p.job?.status === 'printing' && !!pos,
+      speed: speedById(p.speedId).percent / 100,
+      distance: pos ? camera.position.distanceTo(printerPos) : 99,
+    };
+  }), dt);
+}
+
+// Pleite: Spielstand löschen, nur noch „Neues Spiel“
+let gameOver = false;
+function checkBankrupt() {
+  if (gameOver || !economy.bankrupt) return;
+  gameOver = true;
+  autosave.disable();
+  deleteSave();
+  shop.close();
+  controls.unlock();
+  title.showGameOver({ day: economy.day, ...achievements.stats });
+}
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
-  // Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter
-  economy.advancePrints(dt * GAME_MINUTES_PER_SECOND);
-  orders.advance(dt * GAME_MINUTES_PER_SECOND);
+  // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
+  const paused = !controls.isLocked && !shop.isOpen();
+  if (!gameOver && !paused) {
+    const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
+    economy.advanceTime(gameMinutes);
+    economy.advancePrints(gameMinutes);
+    orders.advance(gameMinutes);
+    checkBankrupt();
+  }
   workshop.animate(dt);
+  cat.update(dt);
+  hud.update();
+  printerSounds(dt);
   updateMovement(dt);
   interaction.update(controls.isLocked);
   crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));

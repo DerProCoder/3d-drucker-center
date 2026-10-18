@@ -1,5 +1,5 @@
 // Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
-import { templateById } from './catalog.js';
+import { filamentById, filamentLabel, templateById } from './catalog.js';
 import { GAME_MINUTES_PER_SECOND } from './economy.js';
 import { formatMinutes } from './printer-menu.js';
 
@@ -14,21 +14,44 @@ export function createOrdersMenu(orders, economy) {
     return `Frist: noch ${formatMinutes(order.minutesLeft)} (echt ca. ${formatMinutes(realMinutes)})`;
   }
 
+  // Was genau bestellt ist: Farbe + Material, nur Material, oder (alte Aufträge) egal
+  function wantText(order, t) {
+    if (order.filamentId) {
+      const f = filamentById(order.filamentId);
+      return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)}`;
+    }
+    if (order.material) return `${order.material}, Farbe egal`;
+    return t.materials.join(' / ');
+  }
+
+  // Ruf beim Kunden: Sterne, Stammkunde ab 3
+  function starsText(customer) {
+    const stars = orders.starsOf(customer);
+    if (stars < 0) return `<span class="stars angry" title="Verärgert – zahlt weniger">${'😠'.repeat(-stars)}</span>`;
+    const label = orders.isRegular(customer) ? ' <span class="tag regular">Stammkunde</span>' : '';
+    return stars ? `<span class="stars" title="Zufrieden – zahlt mehr">${'★'.repeat(stars)}</span>${label}` : '';
+  }
+
   function card(order) {
     const t = templateById(order.templateId);
-    const have = economy.finishedParts.get(order.templateId) ?? 0;
+    const have = orders.partsReady(order);
     const problem = orders.deliveryProblem(order);
     const urgent = order.minutesLeft < URGENT_MINUTES;
+    const tags = [
+      order.rush ? '<span class="tag rush">⚡ Eilauftrag</span>' : '',
+      order.special ? '<span class="tag special">🤪 Sonderwunsch</span>' : '',
+    ].join('');
     return `
-      <div class="card order" data-order="${order.id}">
+      <div class="card order ${order.rush ? 'rush' : ''}" data-order="${order.id}">
         <div class="card-head">
           <div>
-            <div class="card-title">${order.quantity} × ${t.name}</div>
-            <div class="card-sub">${order.customer}</div>
+            <div class="card-title">${order.quantity} × ${t.name} ${tags}</div>
+            <div class="card-sub">${order.customer} ${starsText(order.customer)}</div>
           </div>
         </div>
+        ${order.note ? `<p class="order-note">„${order.note}“</p>` : ''}
         <dl class="specs">
-          <dt>Material</dt><dd>${t.materials.join(' / ')}</dd>
+          <dt>Gewünscht</dt><dd>${wantText(order, t)}</dd>
           <dt>Pro Teil</dt><dd>${t.grams} g · ${formatMinutes(t.minutes)}</dd>
           <dt>Fertig im Lager</dt><dd>${Math.min(have, order.quantity)} / ${order.quantity}</dd>
         </dl>
@@ -45,7 +68,8 @@ export function createOrdersMenu(orders, economy) {
   }
 
   function render() {
-    const intro = `<p class="slots">Druck die bestellten Teile, entnimm sie im Druckermenü und liefer sie hier vor Ablauf der Frist ab.
+    const intro = `<p class="slots">Druck die bestellten Teile in Wunschmaterial und -farbe, entnimm sie und liefer sie hier vor Ablauf der Frist ab.
+      Pünktliche Lieferungen bringen Sterne beim Kunden (mehr Lohn, öfter Aufträge), verfallene kosten einen.
       Erledigte Aufträge: <strong>${orders.completed}</strong></p>`;
     if (!orders.open.length) {
       return `${intro}<p class="empty">Gerade keine Aufträge. Neue Kunden melden sich bald.</p>`;
@@ -61,7 +85,7 @@ export function createOrdersMenu(orders, economy) {
     const order = orders.orderById(Number(cardEl.dataset.order));
     if (!order) return null;
     if (action === 'deliver' && orders.deliver(order.id)) return `Geliefert an ${order.customer}: +${euro.format(order.reward)}`;
-    if (action === 'decline' && confirm(`Auftrag von ${order.customer} ablehnen?`)) orders.decline(order.id);
+    if (action === 'decline' && confirm(`Auftrag von ${order.customer} ablehnen? (Ablehnen kostet keinen Stern, verfallen lassen schon.)`)) orders.decline(order.id);
     return null;
   }
 

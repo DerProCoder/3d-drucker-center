@@ -1,10 +1,11 @@
 // Abstellraum hinter der Südwand: Keller-Look mit Betonboden, Kalksandsteinwänden, Leuchtstoffröhre.
 // Gekaufte Spulen liegen im Schwerlastregal, Drucker stehen als Karton in der Lieferzone.
 import * as THREE from 'three';
-import { FILAMENTS, filamentLabel } from './catalog.js';
+import { filamentById } from './catalog.js';
+import { WET, spoolLabel } from './economy.js';
 import { createSpool } from './spool.js';
-import { MAX_SPOOLS } from './carry.js';
 import { createPrinterBox } from './printer-box.js';
+import { MAX_SPOOLS } from './carry.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
@@ -27,6 +28,12 @@ const SHELF = {
   levels: [0.15, 0.62, 1.09, 1.56], perLevel: 20, spoolX: -7.66, firstZ: 11.08, spacing: 0.115,
 };
 export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel;
+
+// Trockenschrank zwischen Tür-Wand und Regal
+const DRYER = {
+  x: -7.76, z: 10.6, w: 0.42, d: 0.5, h: 0.95,
+  collider: { minX: -7.97, maxX: -7.55, minZ: 10.35, maxZ: 10.85 },
+};
 
 const ZONE = { x0: -3.1, x1: -2.05, z0: 10.55, z1: 14.2 };
 const BOX_X = (ZONE.x0 + ZONE.x1) / 2;
@@ -118,6 +125,33 @@ function createShelf() {
     }
   }
   return shelf;
+}
+
+// Filament-Trockenschrank: Metallschrank mit Glastür, Heizstab glüht orange, grüne Anzeige
+function createDryer() {
+  const g = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: 0xd9dcdf, roughness: 0.45, metalness: 0.3 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x9fc6d8, roughness: 0.05, transparent: true, opacity: 0.35 });
+  const glow = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff5a10, emissiveIntensity: 2 });
+  const display = new THREE.MeshStandardMaterial({ color: 0x55ff99, emissive: 0x33ff88, emissiveIntensity: 1.5 });
+  const { w, d, h } = DRYER;
+  // Rückwand, Seiten, Boden, Deckel – die Glastür zeigt in den Raum (+x)
+  g.add(box(0.02, h, d, body, -w / 2 + 0.01, h / 2, 0));
+  for (const side of [-1, 1]) g.add(box(w, h, 0.02, body, 0, h / 2, side * (d / 2 - 0.01)));
+  g.add(box(w, 0.04, d, body, 0, 0.02, 0), box(w, 0.04, d, body, 0, h - 0.02, 0));
+  g.add(box(0.01, h - 0.12, d - 0.06, glass, w / 2 - 0.005, h / 2, 0));
+  g.add(box(0.012, 0.05, d, body, w / 2 - 0.006, h - 0.045, 0)); // Bedienleiste
+  g.add(box(0.004, 0.022, 0.06, display, w / 2 + 0.002, h - 0.045, -0.1));
+  g.add(box(0.3, 0.012, 0.012, glow, 0, 0.07, 0)); // Heizstab
+  // Zwei Fachböden mit je einer Spule, damit man sieht, wofür er da ist
+  for (const [y, id] of [[0.3, 'pla-grün'], [0.62, 'pla-rot']]) {
+    g.add(box(w - 0.04, 0.01, d - 0.04, body, 0, y - 0.005, 0));
+    const spool = createSpool(filamentById(id));
+    spool.position.set(0, y + 0.1, 0);
+    spool.rotation.y = Math.PI / 2;
+    g.add(spool);
+  }
+  return g;
 }
 
 function createDoorLeaf() {
@@ -228,14 +262,14 @@ export function createStorageRoom({ economy, carry, collision }) {
   lamp.position.set(CX, HEIGHT, CZ);
   group.add(lamp);
 
-  // Regal für Filamentspulen: Klick mit Spule in der Hand legt sie zurück
+  // Regal für Filamentspulen: Klick mit Spulen in der Hand legt alle zurück
   const shelf = createShelf();
   shelf.userData.interaction = {
     hint: () => {
-      if (carry.item?.kind !== 'filament') return null;
-      return carry.spools.length > 1 ? `Linksklick: ${carry.spools.length} Spulen ins Regal legen` : 'Linksklick: Spule ins Regal legen';
+      if (!carry.hasSpools) return null;
+      return carry.spools.length > 1 ? `Linksklick: alle ${carry.spools.length} Spulen ins Regal legen` : 'Linksklick: Spule ins Regal legen';
     },
-    action: () => { if (carry.item?.kind === 'filament') carry.returnToStorage(); },
+    action: () => { if (carry.hasSpools) carry.returnToStorage(); },
   };
   group.add(shelf);
 
@@ -266,8 +300,8 @@ export function createStorageRoom({ economy, carry, collision }) {
   zoneArea.rotation.x = -Math.PI / 2;
   zoneArea.position.set(BOX_X, 0.01, zcz);
   zoneArea.userData.interaction = {
-    hint: () => (carry.item?.kind === 'printer' ? 'Linksklick: Karton abstellen' : null),
-    action: () => { if (carry.item?.kind === 'printer') carry.returnToStorage(); },
+    hint: () => (carry.printer ? 'Linksklick: Karton abstellen' : null),
+    action: () => { if (carry.printer) carry.returnToStorage(); },
   };
   group.add(zoneArea);
 
@@ -292,65 +326,73 @@ export function createStorageRoom({ economy, carry, collision }) {
   const contents = new THREE.Group();
   group.add(contents);
 
-  const handsFull = 'Hände voll – Q legt es zurück ins Lager';
+  // Trockenschrank (Zubehör), erscheint nach dem Kauf vor dem Regal
+  const dryer = createDryer();
+  dryer.position.set(DRYER.x, 0, DRYER.z);
+  dryer.visible = false;
+  dryer.userData.interaction = {
+    hint: () => (dryer.visible ? 'Trockenschrank läuft – Spulen im Regal bleiben trocken' : null),
+  };
+  group.add(dryer);
 
-  // Spulen kann man stapeln (bis zu MAX_SPOOLS), Kartons nur einzeln
-  function spoolInteraction(filament) {
+  // Spulen und Kartons haben feste Plätze: Es wird genau das genommen, was angeklickt wurde,
+  // und nichts rutscht nach.
+  function spoolInteraction(spool) {
     return {
       hint: () => {
-        if (carry.item?.kind === 'printer') return handsFull;
-        if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen`;
-        const count = carry.spools.length;
-        return `Linksklick: ${filamentLabel(filament)} nehmen${count ? ` (${count + 1}/${MAX_SPOOLS})` : ''}`;
+        if (carry.printer) return 'Hände voll – erst den Karton abstellen (Q)';
+        if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
+        const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
+        const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
+        return `Linksklick: ${spoolLabel(spool)} nehmen${count}${wet}`;
       },
       action: () => {
         if (!carry.canTakeSpool) return;
-        const grams = economy.takeFilamentFromStorage(filament.id);
-        if (grams !== null) carry.holdFilament(filament.id, grams);
+        const taken = economy.takeSpoolFromShelf(spool.shelfSlot);
+        if (taken) carry.addSpool(taken);
       },
     };
   }
 
   function boxInteraction(printer) {
     return {
-      hint: () => (carry.item ? handsFull : `Linksklick: ${printer.model.name} aufheben`),
+      hint: () => (carry.isEmpty ? `Linksklick: ${printer.model.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
       action: () => {
-        if (!carry.item && economy.takePrinterFromStorage(printer.id)) carry.holdPrinter(printer);
+        if (carry.isEmpty && economy.takePrinterFromStorage(printer.id)) carry.holdPrinter(printer);
       },
     };
   }
 
   function sync() {
     contents.clear();
+    dryer.visible = economy.hasDryer;
 
-    let slot = 0;
-    for (const filament of FILAMENTS) {
-      for (let i = 0; i < economy.filamentStock(filament.id) && slot < SHELF_CAPACITY; i++, slot++) {
-        const level = Math.floor(slot / SHELF.perLevel);
-        const index = slot % SHELF.perLevel;
-        const spool = createSpool(filament);
-        spool.rotation.y = Math.PI / 2; // Achse entlang des Regals
-        spool.position.set(SHELF.spoolX, SHELF.levels[level] + 0.1, SHELF.firstZ + index * SHELF.spacing);
-        spool.userData.interaction = spoolInteraction(filament);
-        contents.add(spool);
-      }
+    for (const spool of economy.shelf) {
+      if (spool.shelfSlot >= SHELF_CAPACITY) continue;
+      const level = Math.floor(spool.shelfSlot / SHELF.perLevel);
+      const index = spool.shelfSlot % SHELF.perLevel;
+      const mesh = createSpool(filamentById(spool.filamentId));
+      mesh.rotation.y = Math.PI / 2; // Achse entlang des Regals
+      mesh.position.set(SHELF.spoolX, SHELF.levels[level] + 0.1, SHELF.firstZ + index * SHELF.spacing);
+      mesh.userData.interaction = spoolInteraction(spool);
+      contents.add(mesh);
     }
 
     const boxColliders = [];
-    economy.printers
-      .filter((p) => p.location === 'storage')
-      .slice(0, BOX_SPOTS_Z.length)
-      .forEach((printer, i) => {
-        const crate = createPrinterBox(printer.model);
-        crate.position.set(BOX_X, 0, BOX_SPOTS_Z[i]);
-        crate.userData.interaction = boxInteraction(printer);
-        contents.add(crate);
-        const { w, d: depth } = crate.userData.size;
-        boxColliders.push({
-          minX: BOX_X - w / 2, maxX: BOX_X + w / 2,
-          minZ: BOX_SPOTS_Z[i] - depth / 2, maxZ: BOX_SPOTS_Z[i] + depth / 2,
-        });
+    for (const printer of economy.printers) {
+      const spot = printer.storageSpot;
+      if (printer.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
+      const crate = createPrinterBox(printer.model);
+      crate.position.set(BOX_X, 0, BOX_SPOTS_Z[spot]);
+      crate.userData.interaction = boxInteraction(printer);
+      contents.add(crate);
+      const { w, d: depth } = crate.userData.size;
+      boxColliders.push({
+        minX: BOX_X - w / 2, maxX: BOX_X + w / 2,
+        minZ: BOX_SPOTS_Z[spot] - depth / 2, maxZ: BOX_SPOTS_Z[spot] + depth / 2,
       });
+    }
+    if (economy.hasDryer) boxColliders.push(DRYER.collider);
     collision.setDynamic('storage-boxes', boxColliders);
     enableShadows(contents);
   }

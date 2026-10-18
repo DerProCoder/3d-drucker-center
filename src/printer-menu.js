@@ -1,9 +1,11 @@
 // Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
 // Start/Pause/Abbrechen, fertiges Teil entnehmen.
 import {
-  PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
+  FAILURES, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
 } from './catalog.js';
-import { GAME_MINUTES_PER_SECOND } from './economy.js';
+import {
+  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, WET, batchGrams, batchMinutes, plateLayout,
+} from './economy.js';
 
 export function formatMinutes(minutes) {
   const total = Math.ceil(minutes);
@@ -14,15 +16,30 @@ export function formatMinutes(minutes) {
 
 export function createPrinterMenu(economy) {
   const selectedTemplate = new Map(); // Drucker-ID → gewählte Vorlage (nur Anzeige-Zustand)
+  const selectedCount = new Map();    // Drucker-ID → gewünschte Anzahl Teile auf der Platte
+
+  // Gewählte Anzahl, begrenzt auf das, was auf die Platte passt (mindestens 1)
+  function countFor(p, template) {
+    const max = Math.max(1, plateLayout(template, p.model.build).max);
+    return Math.min(selectedCount.get(p.id) ?? 1, max);
+  }
 
   function statusOf(p) {
     if (p.location === 'storage') return { text: 'Noch im Karton im Abstellraum', cls: 'idle' };
     if (p.location === 'carried') return { text: 'Wird gerade getragen', cls: 'idle' };
     const job = p.job;
+    if (!job && p.clogged) return { text: `🪡 Düse verstopft – am Drucker freistechen (${p.nozzlePokes}/${NOZZLE_POKES})`, cls: 'failed' };
     if (!job) return { text: 'Bereit', cls: 'ready' };
-    const name = templateById(job.templateId).name;
+    const count = job.count ?? 1;
+    const name = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}`;
     const pct = Math.floor(job.progress * 100);
-    if (job.status === 'done') return { text: `Fertig: ${name} – Teil entnehmen`, cls: 'done' };
+    if (job.status === 'done') return { text: `Fertig: ${name} – ${count > 1 ? 'Teile' : 'Teil'} entnehmen (PC oder am Drucker)`, cls: 'done' };
+    if (job.status === 'failed') {
+      return { text: `⚠️ Fehldruck bei ${pct} %: ${FAILURES[job.failure].text}. Am Drucker wegräumen!`, cls: 'failed' };
+    }
+    if (job.pauseReason === 'filament') {
+      return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(job.filamentId))} einlegen`, cls: 'paused' };
+    }
     if (job.status === 'paused') return { text: `Pausiert: ${name} – ${pct} %`, cls: 'paused' };
     const remaining = economy.remainingMinutes(p);
     const realMinutes = remaining / GAME_MINUTES_PER_SECOND / 60;
@@ -45,16 +62,56 @@ export function createPrinterMenu(economy) {
     if (p.location !== 'table') return '';
     const job = p.job;
     if (!job) {
-      const problem = economy.printProblem(p, template);
-      return problem
-        ? `<button class="buy" disabled>${problem}</button>`
-        : '<button class="buy" data-action="start">Druck starten</button>';
+      const count = countFor(p, template);
+      const problem = economy.printProblem(p, template, count);
+      if (problem) return `<button class="buy" disabled>${problem}</button>`;
+      return `<button class="buy" data-action="start">${count > 1 ? `${count} Teile drucken` : 'Druck starten'}</button>`;
     }
-    if (job.status === 'done') return '<button class="buy" data-action="collect">Teil entnehmen</button>';
-    const toggle = job.status === 'printing'
+    if (job.status === 'done') {
+      return `<button class="buy" data-action="collect">${(job.count ?? 1) > 1 ? `${job.count} Teile entnehmen` : 'Teil entnehmen'}</button>`;
+    }
+    if (job.status === 'failed') return '<button class="buy" disabled>Fehldruck am Drucker wegräumen</button>';
+    let toggle = job.status === 'printing'
       ? '<button class="secondary" data-action="pause">Pause</button>'
       : '<button class="buy" data-action="resume">Fortsetzen</button>';
+    if (job.pauseReason === 'filament') toggle = '<button class="buy" disabled>Neue Spule einlegen</button>';
     return `${toggle}<button class="danger" data-action="cancel">Abbrechen</button>`;
+  }
+
+  // Vor dem Start: Gesamtmenge, wie riskant der Druck ist und ob das Filament reicht
+  function riskInfo(p, template) {
+    const count = countFor(p, template);
+    if (economy.printProblem(p, template, count)) return '';
+    const spoolNow = economy.activeSpool(p);
+    const risk = Math.round(economy.failureRisk(p, template, spoolNow, count) * 100);
+    const speed = speedById(p.speedId).percent / 100;
+    const total = count > 1
+      ? `<div class="risk info">Platte: ${count} × ${template.name} · ${batchGrams(template, count)} g · ${formatMinutes(batchMinutes(template, count) / speed)}`
+        + ' – ein Fehldruck trifft alle Teile</div>'
+      : '';
+    const level = risk >= 30 ? 'high' : risk >= 12 ? 'mid' : 'low';
+    const reasons = [];
+    const spool = economy.activeSpool(p);
+    const material = filamentById(spool.filamentId).material;
+    if (speedById(p.speedId).percent > 100) reasons.push('hohe Geschwindigkeit');
+    if (material === 'ABS' && !p.model.enclosed) reasons.push('ABS ohne Gehäuse verzieht sich');
+    if (spool.moisture > DAMP) reasons.push('feuchtes Filament');
+    const shortfall = economy.filamentShortfall(p, template, count);
+    const warn = shortfall > 0
+      ? `<div class="risk high">🧵 Filament reicht nicht: Es fehlen ${Math.ceil(shortfall)} g – der Drucker hält an, bis du nachlegst.</div>`
+      : '';
+    return `${total}<div class="risk ${level}">Fehldruckrisiko: ${risk} %${reasons.length ? ` · ${reasons.join(', ')}` : ''}</div>${warn}`;
+  }
+
+  // Wie viele Teile auf einmal: bis zu so vielen, wie mit Abstand auf die Platte passen
+  function countField(p, template) {
+    const max = plateLayout(template, p.model.build).max;
+    if (max <= 1) return '';
+    const current = countFor(p, template);
+    const options = Array.from({ length: max }, (_, i) => i + 1)
+      .map((n) => `<option value="${n}" ${n === current ? 'selected' : ''}>${n} ×</option>`).join('');
+    return `<label class="field">Anzahl auf der Platte (passen bis zu ${max})
+      <select data-count>${options}</select></label>`;
   }
 
   function card(p) {
@@ -65,7 +122,8 @@ export function createPrinterMenu(economy) {
     const spoolLabel = (spool) => {
       if (!spool) return 'leer';
       const f = filamentById(spool.filamentId);
-      return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)} · ${Math.round(spool.grams)} g`;
+      const wet = spool.moisture >= WET ? ' · 💧 feucht' : '';
+      return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)} · ${Math.round(spool.grams)} g${wet}`;
     };
     // AMS: Fach auswählen, aus dem gedruckt wird. Ohne AMS: nur die eine Spule anzeigen.
     const canPick = onTable && !economy.isBusy(p) && !p.job;
@@ -94,15 +152,17 @@ export function createPrinterMenu(economy) {
         <label class="field">Druckvorlage
           <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
         </label>
+        ${onTable && !p.job ? countField(p, template) : ''}
         <div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>
+        ${onTable && !p.job ? riskInfo(p, template) : ''}
         <div class="card-foot actions">${actions(p, template)}</div>
       </div>`;
   }
 
   function render() {
-    const parts = [...economy.finishedParts]
-      .map(([id, count]) => `${templateById(id).name} × ${count}`)
-      .join(', ') || 'noch keine';
+    const parts = economy.partsList()
+      .map((x) => `<span class="dot" style="--c:${filamentById(x.filamentId).hex}"></span>${templateById(x.templateId).name} × ${x.count}`)
+      .join(' ') || 'noch keine';
     const gameSeconds = Math.round(GAME_MINUTES_PER_SECOND * 60);
     const intro = `<p class="slots">Spielzeit: 1 echte Sekunde = ${gameSeconds} Sekunden im Spiel · Fertige Teile: <strong>${parts}</strong></p>`;
     if (!economy.printers.length) {
@@ -129,7 +189,10 @@ export function createPrinterMenu(economy) {
     }
     const action = e.target.closest('[data-action]')?.dataset.action;
     const p = economy.printerById(id);
-    if (action === 'start') economy.startPrint(id, templateById(selectedTemplate.get(id) ?? PRINT_TEMPLATES[0].id));
+    if (action === 'start') {
+      const template = templateById(selectedTemplate.get(id) ?? PRINT_TEMPLATES[0].id);
+      economy.startPrint(id, template, countFor(p, template));
+    }
     if (action === 'pause') economy.pausePrint(id);
     if (action === 'resume') economy.resumePrint(id);
     if (action === 'cancel' && confirm(`Druck auf ${p.model.name} abbrechen? Das Filament ist dann verloren.`)) economy.cancelPrint(id);
@@ -138,10 +201,16 @@ export function createPrinterMenu(economy) {
 
   // Gibt true zurück, wenn neu gezeichnet werden muss
   function handleChange(e) {
-    const select = e.target.closest('[data-template]');
-    if (!select) return false;
-    selectedTemplate.set(Number(select.closest('[data-printer]').dataset.printer), select.value);
-    return true;
+    const id = Number(e.target.closest('[data-printer]')?.dataset.printer);
+    if (e.target.closest('[data-template]')) {
+      selectedTemplate.set(id, e.target.value);
+      return true;
+    }
+    if (e.target.closest('[data-count]')) {
+      selectedCount.set(id, Number(e.target.value));
+      return true;
+    }
+    return false;
   }
 
   // Fortschritt laufender Drucke aktualisieren, ohne das ganze Menü neu aufzubauen

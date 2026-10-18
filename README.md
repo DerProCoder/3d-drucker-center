@@ -53,8 +53,10 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 |---|---|
 | Maus | Umschauen |
 | W A S D | Laufen |
-| Linksklick | Benutzen, aufheben, abstellen, einlegen |
-| Q | Alles Getragene zurück ins Lager legen |
+| Linksklick | Benutzen, aufheben, abstellen, einlegen, Teil entnehmen, Kater streicheln |
+| Mausrad | Bei mehreren Spulen in der Hand: wählen, welche als Nächstes eingelegt wird |
+| Q | Alles in der Hand zurück ins Lager legen |
+| M | Ton an/aus |
 | Esc | Pause / PC verlassen |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
@@ -63,24 +65,50 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
-1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat, was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 20.000 €.
-3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
+1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat (Material und meist auch die Farbe), was du dafür bekommst und wie lange du Zeit hast.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 1.000 € – überleg dir gut, womit du anfängst.
+3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Du kannst bis zu **5 Spulen** auf einmal tragen – jeder Klick auf den Drucker legt die zuletzt genommene ein, so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
-7. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
-8. **Liefern:** Hast du alle bestellten Teile, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
+5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
+7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
+8. **Liefern:** Hast du alle bestellten Teile in der richtigen Farbe, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
+
+### Kunden
+
+- **Eilaufträge** (⚡) haben eine knappe Frist, zahlen aber fast das Doppelte.
+- **Sterne:** Jede pünktliche Lieferung bringt einen Stern beim Kunden, ein verfallener Auftrag kostet einen. Zufriedene Kunden zahlen mehr und melden sich öfter, ab 3 Sternen sind sie **Stammkunden**. Ablehnen kostet keinen Stern.
+- **Sonderwünsche** (🤪): Ab und zu kommen absurde Bestellungen – Jonas (12) braucht ein Dutzend Benchys für seine ganze Klasse, eine Influencerin will transparente Vasen für ihren Livestream …
+
+### Laufende Kosten
+
+Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Drucker verbrauchen beim Drucken viel Strom, im Leerlauf nur wenig. Oben links stehen Uhrzeit und Kosten pro Stunde. Rutscht das Konto unter 0 €, warnt das HUD – ab **−500 €** macht die Bank die Halle dicht und das Spiel ist vorbei. In der Pause (`Esc`) steht die Zeit still, am PC läuft sie weiter.
+
+### Pannen
+
+3D-Drucken geht nicht immer gut. Über dem Drucker erscheint dann ein Symbol, rechts oben eine Meldung:
+
+- **Fehldruck** (⚠️): Spaghetti, abgelöstes oder verzogenes Teil. Hingehen und auf den Drucker klicken, um das Bett freizuräumen – das Filament ist verloren. Das Risiko steht vor dem Start im Druckermenü: Höhere Geschwindigkeit, **ABS ohne Gehäuse** (A1, A1 mini) und **feuchtes Filament** machen Fehldrucke wahrscheinlicher, „Leise“ halbiert das Risiko.
+- **Verstopfte Düse** (🪡): Fünfmal auf den Drucker klicken, um sie freizustechen.
+- **Filament leer** (🧵): Der Drucker hält an, bis du eine Spule in derselben Sorte und Farbe einlegst – dann druckt er von selbst weiter. Das **AMS** wechselt automatisch auf ein anderes Fach mit derselben Spule.
+- **Feuchtes Filament** (💧): Spulen im Regal ziehen mit der Zeit Feuchtigkeit, im AMS langsamer. Der **Filament-Trockenschrank** aus dem Filament-Shop hält das Regal trocken und trocknet feuchte Spulen wieder.
+
+### Kater Düsentrieb
+
+Der Hallenkater streunt herum, macht Nickerchen und springt gern auf den Druckertisch. Fertige Teile, die zu lange auf dem Drucker liegen, schubst er dabei auch mal auf den Boden – dann einfach aufheben. Streicheln mit Linksklick.
 
 Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
-Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatlichen Stromkosten der aufgestellten Drucker und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
 ## Speichern, Level und Grafik
 
 - **Speichern:** Das Spiel speichert automatisch alle 10 Sekunden, beim Pausieren und beim Schließen des Tabs (unten rechts blinkt „💾 Gespeichert“). Beim nächsten Start steht im Titelbildschirm **Weiterspielen**. **Neues Spiel** löscht den Spielstand.
+- **Erfolge:** Die App **Erfolge** am PC zeigt freigeschaltete Erfolge (erstes Benchy, erste Spaghetti, Katzenmensch …) und Statistiken.
+- **Ton:** Drucker surren je nach Geschwindigkeit, piepen bei fertig oder Fehler, der Kater miaut und schnurrt. `M` schaltet den Ton aus.
 - **Level:** Jeder gelieferte Auftrag bringt XP (1 XP pro Euro). Mit jedem Level gibt es einen neuen Titel – vom *Bastler* bis zur *Legende des Filaments* –, 10 % mehr Lohn pro Auftrag und nach und nach mehr Aufträge gleichzeitig.
-- **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung), **Mittel** und **Niedrig** wählen.
+- **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung), **Mittel** und **Niedrig** wählen. „Niedrig“ rechnet mit voller statt doppelter Pixeldichte und einfacheren Schatten – für schwächere Rechner.
+- **Alte Spielstände** werden übernommen. Fertige Teile von früher bekommen dabei Weiß als Farbe, weil die Farbe damals nicht gespeichert wurde.
 
 ## Probleme?
 
@@ -92,6 +120,7 @@ Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die monatliche
 | Maus lässt sich nicht einfangen | Einmal ins Bild klicken. Nach `Esc` lässt der Browser die Maus manchmal erst nach einem weiteren Klick wieder einfangen. |
 | Spielstand ist nach Neuladen weg | Gespeichert wird im Browser (localStorage). Im privaten Fenster oder nach dem Löschen der Browserdaten ist er weg. |
 | Spiel ruckelt | Im Titelbildschirm die Grafik auf **Mittel** oder **Niedrig** stellen. |
+| Starkes Ruckeln, Bewegung kommt Sekunden später | Der Browser rendert vermutlich ohne Grafikkarte (der Titelbildschirm warnt dann rot). In den Browser-Einstellungen unter System **„Grafikbeschleunigung verwenden, wenn verfügbar“** einschalten und den Browser neu starten. Prüfen lässt es sich unter `chrome://gpu` bzw. `edge://gpu` (WebGL: „Hardware accelerated“). Bei Laptops mit zwei Grafikkarten in Windows unter Einstellungen → System → Anzeige → Grafik den Browser auf **Hohe Leistung** stellen. |
 
 ## Projektaufbau
 
@@ -101,16 +130,20 @@ css/style.css     HUD, Shop- und Menüfenster
 serve.ps1         Lokaler Webserver für Windows
 src/
   main.js         Verdrahtet alles: Szene, Steuerung, Spielschleife
-  economy.js      Spiellogik: Geld, Besitz, Druckaufträge (ohne 3D)
-  orders.js       Kundenaufträge: Fristen, Lohn, Liefern (ohne 3D)
+  economy.js      Spiellogik: Geld, Spielzeit, Kosten, Besitz, Drucke, Pannen, Feuchte (ohne 3D)
+  orders.js       Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern (ohne 3D)
   progress.js     Level, XP und Titel (ohne 3D)
+  achievements.js Erfolge und Statistik (ohne 3D)
+  cat.js          Kater Düsentrieb
+  sound.js        Geräusche per WebAudio (ohne Audiodateien)
+  carry.js        Was der Spieler trägt: ein Karton oder bis zu 5 Spulen
   save.js         Spielstand in localStorage, Autospeichern
   graphics.js     Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
   hud.js          HUD, Level-Up-Banner · title-screen.js: Titel- und Pausenbildschirm
   catalog.js      Drucker, Filamente, Druckvorlagen mit Preisen und Werten
   room.js         Halle mit Boden, Wänden, Fenstern, Licht
   storage-room.js Abstellraum mit Regal und Lieferzone
-  workshop.js     Druckertisch: Aufstellen, Einlegen, Druck-Animation
+  workshop.js     Druckertisch: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
   shop.js         PC-Desktop mit Apps, Taskleiste und Mauszeiger · printer-menu.js: Druckermenü
                   orders-menu.js: Aufträge · printer-cam.js: Drucker-Cam · pc-apps.js: Notizen und Rechner · desktop.js: Bildschirm & Symbole
   printer-model.js, printer-parts.js   3D-Modelle der Drucker

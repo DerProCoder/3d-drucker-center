@@ -201,6 +201,29 @@ function iconCalc(ctx, x, y, s) {
   }
 }
 
+function iconTrophy(ctx, x, y, s) {
+  ctx.fillStyle = '#f2c419';
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.22, y + s * 0.1);
+  ctx.lineTo(x + s * 0.78, y + s * 0.1);
+  ctx.quadraticCurveTo(x + s * 0.78, y + s * 0.58, x + s * 0.5, y + s * 0.62);
+  ctx.quadraticCurveTo(x + s * 0.22, y + s * 0.58, x + s * 0.22, y + s * 0.1);
+  ctx.fill();
+  ctx.strokeStyle = '#f2c419';
+  ctx.lineWidth = s * 0.06;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(x + s * (0.5 + side * 0.3), y + s * 0.26, s * 0.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillRect(x + s * 0.45, y + s * 0.6, s * 0.1, s * 0.16);
+  ctx.fillStyle = '#b8860b';
+  roundRect(ctx, x + s * 0.28, y + s * 0.76, s * 0.44, s * 0.14, s * 0.03);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillRect(x + s * 0.32, y + s * 0.16, s * 0.06, s * 0.3);
+}
+
 function iconCam(ctx, x, y, s) {
   ctx.fillStyle = '#2f3540';
   roundRect(ctx, x, y + s * 0.2, s * 0.72, s * 0.6, s * 0.1);
@@ -223,6 +246,7 @@ function iconCam(ctx, x, y, s) {
 }
 
 const ICONS = {
+  trophy: iconTrophy,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam,
 };

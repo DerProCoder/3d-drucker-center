@@ -346,10 +346,14 @@ export function createFlexTube({ start, startDir, endOffset, endDir, radius, mat
   return mesh;
 }
 
-// Biegt den Schlauch neu, wenn sich das Ende bewegt hat (end in Koordinaten des Elternobjekts)
+const FLEX_MIN_MOVE_SQ = 0.0015 ** 2; // erst ab 1,5 mm Bewegung neu biegen – spart Arbeit in jedem Bild
+
+// Biegt den Schlauch neu, wenn sich das Ende bewegt hat (end in Koordinaten des Elternobjekts).
+// Die Geometrie wird nur beim ersten Mal angelegt, danach werden ihre Punkte überschrieben,
+// statt jedes Bild eine neue Geometrie auf die Grafikkarte zu laden.
 export function updateFlexTube(mesh, end) {
   const f = mesh.userData.flex;
-  if (f.lastEnd.distanceToSquared(end) < 1e-8) return;
+  if (f.lastEnd.distanceToSquared(end) < FLEX_MIN_MOVE_SQ) return;
   f.lastEnd.copy(end);
   // Weiche Kurve: Griffe entlang der Austrittsrichtungen, länger bei größerem Abstand
   const handle = Math.max(0.05, f.start.distanceTo(end) * 0.55);
@@ -359,8 +363,19 @@ export function updateFlexTube(mesh, end) {
     end.clone().addScaledVector(f.endDir, handle),
     end.clone()
   );
-  mesh.geometry.dispose();
-  mesh.geometry = new THREE.TubeGeometry(curve, 40, f.radius, 8, false);
+  const tube = new THREE.TubeGeometry(curve, 40, f.radius, 8, false);
+  const old = mesh.geometry;
+  if (!old.attributes.position) {
+    old.dispose();
+    mesh.geometry = tube;
+    return;
+  }
+  for (const name of ['position', 'normal']) {
+    old.attributes[name].array.set(tube.attributes[name].array);
+    old.attributes[name].needsUpdate = true;
+  }
+  old.computeBoundingSphere();
+  tube.dispose();
 }
 
 // Spulenhalter: Sockel mit Stange entlang +x
