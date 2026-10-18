@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { FILAMENTS, filamentLabel } from './catalog.js';
 import { createSpool } from './spool.js';
+import { MAX_SPOOLS } from './carry.js';
 import { createPrinterBox } from './printer-box.js';
 import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
@@ -230,7 +231,10 @@ export function createStorageRoom({ economy, carry, collision }) {
   // Regal für Filamentspulen: Klick mit Spule in der Hand legt sie zurück
   const shelf = createShelf();
   shelf.userData.interaction = {
-    hint: () => (carry.item?.kind === 'filament' ? 'Linksklick: Spule ins Regal legen' : null),
+    hint: () => {
+      if (carry.item?.kind !== 'filament') return null;
+      return carry.spools.length > 1 ? `Linksklick: ${carry.spools.length} Spulen ins Regal legen` : 'Linksklick: Spule ins Regal legen';
+    },
     action: () => { if (carry.item?.kind === 'filament') carry.returnToStorage(); },
   };
   group.add(shelf);
@@ -290,11 +294,17 @@ export function createStorageRoom({ economy, carry, collision }) {
 
   const handsFull = 'Hände voll – Q legt es zurück ins Lager';
 
+  // Spulen kann man stapeln (bis zu MAX_SPOOLS), Kartons nur einzeln
   function spoolInteraction(filament) {
     return {
-      hint: () => (carry.item ? handsFull : `Linksklick: ${filamentLabel(filament)} nehmen`),
+      hint: () => {
+        if (carry.item?.kind === 'printer') return handsFull;
+        if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen`;
+        const count = carry.spools.length;
+        return `Linksklick: ${filamentLabel(filament)} nehmen${count ? ` (${count + 1}/${MAX_SPOOLS})` : ''}`;
+      },
       action: () => {
-        if (carry.item) return;
+        if (!carry.canTakeSpool) return;
         const grams = economy.takeFilamentFromStorage(filament.id);
         if (grams !== null) carry.holdFilament(filament.id, grams);
       },

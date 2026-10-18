@@ -1,6 +1,6 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
-// dazu „Notizen“ und „Rechner“.
+// „Drucker-Cam“ mit Live-Bild, dazu „Notizen“ und „Rechner“.
 import { FILAMENTS, MATERIALS, PRINTERS, SPEED_MODES, formatBuildVolume } from './catalog.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
@@ -19,6 +19,7 @@ const APPS = [
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
+  { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
 ];
@@ -26,8 +27,8 @@ const appById = (id) => APPS.find((a) => a.id === id);
 
 // freePrinterSlots: () => wie viele Drucker noch gekauft werden dürfen (Stellplätze auf dem Tisch)
 // freeShelfSpace: () => freie Spulenplätze im Lagerregal
-// orders: Kundenaufträge (orders.js)
-export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, onClose }) {
+// orders: Kundenaufträge (orders.js) · cam: Drucker-Cam (printer-cam.js)
+export function createShop(economy, { orders, cam, freePrinterSlots, freeShelfSpace, onClose }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
   root.id = 'shop';
@@ -160,9 +161,10 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
     const scroll = contentEl.scrollTop;
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render,
-      control: printerMenu.render, notes: notes.render, calc: calc.render,
+      control: printerMenu.render, notes: notes.render, calc: calc.render, cam: cam.render,
     };
     contentEl.innerHTML = renderers[app]();
+    if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     contentEl.scrollTop = scroll;
   }
 
@@ -214,6 +216,10 @@ export function createShop(economy, { orders, freePrinterSlots, freeShelfSpace, 
     if (app === 'orders') {
       const message = ordersMenu.handleClick(e);
       if (message) toast(message);
+      return;
+    }
+    if (app === 'cam') {
+      if (cam.handleClick(e)) render();
       return;
     }
     if (app === 'calc') {

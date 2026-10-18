@@ -48,7 +48,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       const printer = carriedPrinter();
       const slot = printer ? nearestFreeSlot(hit.point.x) : null;
       if (slot === null) return;
-      carry.release();
+      carry.takeTop();
       economy.placePrinter(printer.id, slot);
       ghost.visible = false;
     },
@@ -67,13 +67,19 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
           if (busy) return `${name} druckt gerade – Spulen erst danach wechseln`;
           if (!supports(f)) return `${name} kann kein ${f.material} drucken`;
           const slot = economy.loadTarget(printer);
-          if (slot === -1) return 'AMS ist voll – erst eine Spule herausnehmen';
+          if (slot === -1) {
+            const out = economy.unloadTarget(printer);
+            const outSpool = printer.spools[out];
+            return carry.canTakeSpool && outSpool
+              ? `AMS ist voll – Linksklick: ${filamentLabel(filamentById(outSpool.filamentId))} aus Fach ${out + 1} herausnehmen`
+              : 'AMS ist voll und deine Hände auch';
+          }
           if (ams) return `Linksklick: ${filamentLabel(f)} in AMS-Fach ${slot + 1} einlegen`;
           return printer.spools[0]
             ? `Linksklick: ${filamentLabel(f)} einlegen (alte Spule nehmen)`
             : `Linksklick: ${filamentLabel(f)} einlegen`;
         }
-        if (item) return null;
+        if (item?.kind === 'printer') return null;
         if (busy) return `${name} druckt ${Math.floor(printer.job.progress * 100)} % – Steuerung am PC`;
         const slot = economy.unloadTarget(printer);
         if (slot === -1) return `${name} – kein Filament eingelegt`;
@@ -85,12 +91,13 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       action: () => {
         const item = carry.item;
         if (economy.isBusy(printer)) return;
-        if (item?.kind === 'filament') {
-          if (!supports(filamentById(item.filamentId)) || economy.loadTarget(printer) === -1) return;
-          carry.release();
+        // Mit Spulen in der Hand: oberste einlegen. Ist das AMS voll, wird stattdessen eine herausgenommen.
+        if (item?.kind === 'filament' && economy.loadTarget(printer) !== -1) {
+          if (!supports(filamentById(item.filamentId))) return;
+          carry.takeTop();
           const previous = economy.loadFilament(printer.id, item.filamentId, item.grams);
           if (previous) carry.holdFilament(previous.filamentId, previous.grams);
-        } else if (!item && economy.unloadTarget(printer) !== -1) {
+        } else if (item?.kind !== 'printer' && carry.canTakeSpool && economy.unloadTarget(printer) !== -1) {
           const spool = economy.unloadFilament(printer.id);
           if (spool) carry.holdFilament(spool.filamentId, spool.grams);
         }
@@ -212,5 +219,8 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     }
   }
 
-  return { group, sync, animate };
+  // 3D-Modell eines aufgestellten Druckers (z. B. für die Drucker-Cam) oder undefined
+  const modelOf = (printerId) => built.get(printerId);
+
+  return { group, sync, animate, modelOf };
 }

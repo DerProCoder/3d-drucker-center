@@ -23,7 +23,13 @@ export function deleteSave() {
   storage()?.removeItem(KEY);
 }
 
-export function saveGame(economy, orders, progress) {
+// carried: Spulen in der Hand ({ filamentId, grams }) – werden als „im Regal“ gespeichert, damit nichts verloren geht
+export function saveGame(economy, orders, progress, carried = []) {
+  const filaments = new Map([...economy.filaments].map(([id, spools]) => [id, [...spools]]));
+  for (const { filamentId, grams } of carried) {
+    if (!filaments.has(filamentId)) filaments.set(filamentId, []);
+    filaments.get(filamentId).push(grams);
+  }
   const data = {
     version: VERSION,
     savedAt: Date.now(),
@@ -41,7 +47,7 @@ export function saveGame(economy, orders, progress) {
         speedId: p.speedId,
         job: p.job ? { ...p.job } : null,
       })),
-      filaments: [...economy.filaments],
+      filaments: [...filaments],
       finishedParts: [...economy.finishedParts],
     },
     orders: {
@@ -95,10 +101,11 @@ export function loadGame(economy, orders, progress) {
 
 // Autospeichern + beim Verlassen der Seite. onSaved wird nach jedem Speichern aufgerufen (z. B. für ein Symbol).
 // disable() braucht „Neues Spiel“, damit der gelöschte Stand beim Neuladen nicht gleich wieder geschrieben wird.
-export function startAutosave(economy, orders, progress, onSaved) {
+// getCarried: () => Spulen, die der Spieler gerade trägt
+export function startAutosave(economy, orders, progress, onSaved, getCarried = () => []) {
   let enabled = true;
   const save = () => {
-    if (enabled && saveGame(economy, orders, progress)) onSaved?.();
+    if (enabled && saveGame(economy, orders, progress, getCarried())) onSaved?.();
   };
   setInterval(save, AUTOSAVE_SECONDS * 1000);
   window.addEventListener('beforeunload', save);

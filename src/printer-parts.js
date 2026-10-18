@@ -211,13 +211,13 @@ export function createBuildPlate(size, m) {
 }
 
 // Druckkopf, Ursprung in der Mitte des Gehäuses, Rückseite bei z = -depth/2.
-// style 'a1': helle Frontabdeckung (A1-Serie) · 'p1': dunkles Gehäuse mit grauer Front (P1/P2-Serie)
+// style 'a1': helle Frontabdeckung (A1-Serie) · 'p1': etwas breiter und ganz dunkel (P1/P2-Serie)
 export function createToolhead(m, style = 'a1') {
   const head = new THREE.Group();
-  const w = style === 'p1' ? 0.06 : 0.055;
+  const w = style === 'p1' ? 0.064 : 0.055;
   const h = 0.075;
   const d = 0.045;
-  const front = style === 'p1' ? m.shellMid : m.shell;
+  const front = style === 'p1' ? m.shellDark : m.shell; // P1-Kopf ist ganz dunkel
 
   head.add(rbox(w, h, d, 0.006, m.shellDark));
   // Frontabdeckung mit abgesetzter unterer Kante
