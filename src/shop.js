@@ -92,6 +92,7 @@ export function createShop(economy, { freePrinterSlots, freeShelfSpace, onClose 
             <dt>Geschwindigkeit</dt><dd>${speedRange}</dd>
             <dt>Bauraum</dt><dd>${formatBuildVolume(p.build)}</dd>
             <dt>Materialien</dt><dd>${p.materials.join(', ')}</dd>
+            <dt>Filament</dt><dd>${p.spoolSlots > 1 ? `AMS mit ${p.spoolSlots} Fächern` : '1 Spule'}</dd>
             <dt>Stromkosten</dt><dd>${euro.format(p.powerCostPerMonth)} / Monat</dd>
           </dl>
           <div class="card-foot">

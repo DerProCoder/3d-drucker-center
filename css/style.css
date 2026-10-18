@@ -309,6 +309,26 @@ canvas { display: block; }
 .speeds button.active { border-color: #3aa0ff; background: #20406a; color: #fff; }
 .speeds button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* AMS-Fächer im Druckermenü */
+.ams-slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.ams-slots button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  background: #1f2228;
+  color: #dde;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.ams-slots button small { opacity: 0.6; }
+.ams-slots button.active { border-color: #3aa0ff; background: #20406a; color: #fff; }
+.ams-slots button:disabled { cursor: not-allowed; }
+
 .actions { justify-content: flex-end; }
 .secondary, .danger {
   padding: 7px 14px;

@@ -23,11 +23,13 @@ function getShared() {
   shared = {
     winding,
     flangeGeo: new THREE.CylinderGeometry(RADIUS, RADIUS, 0.005, 48),
-    coreGeo: new THREE.CylinderGeometry(RADIUS * 0.86, RADIUS * 0.86, WIDTH - 0.01, 48),
+    // etwas schmaler als der Abstand der Seitenscheiben, sonst flackern die Flächen (gleiche Ebene)
+    coreGeo: new THREE.CylinderGeometry(RADIUS * 0.86, RADIUS * 0.86, WIDTH - 0.012, 48),
     hubGeo: new THREE.CylinderGeometry(0.03, 0.03, WIDTH + 0.002, 24),
     holeGeo: new THREE.CircleGeometry(0.027, 24),
     labelGeo: new THREE.PlaneGeometry(0.05, 0.03),
-    flangeMat: new THREE.MeshStandardMaterial({ color: 0x26282b, roughness: 0.5 }),
+    // Seitenscheiben leicht durchsichtig (Klarsicht-Spule), damit die Filamentfarbe durchscheint
+    flangeMat: new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.3, transparent: true, opacity: 0.45 }),
     hubMat: new THREE.MeshStandardMaterial({ color: 0x3a3c40, roughness: 0.6 }),
     holeMat: new THREE.MeshBasicMaterial({ color: 0x050505 }),
     labelMat: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 }),
@@ -36,17 +38,15 @@ function getShared() {
   return shared;
 }
 
-function filamentMaterial(filament) {
+// Materialien für den Wickelkörper: [Mantel mit Rillen, Deckfläche, Deckfläche] (Gruppen der CylinderGeometry)
+function filamentMaterials(filament) {
   const s = getShared();
   if (!s.filamentMats.has(filament.id)) {
     const transparent = filament.color === 'Transparent';
-    s.filamentMats.set(filament.id, new THREE.MeshStandardMaterial({
-      color: filament.hex,
-      map: s.winding,
-      roughness: 0.35,
-      transparent,
-      opacity: transparent ? 0.7 : 1,
-    }));
+    const base = { color: filament.hex, roughness: 0.35, transparent, opacity: transparent ? 0.7 : 1 };
+    const side = new THREE.MeshStandardMaterial({ ...base, map: s.winding });
+    const cap = new THREE.MeshStandardMaterial(base); // ohne Rillen, sonst flimmert die Stirnseite
+    s.filamentMats.set(filament.id, [side, cap, cap]);
   }
   return s.filamentMats.get(filament.id);
 }
@@ -58,7 +58,7 @@ export function createSpool(filament) {
   inner.rotation.z = Math.PI / 2; // Zylinderachse y → x
   spool.add(inner);
 
-  inner.add(new THREE.Mesh(s.coreGeo, filamentMaterial(filament)));
+  inner.add(new THREE.Mesh(s.coreGeo, filamentMaterials(filament)));
   inner.add(new THREE.Mesh(s.hubGeo, s.hubMat));
   for (const side of [-1, 1]) {
     const flange = new THREE.Mesh(s.flangeGeo, s.flangeMat);

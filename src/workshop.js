@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { filamentById, filamentLabel, templateById, speedById } from './catalog.js';
 import { getPrintShape, outlinePoint, outlineLength } from './print-shapes.js';
-import { createPrinterModel, printerSize } from './printer-model.js';
+import { createPrinterModel, printerSize, updatePrinterTubes } from './printer-model.js';
 import { createSpool } from './spool.js';
 import { enableShadows } from './util.js';
 
@@ -61,29 +61,36 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       hint: () => {
         const item = carry.item;
         const busy = economy.isBusy(printer);
+        const ams = printer.spools.length > 1;
         if (item?.kind === 'filament') {
           const f = filamentById(item.filamentId);
-          if (busy) return `${name} druckt gerade – Spule erst danach wechseln`;
+          if (busy) return `${name} druckt gerade – Spulen erst danach wechseln`;
           if (!supports(f)) return `${name} kann kein ${f.material} drucken`;
-          return printer.filament
+          const slot = economy.loadTarget(printer);
+          if (slot === -1) return 'AMS ist voll – erst eine Spule herausnehmen';
+          if (ams) return `Linksklick: ${filamentLabel(f)} in AMS-Fach ${slot + 1} einlegen`;
+          return printer.spools[0]
             ? `Linksklick: ${filamentLabel(f)} einlegen (alte Spule nehmen)`
             : `Linksklick: ${filamentLabel(f)} einlegen`;
         }
         if (item) return null;
         if (busy) return `${name} druckt ${Math.floor(printer.job.progress * 100)} % – Steuerung am PC`;
-        if (!printer.filament) return `${name} – kein Filament eingelegt`;
-        if (printer.filamentGrams <= 0) return 'Linksklick: leere Spule entsorgen';
-        return `Linksklick: ${filamentLabel(filamentById(printer.filament))} herausnehmen (${Math.round(printer.filamentGrams)} g)`;
+        const slot = economy.unloadTarget(printer);
+        if (slot === -1) return `${name} – kein Filament eingelegt`;
+        const spool = printer.spools[slot];
+        if (spool.grams <= 0) return 'Linksklick: leere Spule entsorgen';
+        const where = ams ? ` aus AMS-Fach ${slot + 1}` : '';
+        return `Linksklick: ${filamentLabel(filamentById(spool.filamentId))}${where} herausnehmen (${Math.round(spool.grams)} g)`;
       },
       action: () => {
         const item = carry.item;
         if (economy.isBusy(printer)) return;
         if (item?.kind === 'filament') {
-          if (!supports(filamentById(item.filamentId))) return;
+          if (!supports(filamentById(item.filamentId)) || economy.loadTarget(printer) === -1) return;
           carry.release();
           const previous = economy.loadFilament(printer.id, item.filamentId, item.grams);
           if (previous) carry.holdFilament(previous.filamentId, previous.grams);
-        } else if (!item && printer.filament) {
+        } else if (!item && economy.unloadTarget(printer) !== -1) {
           const spool = economy.unloadFilament(printer.id);
           if (spool) carry.holdFilament(spool.filamentId, spool.grams);
         }
@@ -118,23 +125,28 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
     part.position.copy(rig.plateCenter);
     part.castShadow = true;
     part.userData = { shape, clip, pathT: 0 };
-    (rig.bedAxis ?? model).add(part);
+    rig.partParent.add(part);
     model.userData.partMesh = part;
   }
 
-  function updateSpool(model, printer) {
-    if (model.userData.loadedFilament === printer.filament) return;
-    if (model.userData.spoolMesh) model.remove(model.userData.spoolMesh);
-    model.userData.spoolMesh = null;
-    model.userData.loadedFilament = printer.filament;
-    if (!printer.filament) return;
+  // Eingelegte Spulen am Spulenhalter bzw. in den AMS-Fächern anzeigen
+  function updateSpools(model, printer) {
+    const meshes = (model.userData.spoolMeshes ??= []);
+    printer.spools.forEach((spool, i) => {
+      const filamentId = spool?.filamentId ?? null;
+      if (meshes[i]?.userData.filament.id === filamentId) return;
+      if (meshes[i]) model.remove(meshes[i]);
+      meshes[i] = null;
+      if (!filamentId) return;
 
-    const spool = createSpool(filamentById(printer.filament));
-    spool.position.copy(model.userData.spoolAnchor);
-    if (model.userData.spoolAxis === 'z') spool.rotation.y = Math.PI / 2;
-    enableShadows(spool);
-    model.add(spool);
-    model.userData.spoolMesh = spool;
+      const { position, axis } = model.userData.spoolSlots[i];
+      const mesh = createSpool(filamentById(filamentId));
+      mesh.position.copy(position);
+      if (axis === 'z') mesh.rotation.y = Math.PI / 2;
+      enableShadows(mesh);
+      model.add(mesh);
+      meshes[i] = mesh;
+    });
   }
 
   function sync() {
@@ -150,7 +162,7 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
           group.add(model);
           built.set(printer.id, model);
         }
-        updateSpool(model, printer);
+        updateSpools(model, printer);
         updatePart(model, printer);
       } else if (model) {
         group.remove(model);
@@ -161,9 +173,9 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
 
   const worldPos = new THREE.Vector3();
 
-  // Jedes Bild: gedruckte Schichten freigeben und die Achsen bewegen wie beim echten Bettschubser:
-  // Kopf links/rechts (X), Bett vor/zurück (Y), Portal hoch/runter (Z). Zusammen fährt die Düse
-  // den Umriss der aktuellen Schicht ab.
+  // Jedes Bild: Düse den Umriss der aktuellen Schicht abfahren lassen. Welche Achse sich dafür bewegt,
+  // entscheidet das Druckermodell (rig.pose): beim A1 Kopf + Bett vor/zurück + Portal hoch,
+  // bei P1/P2 Kopf vor/zurück/seitlich + Bett runter. Danach die gedruckten Schichten freigeben.
   function animate(dt) {
     for (const model of built.values()) {
       const printer = model.userData.printer;
@@ -171,35 +183,32 @@ export function createWorkshop({ table, tableHeight, economy, carry }) {
       const part = model.userData.partMesh;
       const rig = model.userData.printRig;
 
-      let layerY = 0;
-      if (part) {
-        const { shape, clip } = part.userData;
-        layerY = shape.height * job.progress;
-        part.getWorldPosition(worldPos);
-        clip.constant = job.status === 'done' ? 1e6 : worldPos.y + layerY + 0.0004;
-      }
-      if (!rig.zAxis) continue;
-
-      let lift = 0;
-      let nozzle = { x: 0, z: 0 };
+      const state = { mode: 'idle', x: 0, z: 0, layerY: 0, partHeight: 0 };
       if (job && part) {
         const { shape } = part.userData;
+        state.partHeight = shape.height;
+        state.layerY = shape.height * job.progress;
         if (job.status === 'done') {
-          lift = Math.max(0, shape.height - rig.nozzleGap + 0.02); // geparkt über dem fertigen Teil
+          state.mode = 'done';
         } else {
-          lift = layerY - rig.nozzleGap + 0.0005; // Düse sitzt auf der aktuellen Schicht
+          state.mode = 'printing'; // auch pausiert: Achsen bleiben an der Stelle stehen
           const outline = shape.outline(job.progress);
           if (job.status === 'printing') {
             // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe
             const speed = 0.06 * (speedById(printer.speedId).percent / 100);
             part.userData.pathT = (part.userData.pathT + (dt * speed) / Math.max(outlineLength(outline), 0.01)) % 1;
           }
-          nozzle = outlinePoint(outline, part.userData.pathT);
+          Object.assign(state, outlinePoint(outline, part.userData.pathT));
         }
       }
-      rig.zAxis.position.y = lift;
-      rig.head.position.x = rig.plateCenter.x + (job && job.status !== 'done' ? nozzle.x : rig.headX - rig.plateCenter.x);
-      if (rig.bedAxis) rig.bedAxis.position.z = -nozzle.z; // Bett fährt entgegen, damit die Düse relativ zur Platte wandert
+      rig.pose(state);
+
+      if (part) {
+        // Schnittebene erst nach dem Bewegen setzen, weil das Teil mit dem Bett mitfährt
+        part.getWorldPosition(worldPos);
+        part.userData.clip.constant = job.status === 'done' ? 1e6 : worldPos.y + state.layerY + 0.0004;
+      }
+      updatePrinterTubes(model); // Schlauch und Kabel biegen sich mit, ihr Anfang bleibt am Gerät
     }
   }
 

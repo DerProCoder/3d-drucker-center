@@ -62,10 +62,19 @@ export function createPrinterMenu(economy) {
     const status = statusOf(p);
     const templateId = p.job?.templateId ?? selectedTemplate.get(p.id) ?? PRINT_TEMPLATES[0].id;
     const template = templateById(templateId);
-    const f = p.filament ? filamentById(p.filament) : null;
-    const filament = f
-      ? `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)} · ${Math.round(p.filamentGrams)} g`
-      : 'Keine Spule eingelegt';
+    const spoolLabel = (spool) => {
+      if (!spool) return 'leer';
+      const f = filamentById(spool.filamentId);
+      return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)} · ${Math.round(spool.grams)} g`;
+    };
+    // AMS: Fach auswählen, aus dem gedruckt wird. Ohne AMS: nur die eine Spule anzeigen.
+    const canPick = onTable && !economy.isBusy(p) && !p.job;
+    const filament = p.spools.length > 1
+      ? `<div class="ams-slots">${p.spools.map((s, i) => `
+          <button data-ams-slot="${i}" class="${i === p.activeSlot ? 'active' : ''}" ${canPick ? '' : 'disabled'}>
+            <small>Fach ${i + 1}</small>${spoolLabel(s)}
+          </button>`).join('')}</div>`
+      : `<dl class="specs"><dt>Filament</dt><dd>${p.spools[0] ? spoolLabel(p.spools[0]) : 'Keine Spule eingelegt'}</dd></dl>`;
     const speeds = SPEED_MODES.map((s) => `
       <button data-speed="${s.id}" class="${s.id === p.speedId ? 'active' : ''}" ${onTable ? '' : 'disabled'}>
         ${s.name}<small>${s.percent} %</small>
@@ -81,7 +90,7 @@ export function createPrinterMenu(economy) {
         </div>
         <div class="status ${status.cls}" data-status>${status.text}</div>
         <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
-        <dl class="specs"><dt>Filament</dt><dd>${filament}</dd></dl>
+        ${filament}
         <label class="field">Druckvorlage
           <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
         </label>
@@ -111,6 +120,11 @@ export function createPrinterMenu(economy) {
     const speed = e.target.closest('[data-speed]')?.dataset.speed;
     if (speed) {
       economy.setPrintSpeed(id, speed);
+      return;
+    }
+    const amsSlot = e.target.closest('[data-ams-slot]')?.dataset.amsSlot;
+    if (amsSlot !== undefined) {
+      economy.setActiveSlot(id, Number(amsSlot));
       return;
     }
     const action = e.target.closest('[data-action]')?.dataset.action;

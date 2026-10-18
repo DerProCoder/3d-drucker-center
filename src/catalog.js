@@ -53,28 +53,33 @@ export const SPEED_MODES = [
 export const speedById = (id) => SPEED_MODES.find((s) => s.id === id);
 
 // build: Bauraum in mm (Breite × Tiefe × Höhe), powerCostPerMonth: Stromkosten in € pro Monat
+// spoolSlots: wie viele Spulen gleichzeitig eingelegt sein können (1 = Spulenhalter, 4 = AMS)
 // style wählt das 3D-Modell in printer-model.js, accent färbt die Klassen-Plakette im Shop
-// (bei den Platzhaltern auch das Modell, size in Metern)
 export const PRINTERS = [
   {
     id: 'a1-mini', name: 'Bambu Lab A1 mini', tier: 'Einsteiger', price: 180,
     build: { x: 180, y: 180, z: 180 }, materials: ['PLA', 'PETG'], powerCostPerMonth: 25,
-    style: 'a1-mini', accent: '#2f7de1',
+    spoolSlots: 1, style: 'a1-mini', accent: '#2f7de1',
   },
   {
     id: 'a1', name: 'Bambu Lab A1', tier: 'Mittelklasse', price: 220,
     build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS'], powerCostPerMonth: 35,
-    style: 'a1', accent: '#e1572f',
+    spoolSlots: 1, style: 'a1', accent: '#e1572f',
   },
   {
-    id: 'forgecube-x1', name: 'ForgeCube X1', tier: 'Profi', price: 2490,
-    build: { x: 300, y: 300, z: 300 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 50,
-    style: 'enclosed', size: { w: 0.5, h: 0.6, d: 0.5 }, accent: '#22b573',
+    id: 'p1p', name: 'Bambu Lab P1P', tier: 'Fortgeschritten', price: 400,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'TPU'], powerCostPerMonth: 40,
+    spoolSlots: 4, style: 'p1p', accent: '#5b6472',
   },
   {
-    id: 'forgecube-industrial', name: 'ForgeCube Industrial', tier: 'Industrie', price: 6900,
-    build: { x: 400, y: 400, z: 450 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 90,
-    style: 'enclosed', size: { w: 0.6, h: 0.78, d: 0.6 }, accent: '#9b59ff',
+    id: 'p1s', name: 'Bambu Lab P1S', tier: 'Profi', price: 550,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 45,
+    spoolSlots: 4, style: 'p1s', accent: '#22b573',
+  },
+  {
+    id: 'p2s', name: 'Bambu Lab P2S', tier: 'Profi+', price: 700,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerCostPerMonth: 50,
+    spoolSlots: 4, style: 'p2s', accent: '#9b59ff',
   },
 ];
 

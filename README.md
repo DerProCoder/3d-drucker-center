@@ -61,11 +61,11 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
 ## So läuft eine Runde
 
-1. **Einkaufen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Im Reiter **Filamente** kaufst du Spulen, im Reiter **Drucker** z. B. einen Bambu Lab A1 mini. Du startest mit 20.000 €.
+1. **Einkaufen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Im Reiter **Filamente** kaufst du Spulen, im Reiter **Drucker** einen Bambu Lab A1 mini, A1, P1P, P1S oder P2S. Du startest mit 20.000 €.
 2. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal.
 3. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-4. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-5. **Drucken:** Am PC den Reiter **Druckermenü** (ganz rechts) öffnen, Druckvorlage und Geschwindigkeit wählen und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
+4. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S und P2S ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+5. **Drucken:** Am PC den Reiter **Druckermenü** (ganz rechts) öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker.
 6. **Entnehmen:** Ist der Druck fertig, im Druckermenü auf **Teil entnehmen** klicken.
 
 Oben links siehst du deinen Kontostand und die monatlichen Stromkosten der aufgestellten Drucker. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
