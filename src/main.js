@@ -26,6 +26,9 @@ import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
 import { createWorkers } from './world/workers.js';
 import { createOffice } from './world/office.js';
+import { createEntrance } from './world/entrance.js';
+import { createOutdoor } from './world/outdoor.js';
+import { createPedestrians } from './world/pedestrians.js';
 import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
@@ -194,11 +197,13 @@ const sun = new THREE.DirectionalLight(0xfff4e0, 0.8);
 sun.position.set(5, 10, 4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-// Schattenbereich deckt Halle und Abstellraum ab
-sun.shadow.camera.left = -17;
-sun.shadow.camera.right = 17;
-sun.shadow.camera.top = 17;
-sun.shadow.camera.bottom = -17;
+// Schattenbereich deckt Halle, Anbauten und den Garten vor dem Eingang ab
+sun.target.position.set(-7, 0, 0);
+scene.add(sun.target);
+sun.shadow.camera.left = -25;
+sun.shadow.camera.right = 25;
+sun.shadow.camera.top = 25;
+sun.shadow.camera.bottom = -25;
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
@@ -206,6 +211,14 @@ scene.add(sun);
 const room = createRoom();
 scene.add(room);
 for (const b of roomColliders()) collision.addBox(b);
+
+// Eingangsbereich hinter der Westwand, dahinter Garten und Straße mit Autos und Passanten
+const entrance = createEntrance({ collision });
+scene.add(entrance.group);
+const outdoor = createOutdoor({ collision, scene });
+scene.add(outdoor.group, outdoor.sky);
+const pedestrians = createPedestrians();
+outdoor.group.add(pedestrians.group); // nur sichtbar, wenn man nach draußen schauen kann
 
 const TABLE_HEIGHT = 0.8;
 const TOP_THICKNESS = 0.05;
@@ -467,7 +480,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
+  targets: [room, entrance.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -586,6 +599,9 @@ renderer.setAnimationLoop(() => {
   throwing.update(dt);
   workers.update(dt);
   office.update(dt, workers.gaming());
+  entrance.update(dt, [camera.position]);
+  outdoor.update(dt, camera);
+  pedestrians.update(dt, camera.position, outdoor.group.visible);
   hall.update(dt);
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
   economy.advanceDeliveries(dt);

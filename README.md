@@ -160,6 +160,14 @@ Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – 
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
+## Draußen
+
+In der Westwand der Halle führt die Tür **EMPFANG** in den hellen Eingangsbereich. Von dort öffnet sich die gläserne Schiebetür von selbst, sobald du davorstehst, und du kommst nach draußen:
+
+- **Garten:** Terrasse, Kiesweg mit Blumenbeeten und Gartenleuchten, Bäume, Büsche entlang der Fassade und eine Bank. Über der Tür hängt das Firmenschild.
+- **Straße:** Auf dem Gehweg vor der Hecke gehen Passanten spazieren, einer joggt. Steht man im Weg, weichen sie aus, manche winken. Auf der Fahrbahn fahren Autos in beide Richtungen, gegenüber stehen Wohnhäuser.
+- Auf die Fahrbahn kommst du nicht, und die Nachbargrundstücke sind durch Hecken getrennt.
+
 ## Personal
 
 In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lohn pro Spielstunde, höchstens 2). Sie kommen durch die Lagertür, laufen über den Gang neben den Drucktischen und kümmern sich selbst um:
@@ -234,6 +242,9 @@ src/
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
     laser.js          Laser R1: Holzplatte mit Gravur bzw. Schnittlinien, Laserkopf und Strahl
     storage-room.js   Abstellraum mit Regal, Holzpalette und Lieferzone
+    entrance.js       Eingangsbereich hinter der Westwand mit automatischer Glas-Schiebetür
+    outdoor.js        Fassaden und Dach, Garten, Straße mit Gehwegen, Häuser, Autos, Himmel
+    pedestrians.js    Passanten auf den Gehwegen
     office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder eine Holzplatte
     cat.js            Kater Düsentrieb
@@ -255,6 +266,7 @@ src/
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
     people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
+    outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm

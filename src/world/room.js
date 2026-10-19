@@ -7,6 +7,7 @@ export const ROOM_HEIGHT = 3.5;   // m
 export const WALL_THICKNESS = 0.2;
 export const STORAGE_DOOR = { x: -5, w: 1.0, h: 2.1 }; // Tür zum Abstellraum in der Südwand (Welt-x)
 export const OFFICE_DOOR = { z: 0, w: 1.0, h: 2.1 };   // Tür zum Büro der Azubis in der Ostwand (Welt-z)
+export const ENTRANCE_DOOR = { z: 0, w: 1.2, h: 2.1 }; // Tür zum Empfang in der Westwand (Welt-z), dahinter geht es raus
 
 const WAINSCOT_HEIGHT = 1.0;      // Vertäfelung unten an der Wand
 const WINDOW_SILL = 1.0;          // Unterkante Fenster
@@ -386,10 +387,12 @@ export function createRoom() {
   // daher liegt die Tür dort lokal bei -STORAGE_DOOR.x. Bei der Ostwand entspricht lokales x der Welt-z.
   const southDoor = { ...STORAGE_DOOR, x: -STORAGE_DOOR.x };
   const eastDoor = { x: OFFICE_DOOR.z, w: OFFICE_DOOR.w, h: OFFICE_DOOR.h, label: 'BÜRO' };
+  // Westwand (rotY = π/2): lokales x entspricht der Welt -z
+  const westDoor = { x: -ENTRANCE_DOOR.z, w: ENTRANCE_DOOR.w, h: ENTRANCE_DOOR.h, label: 'EMPFANG' };
   const walls = [
     { pos: [0, 0, -half], rotY: 0, windows: [-6, 0, 6] },                          // Nord
     { pos: [0, 0, half], rotY: Math.PI, windows: [], doors: [southDoor] },        // Süd
-    { pos: [-half, 0, 0], rotY: Math.PI / 2, windows: [-4, 4] },                  // West
+    { pos: [-half, 0, 0], rotY: Math.PI / 2, windows: [-4, 4], doors: [westDoor] }, // West
     { pos: [half, 0, 0], rotY: -Math.PI / 2, windows: [-4, 4], doors: [eastDoor] }, // Ost
   ];
   for (const w of walls) {
@@ -411,15 +414,17 @@ export function createRoom() {
   return room;
 }
 
-// Wände als Kollisionsrechtecke (Wanddicke liegt außerhalb des Raums), mit Lücken für Lager- und Bürotür
+// Wände als Kollisionsrechtecke (Wanddicke liegt außerhalb des Raums), mit Lücken für Lager-, Büro- und Empfangstür
 export function roomColliders() {
   const h = ROOM_SIZE / 2;
   const t = WALL_THICKNESS;
   const d = STORAGE_DOOR;
   const o = OFFICE_DOOR;
+  const w = ENTRANCE_DOOR;
   return [
     { minX: -h - t, maxX: h + t, minZ: -h - t, maxZ: -h },               // Nord
-    { minX: -h - t, maxX: -h, minZ: -h, maxZ: h },                       // West
+    { minX: -h - t, maxX: -h, minZ: -h, maxZ: w.z - w.w / 2 },           // West nördlich der Empfangstür
+    { minX: -h - t, maxX: -h, minZ: w.z + w.w / 2, maxZ: h },            // West südlich der Empfangstür
     { minX: h, maxX: h + t, minZ: -h, maxZ: o.z - o.w / 2 },             // Ost nördlich der Bürotür
     { minX: h, maxX: h + t, minZ: o.z + o.w / 2, maxZ: h },              // Ost südlich der Bürotür
     { minX: -h - t, maxX: d.x - d.w / 2, minZ: h, maxZ: h + t },         // Süd links der Tür

@@ -22,6 +22,7 @@ const HEIGHT = 2.7;
 const CX = (X0 + X1) / 2;
 const W = X1 - X0;
 const D = Z1 - Z0;
+export const OFFICE_ROOM = { x0: X0, x1: X1, z0: Z0, z1: Z1, height: HEIGHT }; // Innenmaße, z. B. für die Fassade
 
 const DESK_POS = { x: 13.4, z: Z0 + DESK.d / 2 + 0.03 };
 const CHAIRS_X = [12.5, 14.4];
