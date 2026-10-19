@@ -2,7 +2,7 @@
 // bis zur Frist am PC abliefert und dafür bezahlt wird. Eilaufträge zahlen mehr, Stammkunden auch.
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
 import { FILAMENTS, PRINT_TEMPLATES, templateById } from './catalog.js';
-import { isTwoColor } from './two-color.js';
+import { isMultiColor, isTwoColor } from './two-color.js';
 
 export const NEW_ORDER_EVERY = 30; // Spielminuten zwischen zwei neuen Aufträgen
 const FIRST_ORDERS = 2;            // so viele Aufträge liegen beim Spielstart schon bereit
@@ -12,6 +12,8 @@ const SPECIAL_CHANCE = 0.12;       // Anteil absurder Sonderaufträge
 const ANY_COLOR_CHANCE = 0.3;      // so oft ist dem Kunden die Farbe egal
 const TWO_COLOR_LEVEL = 3;         // ab diesem Level bestellen Kunden auch zweifarbige Teile
 const TWO_COLOR_BONUS = 1.4;       // zweifarbige Teile sind aufwendiger und werden besser bezahlt
+const MULTI_COLOR_LEVEL = 6;       // ab diesem Level bestellen Kunden auch mehrfarbige Teile (dafür braucht man den H2C)
+const MULTI_COLOR_BONUS = 1.8;     // mehrfarbige Teile zahlen noch besser
 export const REGULAR_STARS = 3;    // ab so vielen Sternen ist man Stammkunde
 const MAX_STARS = 5;
 const MIN_STARS = -3;
@@ -70,9 +72,17 @@ const TWO_COLOR_NOTES = [
   'Zwei verschiedene Farben. Nicht zweimal dieselbe, das hatten wir schon.',
 ];
 
+// Sprüche für mehrfarbige Aufträge
+const MULTI_COLOR_NOTES = [
+  'So bunt wie möglich, bitte!',
+  'Jede Farbe, die Sie haben. Und dann noch eine.',
+  'Für das Kinderzimmer – je bunter, desto besser.',
+];
+
 export function unitPrice(template) {
   // Grundpreis pro Teil in €: Material + Druckzeit + Pauschale (≈ 15 € pro Druckstunde, Miete 3 €/h)
   const base = 4 + template.grams * 0.1 + template.minutes * 0.16;
+  if (isMultiColor(template)) return base * MULTI_COLOR_BONUS;
   return isTwoColor(template) ? base * TWO_COLOR_BONUS : base;
 }
 
@@ -131,17 +141,20 @@ export class Orders {
 
     // Zweifarbige Teile gibt es erst ab TWO_COLOR_LEVEL (man braucht dafür mindestens ein AMS), und nur bei jedem
     // zweiten Auftrag als Möglichkeit, damit sie nicht überhandnehmen
+    // Mehrfarbige ebenso, erst ab MULTI_COLOR_LEVEL
     const twoColorOk = !easy && level >= TWO_COLOR_LEVEL && Math.random() < 0.5;
+    const multiColorOk = !easy && level >= MULTI_COLOR_LEVEL && Math.random() < 0.5;
     const choices = easy
-      ? PRINT_TEMPLATES.filter((t) => t.minutes <= 100 && t.materials.includes('PLA') && !isTwoColor(t))
-      : PRINT_TEMPLATES.filter((t) => !isTwoColor(t) || twoColorOk);
+      ? PRINT_TEMPLATES.filter((t) => t.minutes <= 100 && t.materials.includes('PLA') && !t.colors)
+      : PRINT_TEMPLATES.filter((t) => (isTwoColor(t) ? twoColorOk : isMultiColor(t) ? multiColorOk : true));
     const template = pick(choices);
     // Lange Drucke werden in kleineren Mengen bestellt
     const maxQuantity = template.minutes <= 60 ? 5 : template.minutes <= 150 ? 3 : 2;
     const quantity = 1 + Math.floor(Math.random() * maxQuantity);
     const material = easy ? 'PLA' : pick(template.materials);
     const colors = FILAMENTS.filter((f) => f.material === material);
-    const anyColor = !easy && Math.random() < ANY_COLOR_CHANCE;
+    // Mehrfarbig sucht man die Farben selbst aus, nur das Material steht fest
+    const anyColor = isMultiColor(template) || (!easy && Math.random() < ANY_COLOR_CHANCE);
     const first = pick(colors);
     const filamentId = anyColor ? null : first.id;
     // Zweite Farbe: immer eine andere als die erste
@@ -159,7 +172,8 @@ export class Orders {
       filamentId,
       filamentId2,
       rush,
-      note: pick(isTwoColor(template) && Math.random() < 0.5 ? TWO_COLOR_NOTES : CUSTOMERS[customer]),
+      note: pick(isMultiColor(template) && Math.random() < 0.5 ? MULTI_COLOR_NOTES
+        : isTwoColor(template) && Math.random() < 0.5 ? TWO_COLOR_NOTES : CUSTOMERS[customer]),
       reward: Math.round(pay * this.progress.rewardMultiplier * this.customerFactor(customer)),
       minutesLeft: this.deadline(template, quantity, rush),
     };

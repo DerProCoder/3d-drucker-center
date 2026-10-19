@@ -5,11 +5,12 @@ import {
   FAILURES, LED_COLORS, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, speedById, templateById,
 } from './catalog.js';
 import {
-  accentProblem, accentSlot, colorTimeFactor, gramsPerColor, hasNozzleChanger, isTwoColor, waitingFilament,
+  accentProblem, accentSlot, colorTimeFactor, gramsPerColor, hasNozzleChanger, isMultiColor, isTwoColor,
+  multiColorProblem, multiColorSlots, partColors, waitingFilament,
 } from './two-color.js';
 
 
-// Start klein: 150 €, ein A1 mini auf dem ersten Tisch und eine Rolle PLA im Regal (siehe giveStarterKit)
+// Start klein: 150 €, ein A1 mini auf dem ersten Tisch und eine Rolle PLA schon eingelegt (siehe giveStarterKit)
 export const START_MONEY = 150; // €
 const STARTER_PRINTER = 'a1-mini';
 const STARTER_FILAMENT = 'pla-weiß';
@@ -78,16 +79,18 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //             | 'floor' (geworfen, liegt auf dem Boden: floor = { x, z, rotY, boxed })
 //   spools: Fächer für Spulen (Spule oder null) – 1 Fach oder 4 beim AMS
 //   activeSlot: Fach, aus dem gedruckt wird · accentSlot: Fach der zweiten Farbe bei zweifarbigen Drucken (oder null)
+//   multiSlots: im Druckermenü gewählte Fächer der Teile mehrfarbiger Drucke (Index = Teil, oder null)
 //   ledColor: Farbe der LED-Leiste (nur Drucker mit ledStrip, Schlüssel aus LED_COLORS), sonst null
 //   speedId: gewählte Geschwindigkeitsstufe
 //   clogged / nozzlePokes: verstopfte Düse und wie oft schon gestochert wurde
 //   nozzleWear: Verschleiß der Düse 0…1 – bei 1 ist sie hinüber und muss getauscht werden
 //   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
 //          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament', failure?: Schlüssel aus FAILURES,
-//          zweifarbig zusätzlich filamentId2, slot2 und missingFilament (auf welche Spule der Drucker wartet) }
+//          zweifarbig zusätzlich filamentId2, slot2 und missingFilament (auf welche Spule der Drucker wartet),
+//          mehrfarbig filamentIds und slots (alle Farben, [0] = filamentId/slot) und missingFilament }
 //        oder null
 // Fertige Teile haben eine Farbe: Schlüssel `${templateId}|${filamentId}` → Anzahl,
-// zweifarbige zwei: `${templateId}|${filamentId}|${filamentId2}`
+// zweifarbige zwei: `${templateId}|${filamentId}|${filamentId2}`, mehrfarbige alle: `${templateId}|${id1}+${id2}+…`
 // Regal: Spulen mit festem Platz { filamentId, grams, moisture, shelfSlot }, damit beim Herausnehmen nichts nachrutscht
 // Kartons im Abstellraum haben ebenso einen festen Platz (storageSpot)
 // Einrichtung (Regale am Druckertisch): { id, type (aus FURNITURE), location, slot, storageSpot,
@@ -255,7 +258,7 @@ export class Economy {
   addPrinter(model) {
     const printer = {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
-      spools: Array(model.spoolSlots).fill(null), activeSlot: 0, accentSlot: null, speedId: 'standard', job: null,
+      spools: Array(model.spoolSlots).fill(null), activeSlot: 0, accentSlot: null, multiSlots: null, speedId: 'standard', job: null,
       ledColor: model.ledStrip ? LED_COLORS[0].id : null,
       clogged: false, nozzlePokes: 0, nozzleWear: 0, storageSpot: this.freeStorageSpot(),
     };
@@ -264,12 +267,11 @@ export class Economy {
     return printer;
   }
 
-  // Startausstattung für ein neues Spiel: A1 mini auf Platz 0 des ersten Tisches, eine Rolle PLA im Regal
+  // Startausstattung für ein neues Spiel: A1 mini auf Platz 0 des ersten Tisches, eine Rolle PLA schon eingelegt
   giveStarterKit() {
     const printer = this.addPrinter(PRINTERS.find((m) => m.id === STARTER_PRINTER));
     this.placePrinter(printer.id, 0);
-    this.storeSpool({ filamentId: filamentById(STARTER_FILAMENT).id, grams: SPOOL_GRAMS, moisture: 0 });
-    this.notify();
+    this.loadFilament(printer.id, { filamentId: filamentById(STARTER_FILAMENT).id, grams: SPOOL_GRAMS, moisture: 0 });
   }
 
   buyFilament(filament) {
@@ -392,7 +394,11 @@ export class Economy {
     p.spools[slot] = { ...spool };
     const job = p.job;
     if (job?.pauseReason === 'filament' && spool.filamentId === waitingFilament(job)) {
-      if (spool.filamentId === job.filamentId) {
+      const color = job.filamentIds?.indexOf(spool.filamentId) ?? -1;
+      if (color > 0) {
+        job.slots[color] = slot; // eine weitere Farbe eines mehrfarbigen Drucks
+      } else if (spool.filamentId === job.filamentId) {
+        if (job.slots) job.slots[0] = slot;
         job.slot = slot;
         p.activeSlot = slot;
       } else {
@@ -425,11 +431,18 @@ export class Economy {
     this.notify();
   }
 
-  // Fach für die zweite Farbe zweifarbiger Drucke
-  setAccentSlot(printerId, slot) {
+  // Farbwahl im Druckermenü: Teil part einer zwei- oder mehrfarbigen Vorlage aus diesem Fach drucken.
+  // Hat ein anderes Teil schon dieses Fach, tauschen die beiden ihre Fächer. Teil 0 ist das gewählte Fach.
+  setColorSlot(printerId, template, part, slot) {
     const p = this.printerById(printerId);
-    if (p.job) return;
-    p.accentSlot = slot;
+    if (p.job || !p.spools[slot]) return;
+    const current = this.colorSlots(p, template);
+    const other = current.indexOf(slot);
+    if (other !== -1 && other !== part && current[part] >= 0) current[other] = current[part];
+    current[part] = slot;
+    p.activeSlot = current[0];
+    if (isTwoColor(template)) p.accentSlot = current[1];
+    if (isMultiColor(template)) p.multiSlots = [...current];
     this.notify();
   }
 
@@ -466,7 +479,14 @@ export class Economy {
     if (count > plateLayout(template, b).max) return `Nur ${plateLayout(template, b).max} passen auf die Platte`;
     if (spool.grams <= 0) return 'Spule ist leer';
     if (isTwoColor(template)) return accentProblem(printer);
+    if (isMultiColor(template)) return multiColorProblem(printer, template);
     return null;
+  }
+
+  // Fächer, aus denen ein Druck dieser Vorlage käme: [Grundfarbe, weitere Farben …]
+  colorSlots(printer, template) {
+    if (isMultiColor(template)) return multiColorSlots(printer, template);
+    return isTwoColor(template) ? [printer.activeSlot, accentSlot(printer)] : [printer.activeSlot];
   }
 
   // Druckzeit dieses Druckers in Spielminuten bei 100 % – zweifarbig mit einer Düse dauert es länger
@@ -480,10 +500,10 @@ export class Economy {
   }
 
   // Wie viel Filament für den Druck fehlt, wenn man nichts nachlegt (AMS füllt mit gleicher Sorte nach).
-  // Zweifarbig zählt jede Farbe für sich.
+  // Zwei- und mehrfarbig zählt jede Farbe für sich.
   filamentShortfall(printer, template, count = 1) {
     const need = gramsPerColor(printer, template, count);
-    const slots = [printer.activeSlot, isTwoColor(template) ? accentSlot(printer) : -1];
+    const slots = this.colorSlots(printer, template);
     return need.reduce((missing, grams, i) => {
       const spool = printer.spools[slots[i]];
       if (!spool) return missing + grams;
@@ -509,6 +529,7 @@ export class Economy {
     const wear = printer.nozzleWear ?? 0;
     if (wear > NOZZLE_WORN) risk += (wear - NOZZLE_WORN) * 0.6;     // abgenutzte Düse: bis +15 %
     if (speed < 100) risk *= 0.5;
+    risk *= printer.model.failureFactor ?? 1; // H2S: präziser und besser gekühlt
     risk = 1 - (1 - risk) ** (1 + 0.25 * (count - 1));
     return Math.min(0.95, risk);
   }
@@ -526,6 +547,10 @@ export class Economy {
       Object.assign(p.job, { filamentId2: p.spools[slot2].filamentId, slot2 });
       p.accentSlot = slot2;
     }
+    if (isMultiColor(template)) {
+      const slots = multiColorSlots(p, template);
+      Object.assign(p.job, { slots, filamentIds: slots.map((i) => p.spools[i].filamentId) });
+    }
     const printing = this.printers.filter((x) => x.job?.status === 'printing').length;
     this.emit('print-started', { printer: p, template, printing });
     this.notify();
@@ -533,7 +558,9 @@ export class Economy {
   }
 
   setPrintSpeed(printerId, speedId) {
-    this.printerById(printerId).speedId = speedId;
+    const p = this.printerById(printerId);
+    if (speedById(speedId)?.turbo && !p.model.turboSpeed) return;
+    p.speedId = speedId;
     this.notify();
   }
 
@@ -559,7 +586,7 @@ export class Economy {
   collectPart(printerId) {
     const p = this.printerById(printerId);
     if (p.job?.status !== 'done') return;
-    this.addPart(p.job.templateId, p.job.filamentId, p.job.count ?? 1, p.job.filamentId2);
+    this.addPart(p.job.templateId, partColors(p.job), p.job.count ?? 1);
     this.emit('part-collected', { printer: p, templateId: p.job.templateId, count: p.job.count ?? 1 });
     p.job = null;
     this.notify();
@@ -611,35 +638,31 @@ export class Economy {
       const minutes = this.jobMinutes(p, template, count);
       let step = Math.min((gameMinutes * speedById(p.speedId).percent / 100) / minutes, 1 - job.progress);
 
-      // Filament verbrauchen, bei zweifarbigen Drucken aus zwei Fächern. Ist eine Spule leer, füllt das AMS aus
-      // einem Fach mit gleicher Sorte nach, sonst wartet der Drucker auf eine neue Spule.
+      // Filament verbrauchen, bei zwei- und mehrfarbigen Drucken aus mehreren Fächern. Ist eine Spule leer, füllt
+      // das AMS aus einem Fach mit gleicher Sorte nach, sonst wartet der Drucker auf eine neue Spule.
       // Drucke aus alten Spielständen haben ihr Filament schon beim Start bezahlt (prepaid)
       const spool = p.spools[job.slot];
-      const channels = job.filamentId2
-        ? [['slot', 'filamentId', 'activeSlot'], ['slot2', 'filamentId2', 'accentSlot']]
-        : [['slot', 'filamentId', 'activeSlot']];
       const perColor = gramsPerColor(p, template, count);
       let reached = 1; // Anteil des Schritts, für den das Filament gereicht hat
-      channels.forEach(([slotKey, filamentKey, printerKey], i) => {
+      jobChannels(p).forEach(({ slot, filamentId, setSlot }, i) => {
         if (job.prepaid) return;
-        const s = p.spools[job[slotKey]];
+        const s = p.spools[slot];
         const need = step * perColor[i];
         const used = Math.min(need, s?.grams ?? 0);
         if (s) s.grams -= used;
         job.gramsUsed += used;
         if (s && s.grams > 0.001) return;
-        if (s) p.spools[job[slotKey]] = null; // leere Spule fliegt raus
-        const refill = p.spools.findIndex((x) => x?.filamentId === job[filamentKey] && x.grams > 0);
+        if (s) p.spools[slot] = null; // leere Spule fliegt raus
+        const refill = p.spools.findIndex((x) => x?.filamentId === filamentId && x.grams > 0);
         if (refill !== -1) {
-          job[slotKey] = refill;
-          p[printerKey] = refill;
+          setSlot(refill);
           this.emit('ams-refill', { printer: p, slot: refill });
         } else {
           reached = Math.min(reached, need > 0 ? used / need : 0);
           job.status = 'paused';
           job.pauseReason = 'filament';
-          job.missingFilament = job[filamentKey];
-          this.emit('out-of-filament', { printer: p, filament: filamentById(job[filamentKey]) });
+          job.missingFilament = filamentId;
+          this.emit('out-of-filament', { printer: p, filament: filamentById(filamentId) });
         }
         changed = true;
       });
@@ -878,16 +901,21 @@ export class Economy {
 
   // ---------- Fertige Teile ----------
 
-  // filamentId2: Akzentfarbe zweifarbiger Teile (sonst null)
-  addPart(templateId, filamentId, count = 1, filamentId2 = null) {
-    const key = partKey({ templateId, filamentId, filamentId2 });
+  // colors: alle Farben des Teils [Grundfarbe, …] (siehe partColors)
+  addPart(templateId, colors, count = 1) {
+    const key = partKey({ templateId, filamentIds: colors });
     this.finishedParts.set(key, (this.finishedParts.get(key) ?? 0) + count);
   }
 
-  // Alle fertigen Teile als Liste [{ templateId, filamentId, filamentId2, count }]
+  // Alle fertigen Teile als Liste [{ templateId, filamentId, filamentId2, count }],
+  // mehrfarbige mit filamentIds (alle Farben) statt filamentId2
   partsList() {
     return [...this.finishedParts].map(([key, count]) => {
       const [templateId, filamentId, filamentId2 = null] = key.split('|');
+      if (filamentId.includes('+')) {
+        const filamentIds = filamentId.split('+');
+        return { templateId, filamentId: filamentIds[0], filamentId2: null, filamentIds, count };
+      }
       return { templateId, filamentId, filamentId2, count };
     });
   }
@@ -931,6 +959,7 @@ export class Economy {
     this.looseParts.push({
       id: this.nextLooseId++, templateId: p.job.templateId, filamentId: p.job.filamentId,
       filamentId2: p.job.filamentId2 ?? null, x, z, rotY: this.random() * Math.PI * 2,
+      ...(p.job.filamentIds ? { filamentIds: [...p.job.filamentIds] } : {}),
     });
     if ((p.job.count ?? 1) > 1) p.job.count--;
     else p.job = null;
@@ -943,7 +972,7 @@ export class Economy {
     const part = this.looseParts.find((l) => l.id === id);
     if (!part) return;
     this.looseParts = this.looseParts.filter((l) => l !== part);
-    this.addPart(part.templateId, part.filamentId, 1, part.filamentId2 ?? null);
+    this.addPart(part.templateId, partColors(part), 1);
     this.emit('part-picked', { part });
     this.notify();
   }
@@ -999,9 +1028,32 @@ export class Economy {
   }
 }
 
-// Schlüssel fertiger Teile in finishedParts – zweifarbige mit Akzentfarbe am Ende
-function partKey({ templateId, filamentId, filamentId2 }) {
-  return filamentId2 ? `${templateId}|${filamentId}|${filamentId2}` : `${templateId}|${filamentId}`;
+// Schlüssel fertiger Teile in finishedParts – zweifarbige mit Akzentfarbe am Ende, mehrfarbige mit allen Farben
+function partKey(part) {
+  const colors = partColors(part);
+  if (colors.length > 2) return `${part.templateId}|${colors.join('+')}`;
+  return colors.length === 2 ? `${part.templateId}|${colors[0]}|${colors[1]}` : `${part.templateId}|${colors[0]}`;
+}
+
+// Farbkanäle eines laufenden Drucks: aus welchem Fach welches Filament kommt, und wie ein Nachfüllen aus einem
+// anderen Fach das Fach umstellt
+function jobChannels(p) {
+  const job = p.job;
+  if (job.slots) {
+    return job.slots.map((slot, i) => ({
+      slot,
+      filamentId: job.filamentIds[i],
+      setSlot: (s) => {
+        job.slots[i] = s;
+        if (i === 0) [job.slot, p.activeSlot] = [s, s];
+      },
+    }));
+  }
+  const channels = [{ slot: job.slot, filamentId: job.filamentId, setSlot: (s) => { [job.slot, p.activeSlot] = [s, s]; } }];
+  if (job.filamentId2) {
+    channels.push({ slot: job.slot2, filamentId: job.filamentId2, setSlot: (s) => { [job.slot2, p.accentSlot] = [s, s]; } });
+  }
+  return channels;
 }
 
 // Kurzbeschreibung einer Spule für Hinweise, z. B. „PLA Rot (740 g, feucht)“

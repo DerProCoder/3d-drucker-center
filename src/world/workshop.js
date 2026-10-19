@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { FAILURES, filamentById, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
 import { NOZZLE_POKES, plateLayout, spoolLabel } from '../core/economy.js';
-import { isTwoColor, waitingFilament } from '../core/two-color.js';
+import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
@@ -38,16 +38,18 @@ function partMaterial(filament, clip = null) {
   });
 }
 
-// Material(ien) für ein gedrucktes Teil: zweifarbige Formen haben zwei Geometrie-Gruppen (Grund- und Akzentfarbe)
-function partMaterials(template, filamentId, filamentId2, clip = null) {
-  const base = partMaterial(filamentById(filamentId), clip);
-  return isTwoColor(template) && filamentId2 ? [base, partMaterial(filamentById(filamentId2), clip)] : base;
+// Material(ien) für ein gedrucktes Teil: zwei- und mehrfarbige Formen haben eine Geometrie-Gruppe pro Farbe.
+// colors: alle Farben [Grundfarbe, …] (siehe partColors)
+function partMaterials(template, colors, clip = null) {
+  if (colorCount(template) < 2 || colors.length < 2) return partMaterial(filamentById(colors[0]), clip);
+  return colors.map((id) => partMaterial(filamentById(id), clip));
 }
 
-// „PLA Schwarz“ bzw. zweifarbig „PLA Schwarz + Weiß“
-function colorsLabel(filamentId, filamentId2) {
-  const label = filamentLabel(filamentById(filamentId));
-  return filamentId2 ? `${label} + ${filamentById(filamentId2).color}` : label;
+// „PLA Schwarz“, zweifarbig „PLA Schwarz + Weiß“, mehrfarbig „PLA in 8 Farben“
+function colorsLabel(colors) {
+  const label = filamentLabel(filamentById(colors[0]));
+  if (colors.length > 2) return `${filamentById(colors[0]).material} in ${colors.length} Farben`;
+  return colors.length === 2 ? `${label} + ${filamentById(colors[1]).color}` : label;
 }
 
 // Filament-Spaghetti: wirre Schlaufen über dem Druckbett, Ursprung auf der Plattenmitte
@@ -204,7 +206,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     }
     if (job?.status === 'done') {
       const count = job.count ?? 1;
-      const part = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}, ${colorsLabel(job.filamentId, job.filamentId2)}`;
+      const part = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}, ${colorsLabel(partColors(job))}`;
       const what = count > 1 ? 'fertige Teile' : 'fertiges Teil';
       return { text: `Linksklick: ${what} entnehmen (${part})`, run: () => economy.collectPart(printer.id) };
     }
@@ -270,7 +272,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
   function updatePart(model, printer) {
     const job = printer.job;
     const count = job?.count ?? 1;
-    const key = job ? `${job.templateId}|${job.filamentId}|${job.filamentId2 ?? ''}|${count}|${job.status === 'failed' ? job.failure : ''}` : null;
+    const key = job ? `${job.templateId}|${partColors(job).join('+')}|${count}|${job.status === 'failed' ? job.failure : ''}` : null;
     if (model.userData.partKey === key) return;
     for (const old of [model.userData.partMesh, model.userData.mess]) old?.parent.remove(old);
     model.userData.partMesh = null;
@@ -282,7 +284,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const shape = getPrintShape(template);
     const filament = filamentById(job.filamentId);
     const clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-    const material = partMaterials(template, job.filamentId, job.filamentId2, clip);
+    const material = partMaterials(template, partColors(job), clip);
     const rig = model.userData.printRig;
     const part = new THREE.Group();
     part.position.copy(rig.plateCenter);
@@ -372,8 +374,8 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     for (const part of economy.looseParts) {
       if (loose.has(part.id)) continue;
       const template = templateById(part.templateId);
-      const colors = colorsLabel(part.filamentId, part.filamentId2);
-      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterials(template, part.filamentId, part.filamentId2));
+      const colors = colorsLabel(partColors(part));
+      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterials(template, partColors(part)));
       mesh.position.set(part.x, 0, part.z);
       mesh.rotation.y = part.rotY;
       mesh.castShadow = true;

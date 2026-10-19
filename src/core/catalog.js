@@ -41,16 +41,19 @@ export const FILAMENTS = [
 export const filamentById = (id) => FILAMENTS.find((f) => f.id === id);
 export const filamentLabel = (f) => `${f.material} ${f.color}`;
 
-// Druckgeschwindigkeit in Prozent der Standardgeschwindigkeit. Gilt für alle Drucker gleich;
-// mehr als 166 % geht nicht.
+// Druckgeschwindigkeit in Prozent der Standardgeschwindigkeit. Gilt für alle Drucker gleich, mehr als 166 % geht
+// nicht – außer mit turbo: true (Drucker mit turboSpeed, z. B. H2S), dann bis 200 %.
 export const SPEED_MODES = [
   { id: 'silent', name: 'Leise', percent: 50 },
   { id: 'standard', name: 'Standard', percent: 100 },
   { id: 'sport', name: 'Sport', percent: 125 },
   { id: 'ludicrous', name: 'Ludicrous', percent: 166 },
+  { id: 'turbo', name: 'Turbo', percent: 200, turbo: true },
 ];
 
 export const speedById = (id) => SPEED_MODES.find((s) => s.id === id);
+// Stufen, die dieser Drucker (Katalogeintrag) fahren kann
+export const speedModesFor = (model) => SPEED_MODES.filter((s) => !s.turbo || model.turboSpeed);
 
 // build: Bauraum in mm (Breite × Tiefe × Höhe), powerPerHour: Stromkosten in € pro Spielstunde beim Drucken
 // (im Leerlauf nur ein Bruchteil, siehe economy.js), enclosed: geschlossenes Gehäuse – ohne verzieht sich ABS gern
@@ -66,6 +69,12 @@ export const PRINTERS = [
     id: 'a1', name: 'Bambu Lab A1', tier: 'Mittelklasse', price: 220,
     build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS'], powerPerHour: 0.6, enclosed: false,
     spoolSlots: 1, style: 'a1', accent: '#e1572f',
+  },
+  {
+    // A2L: aufgebaut wie der A1, aber mit großem Bauraum wie die H2-Serie und kann auch TPU
+    id: 'a2l', name: 'Bambu Lab A2L', tier: 'Großformat', price: 350,
+    build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 0.7, enclosed: false,
+    spoolSlots: 1, style: 'a2l', accent: '#e8a32f',
   },
   {
     id: 'p1p', name: 'Bambu Lab P1P', tier: 'Fortgeschritten', price: 400,
@@ -94,6 +103,13 @@ export const PRINTERS = [
     id: 'h2d', name: 'Bambu Lab H2D', tier: 'Flaggschiff', price: 1400,
     build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.2, enclosed: true,
     spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'h2d', accent: '#e8c547',
+  },
+  {
+    // H2S: so groß wie der H2D mit KI-Kamera, aber nur eine Düse. Dafür turboSpeed (bis 200 %) und
+    // failureFactor: präzisere Mechanik und stärkere Bauteilkühlung – nur halb so viele Fehldrucke
+    id: 'h2s', name: 'Bambu Lab H2S', tier: 'Speed', price: 1800,
+    build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.3, enclosed: true,
+    spoolSlots: 4, aiCamera: true, turboSpeed: true, failureFactor: 0.5, style: 'h2s', accent: '#19c3e6',
   },
   {
     // H2C: so groß wie der H2D, mit Düsenwechsler rechts im Bauraum – 8 Düsen (eine im Kopf, sieben im Wechsler),
@@ -130,12 +146,25 @@ export const PRINT_TEMPLATES = [
   { id: 'vase', name: 'Vase', grams: 130, minutes: 260, size: { x: 140, y: 140, z: 220 }, materials: ['PLA', 'PETG'] },
   { id: 'dragon', name: 'Drachenfigur', grams: 95, minutes: 300, size: { x: 160, y: 90, z: 115 }, materials: ['PLA'] },
   { id: 'tool-holder', name: 'Werkzeughalter', grams: 160, minutes: 330, size: { x: 200, y: 120, z: 80 }, materials: ['PETG', 'ABS'] },
-  // Zweifarbig (colors: 2): Grund- und Akzentfarbe, accent = Anteil der Akzentfarbe am Filament. minutes gilt
+  // Zweifarbig (colors: 2): Grund- und Akzentfarbe, accent = Anteil der Akzentfarbe am Filament, parts = Namen der
+  // beiden Teile für die Farbwahl im Druckermenü. minutes gilt
   // für Dual-Nozzle-Drucker; mit einer Düse dauert es wegen der Farbwechsel länger (siehe two-color.js).
-  { id: 'name-sign', name: 'Namensschild', colors: 2, accent: 0.3, grams: 22, minutes: 70, size: { x: 120, y: 35, z: 6 }, materials: ['PLA', 'PETG'] },
-  { id: 'coaster', name: 'Untersetzer mit Logo', colors: 2, accent: 0.35, grams: 18, minutes: 55, size: { x: 90, y: 90, z: 5 }, materials: ['PLA', 'PETG'] },
-  { id: 'dice', name: 'Spielwürfel-Set', colors: 2, accent: 0.15, grams: 14, minutes: 50, size: { x: 44, y: 18, z: 18 }, materials: ['PLA', 'PETG', 'ABS'] },
-  { id: 'chess-set', name: 'Schachfiguren', colors: 2, accent: 0.5, grams: 85, minutes: 260, size: { x: 150, y: 80, z: 46 }, materials: ['PLA'] },
+  { id: 'name-sign', name: 'Namensschild', colors: 2, accent: 0.3, parts: ['Schild', 'Rahmen und Schrift'], grams: 22, minutes: 70, size: { x: 120, y: 35, z: 6 }, materials: ['PLA', 'PETG'] },
+  { id: 'coaster', name: 'Untersetzer mit Logo', colors: 2, accent: 0.35, parts: ['Scheibe', 'Ring und Stern'], grams: 18, minutes: 55, size: { x: 90, y: 90, z: 5 }, materials: ['PLA', 'PETG'] },
+  { id: 'dice', name: 'Spielwürfel-Set', colors: 2, accent: 0.15, parts: ['Würfel', 'Augen'], grams: 14, minutes: 50, size: { x: 44, y: 18, z: 18 }, materials: ['PLA', 'PETG', 'ABS'] },
+  { id: 'chess-set', name: 'Schachfiguren', colors: 2, accent: 0.5, parts: ['Erste Seite', 'Zweite Seite'], grams: 85, minutes: 260, size: { x: 150, y: 80, z: 46 }, materials: ['PLA'] },
+  // Mehrfarbig (colors: 3 und mehr): parts benennt die Teile der Form in Farbreihenfolge, shares ist ihr Anteil am
+  // Filament (Summe 1). Jede Farbe braucht ein eigenes AMS-Fach – mit 6 oder 8 Farben geht das nur auf dem H2C.
+  {
+    id: 'rainbow', name: 'Regenbogen', colors: 8, grams: 70, minutes: 200, size: { x: 124, y: 62, z: 8 }, materials: ['PLA'],
+    parts: ['Äußerer Bogen', '2. Bogen', '3. Bogen', '4. Bogen', '5. Bogen', '6. Bogen', '7. Bogen', 'Innerer Bogen'],
+    shares: [0.16, 0.15, 0.14, 0.13, 0.12, 0.11, 0.1, 0.09],
+  },
+  {
+    id: 'parrot', name: 'Papagei', colors: 6, grams: 110, minutes: 320, size: { x: 60, y: 60, z: 92 }, materials: ['PLA'],
+    parts: ['Sockel', 'Körper', 'Kopf', 'Schnabel', 'Flügel und Schwanz', 'Augen'],
+    shares: [0.3, 0.35, 0.12, 0.05, 0.15, 0.03],
+  },
 ];
 
 export const templateById = (id) => PRINT_TEMPLATES.find((t) => t.id === id);

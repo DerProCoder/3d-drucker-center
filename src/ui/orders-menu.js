@@ -1,7 +1,7 @@
 // Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
 import { filamentById, filamentLabel, templateById } from '../core/catalog.js';
 import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
-import { DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isTwoColor } from '../core/two-color.js';
+import { CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isMultiColor, isTwoColor } from '../core/two-color.js';
 import { colorDots, formatMinutes } from './printer-menu.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
@@ -22,6 +22,7 @@ export function createOrdersMenu(orders, economy) {
       return `${colorDots(a.id, b.id)}${order.material} ${a.color} + ${b.color}`;
     }
     if (isTwoColor(t) && order.material) return `${order.material}, zwei verschiedene Farben nach Wahl`;
+    if (isMultiColor(t) && order.material) return `${order.material}, ${t.colors} verschiedene Farben nach Wahl`;
     if (order.filamentId) {
       const f = filamentById(order.filamentId);
       return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)}`;
@@ -47,10 +48,13 @@ export function createOrdersMenu(orders, economy) {
       order.rush ? '<span class="tag rush">⚡ Eilauftrag</span>' : '',
       order.special ? '<span class="tag special">🤪 Sonderwunsch</span>' : '',
       isTwoColor(t) ? '<span class="tag two-color">🎨 Zweifarbig</span>' : '',
+      isMultiColor(t) ? `<span class="tag two-color">🌈 ${t.colors} Farben</span>` : '',
     ].join('');
-    // Zweifarbig: mit Dual-Nozzle deutlich schneller als mit einer Düse und AMS
+    // Zweifarbig: mit Dual-Nozzle deutlich schneller als mit einer Düse und AMS. Mehrfarbig geht nur mit
+    // so vielen AMS-Fächern wie Farben, also auf dem H2C mit Düsenwechsler.
     const time = isTwoColor(t)
       ? `${formatMinutes(t.minutes * DUAL_NOZZLE_TIME)} mit Dual-Nozzle, ${formatMinutes(t.minutes * SINGLE_NOZZLE_TIME)} mit einer Düse`
+      : isMultiColor(t) ? `${formatMinutes(t.minutes * CHANGER_TIME)} mit Düsenwechsler (nur H2C)`
       : formatMinutes(t.minutes);
     return `
       <div class="card order ${order.rush ? 'rush' : ''}" data-order="${order.id}">

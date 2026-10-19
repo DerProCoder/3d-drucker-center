@@ -48,6 +48,11 @@ function twoTone(base, accent) {
   return mergeGeometries([merge(base), merge(accent)], true);
 }
 
+// Mehrfarbige Teile: eine Geometrie-Gruppe pro Farbe, in der Reihenfolge von template.parts
+function multiTone(...colorParts) {
+  return mergeGeometries(colorParts.map(merge), true);
+}
+
 function starShape(cx, cy, outer, inner) {
   const star = new THREE.Shape();
   for (let i = 0; i < 10; i++) {
@@ -315,11 +320,69 @@ function chessSet() {
   return twoTone(side(20), side(-20));
 }
 
+// ---------- Mehrfarbige Formen ----------
+
+// Regenbogen: acht flach liegende Halbringe, jeder in seiner eigenen Farbe (außen beginnend)
+function rainbow() {
+  const bands = [];
+  for (let i = 0; i < 8; i++) {
+    const outer = 62 - i * 5;
+    const inner = outer - 5;
+    const band = new THREE.Shape();
+    band.absarc(0, 0, outer, 0, Math.PI, false);
+    band.absarc(0, 0, inner, Math.PI, 0, true);
+    band.closePath();
+    bands.push([extrudeUp(band, 8)]);
+  }
+  return multiTone(...bands);
+}
+
+// Papagei auf einer Sitzstange: Sockel, Körper, Kopf, Schnabel, Flügel mit Schwanz, Augen – je eine Farbe.
+// Der Schnabel zeigt nach +x.
+function parrot() {
+  const ellipsoid = (sx, sy, sz, x, y, z) => {
+    const g = new THREE.SphereGeometry(1, 20, 14);
+    g.scale(sx, sy, sz);
+    g.translate(x, y, z);
+    return g;
+  };
+  const base = new THREE.CylinderGeometry(30, 32, 6, 32);
+  base.translate(0, 3, 0);
+  const post = new THREE.CylinderGeometry(4, 4, 10, 12);
+  post.translate(0, 10, 0);
+  const perch = new THREE.CylinderGeometry(4, 4, 56, 12);
+  perch.rotateZ(Math.PI / 2);
+  perch.translate(0, 15, 0);
+  const feet = [-1, 1].map((side) => ellipsoid(5, 3, 3.5, 3, 19, side * 6));
+
+  const body = ellipsoid(18, 30, 16, 0, 48, 0);
+  const head = ellipsoid(14, 14, 13, 5, 84, 0);
+  const beak = new THREE.ConeGeometry(6, 15, 12);
+  beak.rotateZ(-Math.PI / 2 - 0.5);
+  beak.translate(20, 79, 0);
+
+  const wings = [-1, 1].map((side) => {
+    const g = ellipsoid(14, 26, 5, 0, 0, 0);
+    g.rotateX(side * 0.12); // unten etwas abgespreizt
+    g.translate(-4, 50, side * 15);
+    return g;
+  });
+  const tail = new THREE.ConeGeometry(8, 42, 12);
+  tail.scale(1, 1, 0.5);
+  tail.rotateZ(Math.PI - 0.35);
+  tail.translate(-16, 28, 0);
+
+  const eyes = [-1, 1].map((side) => ellipsoid(2.6, 2.6, 2.6, 13, 88, side * 9.5));
+
+  return multiTone([base, post, perch, ...feet], [body], [head], [beak], [...wings, tail], eyes);
+}
+
 const BUILDERS = {
   benchy,
   keychain, 'cable-clips': cableClips, 'phone-stand': phoneStand, 'phone-case': phoneCase,
   gears, vase, dragon, 'tool-holder': toolHolder,
   'name-sign': nameSign, coaster, dice, 'chess-set': chessSet,
+  rainbow, parrot,
 };
 
 // ---------- Schichten schneiden (wie ein Slicer) ----------
@@ -424,7 +487,7 @@ export function plateOutline(shape, offsets, rotated = false) {
   return (hFrac) => {
     const { layer, contours } = layerContours(shape, hFrac);
     if (!paths.has(layer)) {
-      const loops = [[], []];
+      const loops = Array.from({ length: Math.max(2, shape.geometry.groups.length) }, () => []);
       for (const o of offsets) {
         for (const c of contours) {
           const color = c.color;

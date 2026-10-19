@@ -17,6 +17,15 @@ export const CHANGER_WASTE = 1.01;       // jede Farbe hat ihre Düse – kaum S
 
 export const isTwoColor = (template) => template?.colors === 2;
 
+// Mehrfarbig (colors: 3 und mehr): jede Farbe kommt aus einem eigenen AMS-Fach. Gedruckt wird mit dem gewählten
+// Fach und den nächsten Fächern mit anderen Farben im gleichen Material – die Reihenfolge im AMS bestimmt also,
+// welches Teil der Form welche Farbe bekommt (template.parts).
+export const colorCount = (template) => template?.colors ?? 1;
+export const isMultiColor = (template) => colorCount(template) > 2;
+
+// Alle Farben eines Drucks oder fertigen Teils: [Grundfarbe, …]
+export const partColors = (x) => x.filamentIds ?? [x.filamentId, x.filamentId2].filter(Boolean);
+
 export const hasDualNozzle = (printer) => (printer.model.nozzles ?? 1) > 1;
 export const hasNozzleChanger = (printer) => !!printer.model.nozzleChanger;
 
@@ -26,17 +35,64 @@ export const usesDualNozzle = (printer) => hasDualNozzle(printer) && (!printer.c
 
 // Faktor auf die Druckzeit
 export function colorTimeFactor(printer, template) {
-  if (!isTwoColor(template)) return 1;
+  if (colorCount(template) < 2) return 1;
   if (hasNozzleChanger(printer)) return CHANGER_TIME;
   return usesDualNozzle(printer) ? DUAL_NOZZLE_TIME : SINGLE_NOZZLE_TIME;
 }
 
-// Filament pro Farbe für count Teile in Gramm: [Grundfarbe] bzw. [Grundfarbe, Akzentfarbe] inkl. Spülabfall
+// Filament pro Farbe für count Teile in Gramm: [Grundfarbe] bzw. [Grundfarbe, Akzentfarbe] inkl. Spülabfall,
+// mehrfarbig eine Menge pro Farbe nach template.shares
 export function gramsPerColor(printer, template, count = 1) {
   const total = template.grams * count;
-  if (!isTwoColor(template)) return [total];
+  if (colorCount(template) < 2) return [total];
   const waste = hasNozzleChanger(printer) ? CHANGER_WASTE : usesDualNozzle(printer) ? DUAL_NOZZLE_WASTE : SINGLE_NOZZLE_WASTE;
-  return [total * (1 - template.accent) * waste, total * template.accent * waste];
+  const shares = isMultiColor(template) ? template.shares : [1 - template.accent, template.accent];
+  return shares.map((share) => total * share * waste);
+}
+
+// Fächer eines mehrfarbigen Drucks: Teil 0 aus dem gewählten Fach, die anderen Teile aus den im Druckermenü
+// gewählten Fächern (printer.multiSlots). Teile ohne gültige Wahl bekommen die nächsten Fächer mit einer anderen
+// Farbe im gleichen Material. Kann kürzer sein als template.colors (dann meldet multiColorProblem, was fehlt).
+export function multiColorSlots(printer, template) {
+  const { spools, activeSlot } = printer;
+  const base = spools[activeSlot];
+  if (!base) return [];
+  const material = filamentById(base.filamentId).material;
+  const used = new Set([base.filamentId]);
+  const fits = (i) => {
+    const s = spools[i];
+    return !!s && s.grams > 0 && !used.has(s.filamentId) && filamentById(s.filamentId).material === material;
+  };
+  const slots = [activeSlot];
+  const chosen = printer.multiSlots ?? [];
+  for (let part = 1; part < template.colors; part++) {
+    const i = chosen[part];
+    if (i == null || !fits(i)) continue;
+    slots[part] = i;
+    used.add(spools[i].filamentId);
+  }
+  // Lücken der Reihe nach auffüllen, ab dem gewählten Fach
+  const order = [...spools.keys()].map((i) => (activeSlot + i) % spools.length);
+  for (let part = 1; part < template.colors; part++) {
+    if (slots[part] != null) continue;
+    const i = order.find(fits);
+    if (i === undefined) break;
+    slots[part] = i;
+    used.add(spools[i].filamentId);
+  }
+  return slots.filter((i) => i != null);
+}
+
+// Grund, warum ein mehrfarbiger Druck nicht starten kann, oder null. Die Grundfarbe prüft economy.printProblem.
+export function multiColorProblem(printer, template) {
+  const n = template.colors;
+  if (printer.spools.length < n) return `${n} Farben – braucht ${n} AMS-Fächer (H2C)`;
+  const found = multiColorSlots(printer, template).length;
+  if (found < n) {
+    const material = filamentById(printer.spools[printer.activeSlot].filamentId).material;
+    return `Braucht ${n} verschiedene Farben ${material} im AMS – ${found} eingelegt`;
+  }
+  return null;
 }
 
 // Fach mit der Akzentfarbe: das gewählte, sonst das erste andere Fach mit einer anderen Farbe im gleichen Material,

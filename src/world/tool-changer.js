@@ -6,11 +6,31 @@ import { filamentById } from '../core/catalog.js';
 
 const TRAVEL_SPEED = 0.22; // m/s – Eilgang zum Wechsler und zurück
 const HOLD = 0.45;         // s – so lange dauert Ablegen bzw. Aufnehmen
+const LANE_GAP = 0.05;     // m – so weit links vor dem Halter fährt der Kopf entlang, damit er an den Düsen vorbeikommt
 
-// Welche Düse (= welches AMS-Fach) gerade gebraucht wird: bei zweifarbigen Drucken je nach Farbe des Bahnpunkts
+// Fahrspur vor dem Halter (alle Wechselplätze liegen auf einer Linie von vorn nach hinten)
+const laneX = (slots) => Math.min(...slots.map((s) => s.x)) - LANE_GAP;
+
+// Weg zu einem Wechselplatz, ohne durch die anderen Düsen zu fahren: erst nach links vor den Halter, dort nach vorn
+// bzw. hinten auf Höhe des Platzes, dann gerade hinein. from/to: Punkte { x, z }, to darf auch der Druckpunkt sein.
+function routeVia(from, to, laneX) {
+  const route = [];
+  if (from.x > laneX) route.push({ x: laneX, z: from.z }); // aus dem Halter heraus
+  if (to.x > laneX) {
+    route.push({ x: Math.min(laneX, from.x), z: to.z });   // vor dem Halter entlang
+    route.push({ x: to.x, z: to.z });                      // hinein
+  } else {
+    route.push({ x: to.x, z: to.z });
+  }
+  return route;
+}
+
+// Welche Düse (= welches AMS-Fach) gerade gebraucht wird: bei zwei- und mehrfarbigen Drucken je nach Farbe des
+// Bahnpunkts
 export function wantedNozzle(printer, point) {
   const job = printer.job;
   if (!job || (job.status !== 'printing' && job.status !== 'paused')) return null;
+  if (job.slots) return job.slots[point?.color ?? 0] ?? job.slot;
   return point?.color === 1 && job.slot2 != null ? job.slot2 : job.slot;
 }
 
@@ -29,7 +49,7 @@ function syncColors(model, printer, state) {
 // Gibt null zurück, wenn gedruckt werden kann, sonst die Position { x, z }, an die die Düse jetzt gehört.
 export function updateToolChanger(model, printer, point, dt) {
   const rackInfo = model.userData.toolRack;
-  const state = (model.userData.changer ??= { current: printer.activeSlot, phase: 'idle', pos: null, timer: 0 });
+  const state = (model.userData.changer ??= { current: printer.activeSlot, phase: 'idle', pos: null, timer: 0, route: [] });
   const { slots, rack } = rackInfo;
   const want = wantedNozzle(printer, point);
   if (want == null && state.phase !== 'idle') {
@@ -45,31 +65,39 @@ export function updateToolChanger(model, printer, point, dt) {
       return null;
     }
     // Wechsel beginnt: erst die eigene Düse in ihr Fach bringen
-    Object.assign(state, { phase: 'drop', target: want, pos: { x: point.x, z: point.z }, back: { x: point.x, z: point.z } });
+    const pos = { x: point.x, z: point.z };
+    Object.assign(state, {
+      phase: 'drop', target: want, pos, back: { ...pos }, route: routeVia(pos, slots[state.current], laneX(slots)),
+    });
   }
 
-  const goal = state.phase === 'drop' ? slots[state.current]
-    : state.phase === 'pick' ? slots[state.target]
-    : state.back;
-  const dx = goal.x - state.pos.x;
-  const dz = goal.z - state.pos.z;
-  const dist = Math.hypot(dx, dz);
-  const stepLen = TRAVEL_SPEED * dt;
-  if (dist > stepLen) {
-    state.pos.x += (dx / dist) * stepLen;
-    state.pos.z += (dz / dist) * stepLen;
-    return { ...state.pos };
+  // Den Wegpunkten der Reihe nach folgen, auch über mehrere in einem Frame
+  let stepLen = TRAVEL_SPEED * dt;
+  while (state.route.length) {
+    const goal = state.route[0];
+    const dx = goal.x - state.pos.x;
+    const dz = goal.z - state.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > stepLen) {
+      state.pos.x += (dx / dist) * stepLen;
+      state.pos.z += (dz / dist) * stepLen;
+      return { ...state.pos };
+    }
+    state.pos.x = goal.x;
+    state.pos.z = goal.z;
+    stepLen -= dist;
+    state.route.shift();
   }
-  state.pos.x = goal.x;
-  state.pos.z = goal.z;
   state.timer += dt;
   if (state.phase === 'drop' && state.timer >= HOLD) {
     rack.userData.setDocked(state.current, true); // Düse hängt wieder im Halter, Kopf ist leer
     model.userData.printRig.head.userData.setHotendColor(null);
-    Object.assign(state, { phase: 'pick', timer: 0 });
+    Object.assign(state, { phase: 'pick', timer: 0, route: routeVia(state.pos, slots[state.target], laneX(slots)) });
   } else if (state.phase === 'pick' && state.timer >= HOLD) {
     rack.userData.setDocked(state.target, false); // neue Düse sitzt im Kopf
-    Object.assign(state, { phase: 'back', timer: 0, current: state.target, colorKey: null });
+    Object.assign(state, {
+      phase: 'back', timer: 0, current: state.target, colorKey: null, route: routeVia(state.pos, state.back, laneX(slots)),
+    });
     syncColors(model, printer, state);
   } else if (state.phase === 'back') {
     Object.assign(state, { phase: 'idle', timer: 0 });

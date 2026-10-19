@@ -3,7 +3,7 @@
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
-  ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, SPEED_MODES, formatBuildVolume,
+  ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, formatBuildVolume, speedModesFor,
 } from '../core/catalog.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
@@ -15,8 +15,11 @@ import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
-const speedPercents = SPEED_MODES.map((m) => m.percent);
-const speedRange = `${Math.min(...speedPercents)}–${Math.max(...speedPercents)} %`;
+// Geschwindigkeitsbereich eines Druckers, z. B. „50–166 %“
+const speedRange = (model) => {
+  const percents = speedModesFor(model).map((s) => s.percent);
+  return `${Math.min(...percents)}–${Math.max(...percents)} %`;
+};
 
 // live: Inhalt hängt vom Spielstand ab und wird bei Änderungen neu gezeichnet
 // (Notizen und Rechner nicht, sonst gingen Eingaben verloren)
@@ -185,13 +188,13 @@ export function createShop(economy, {
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
       return `
         <div class="card printer">
-          <img class="product-image" src="${printerImages.get(p.id)}" alt="${p.name}">
+          ${printerImages.has(p.id) ? `<img class="product-image" src="${printerImages.get(p.id)}" alt="${p.name}">` : ''}
           <div class="card-head">
             <span class="badge" style="--c:${p.accent}">${p.tier}</span>
             <div class="card-title">${p.name}</div>
           </div>
           <dl class="specs">
-            <dt>Geschwindigkeit</dt><dd>${speedRange}</dd>
+            <dt>Geschwindigkeit</dt><dd>${speedRange(p)}${p.turboSpeed ? ' – mit Turbo-Stufe' : ''}</dd>
             <dt>Bauraum</dt><dd>${formatBuildVolume(p.build)}</dd>
             <dt>Materialien</dt><dd>${p.materials.join(', ')}</dd>
             <dt>Filament</dt><dd>${p.spoolSlots > 4 ? `${p.spoolSlots / 4} AMS mit zusammen ${p.spoolSlots} Fächern` : p.spoolSlots > 1 ? `AMS mit ${p.spoolSlots} Fächern` : '1 Spule'}</dd>
@@ -199,6 +202,7 @@ export function createShop(economy, {
             ${p.nozzleChanger ? `<dt>Düsen</dt><dd>${p.nozzles} im Düsenwechsler – eigene Düse pro Farbe, kaum Spülabfall, Ersatz bei Verstopfung</dd>`
               : p.nozzles > 1 ? `<dt>Düsen</dt><dd>${p.nozzles} – halber Verschleiß, Ersatzdüse bei Verstopfung</dd>` : ''}
             ${p.ledStrip ? '<dt>Beleuchtung</dt><dd>LED-Leiste am Sockel, Farbe im Druckermenü wählbar</dd>' : ''}
+            ${p.failureFactor < 1 ? '<dt>Präzision</dt><dd>Präzisere Mechanik und starke Bauteilkühlung – nur halb so viele Fehldrucke</dd>' : ''}
             ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – stoppt Fehldrucke früh, spart Filament</dd>' : ''}
             <dt>Strom beim Drucken</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>
@@ -280,7 +284,14 @@ export function createShop(economy, {
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
       cam: cam.render, dev: renderDev,
     };
-    contentEl.innerHTML = renderers[app]();
+    // Wirft eine App beim Zeichnen, nicht den Inhalt der vorher offenen App stehen lassen
+    try {
+      contentEl.innerHTML = renderers[app]();
+    } catch (err) {
+      console.error(`App „${info.name}“ konnte nicht angezeigt werden:`, err);
+      contentEl.innerHTML = '<p class="slots">Diese App konnte nicht geladen werden. Details stehen in der Browser-Konsole.</p>';
+      return;
+    }
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     contentEl.scrollTop = scroll;
   }

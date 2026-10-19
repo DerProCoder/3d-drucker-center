@@ -1,20 +1,22 @@
 // Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
 // Start/Pause/Abbrechen, fertiges Teil entnehmen.
 import {
-  FAILURES, LED_COLORS, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
+  FAILURES, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentLabel, templateById, speedById, speedModesFor,
 } from '../core/catalog.js';
 import {
   DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, plateLayout,
 } from '../core/economy.js';
 import {
-  CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, SINGLE_NOZZLE_WASTE, accentSlot, hasDualNozzle, hasNozzleChanger,
-  isTwoColor, usesDualNozzle,
+  CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, SINGLE_NOZZLE_WASTE, hasDualNozzle, hasNozzleChanger,
+  colorCount, isMultiColor, isTwoColor, partColors, usesDualNozzle,
   waitingFilament,
 } from '../core/two-color.js';
+import { renderPartPreview } from './printer-preview.js';
 
-// Farbpunkt(e) eines Teils oder Drucks: einer, bei zweifarbigen zwei
-export function colorDots(filamentId, filamentId2 = null) {
-  return [filamentId, filamentId2].filter(Boolean)
+// Farbpunkt(e) eines Teils oder Drucks: einer, bei zweifarbigen zwei, mehrfarbig einer pro Farbe.
+// Nimmt einzelne Filament-IDs oder eine Liste.
+export function colorDots(...filamentIds) {
+  return filamentIds.flat().filter(Boolean)
     .map((id) => `<span class="dot" style="--c:${filamentById(id).hex}"></span>`).join('');
 }
 
@@ -66,7 +68,7 @@ export function createPrinterMenu(economy) {
     const speed = speedById(p.speedId).percent / 100;
     return PRINT_TEMPLATES.map((t) => {
       const problem = p.job ? null : economy.printProblem(p, t);
-      const name = isTwoColor(t) ? `🎨 ${t.name} (zweifarbig)` : t.name;
+      const name = isTwoColor(t) ? `🎨 ${t.name} (zweifarbig)` : isMultiColor(t) ? `🌈 ${t.name} (${t.colors} Farben)` : t.name;
       const label = `${name} · ${Math.round(economy.jobGrams(p, t))} g · ${formatMinutes(economy.jobMinutes(p, t) / speed)} · ${t.materials.join('/')}${problem ? ` – ${problem}` : ''}`;
       return `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${label}</option>`;
     }).join('');
@@ -110,6 +112,7 @@ export function createPrinterMenu(economy) {
     if (speedById(p.speedId).percent > 100) reasons.push('hohe Geschwindigkeit');
     if (material === 'ABS' && !p.model.enclosed) reasons.push('ABS ohne Gehäuse verzieht sich');
     if (spool.moisture > DAMP) reasons.push('feuchtes Filament');
+    if (p.model.failureFactor < 1) reasons.push('halbiert durch präzise Mechanik und starke Kühlung');
     const shortfall = economy.filamentShortfall(p, template, count);
     const warn = shortfall > 0
       ? `<div class="risk high">🧵 Filament reicht nicht: Es fehlen ${Math.ceil(shortfall)} g – der Drucker hält an, bis du nachlegst.</div>`
@@ -119,7 +122,7 @@ export function createPrinterMenu(economy) {
 
   // Zweifarbig: mit zwei Düsen fast so schnell wie einfarbig, mit einer Düse Farbwechsel in jeder Schicht
   function twoColorInfo(p, template) {
-    if (!isTwoColor(template)) return '';
+    if (colorCount(template) < 2) return '';
     if (hasNozzleChanger(p)) {
       return `<div class="risk low">🎨 Düsenwechsler: der Kopf holt sich für jede Farbe ihre eigene Düse – nur ${Math.round((CHANGER_TIME - 1) * 100)} % länger als einfarbig, fast kein Spülabfall</div>`;
     }
@@ -131,20 +134,28 @@ export function createPrinterMenu(economy) {
       + ` und braucht ${Math.round((SINGLE_NOZZLE_WASTE - 1) * 100)} % mehr Filament (Spülabfall)</div>`;
   }
 
-  // Zweite Farbe für zweifarbige Vorlagen wählen (AMS-Fach). Ohne AMS gibt es nur den Hinweis aus printProblem.
-  function accentField(p, template) {
-    if (!isTwoColor(template) || p.spools.length < 2) return '';
-    const chosen = accentSlot(p);
-    const canPick = p.location === 'table' && !p.job;
-    const buttons = p.spools.map((s, i) => {
-      if (i === p.activeSlot) return '';
-      const label = s ? `${colorDots(s.filamentId)}${filamentLabel(filamentById(s.filamentId))}` : 'leer';
-      return `<button data-accent-slot="${i}" class="${i === chosen ? 'active' : ''}" ${canPick && s ? '' : 'disabled'}>
-          <small>Fach ${i + 1}</small>${label}
-        </button>`;
+  // Farbwahl für zwei- und mehrfarbige Vorlagen: pro Teil der Form eine Reihe mit allen eingelegten Spulen, die
+  // gewählte grün. Daneben eine Vorschau des Teils in genau diesen Farben. Ohne AMS gibt es nur den Hinweis aus
+  // printProblem.
+  function colorField(p, template) {
+    if (colorCount(template) < 2 || p.spools.length < 2) return '';
+    const slots = economy.colorSlots(p, template);
+    const hexes = template.parts.map((_, i) => {
+      const s = slots[i] >= 0 ? p.spools[slots[i]] : null;
+      return s ? filamentById(s.filamentId).hex : null;
+    });
+    const preview = renderPartPreview(template, hexes);
+    const rows = template.parts.map((part, i) => {
+      const buttons = p.spools.map((s, slot) => (s ? `
+        <button data-color-part="${i}" data-color-slot="${slot}" class="${slots[i] === slot ? 'chosen' : ''}"
+          title="Fach ${slot + 1}">${colorDots(s.filamentId)}${filamentById(s.filamentId).color}</button>` : '')).join('');
+      return `<div class="color-row"><small>${part}</small><div class="color-options">${buttons}</div></div>`;
     }).join('');
-    return `<div class="field">Zweite Farbe (muss anders sein als Fach ${p.activeSlot + 1})
-      <div class="ams-slots accent">${buttons}</div></div>`;
+    return `<div class="field">Farben
+      <div class="color-pick">
+        ${preview ? `<img class="color-preview" src="${preview}" alt="Vorschau: ${template.name}">` : ''}
+        <div class="color-rows">${rows}</div>
+      </div></div>`;
   }
 
   // Wie viele Teile auf einmal: bis zu so vielen, wie mit Abstand auf die Platte passen
@@ -198,7 +209,7 @@ export function createPrinterMenu(economy) {
             <small>Fach ${i + 1}</small>${spoolLabel(s)}
           </button>`).join('')}</div>`
       : `<dl class="specs"><dt>Filament</dt><dd>${p.spools[0] ? spoolLabel(p.spools[0]) : 'Keine Spule eingelegt'}</dd></dl>`;
-    const speeds = SPEED_MODES.map((s) => `
+    const speeds = speedModesFor(p.model).map((s) => `
       <button data-speed="${s.id}" class="${s.id === p.speedId ? 'active' : ''}" ${onTable ? '' : 'disabled'}>
         ${s.name}<small>${s.percent} %</small>
       </button>`).join('');
@@ -219,7 +230,7 @@ export function createPrinterMenu(economy) {
         <label class="field">Druckvorlage
           <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
         </label>
-        ${onTable && !p.job ? accentField(p, template) : ''}
+        ${onTable && !p.job ? colorField(p, template) : ''}
         ${onTable && !p.job ? countField(p, template) : ''}
         <div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>
         ${onTable && !p.job ? riskInfo(p, template) : ''}
@@ -229,7 +240,7 @@ export function createPrinterMenu(economy) {
 
   function render() {
     const parts = economy.partsList()
-      .map((x) => `${colorDots(x.filamentId, x.filamentId2)}${templateById(x.templateId).name} × ${x.count}`)
+      .map((x) => `${colorDots(partColors(x))}${templateById(x.templateId).name} × ${x.count}`)
       .join(' ') || 'noch keine';
     const gameSeconds = Math.round(GAME_MINUTES_PER_SECOND * 60);
     const intro = `<p class="slots">Spielzeit: 1 echte Sekunde = ${gameSeconds} Sekunden im Spiel · Fertige Teile: <strong>${parts}</strong></p>`;
@@ -260,9 +271,10 @@ export function createPrinterMenu(economy) {
       economy.setActiveSlot(id, Number(amsSlot));
       return;
     }
-    const accent = e.target.closest('[data-accent-slot]')?.dataset.accentSlot;
-    if (accent !== undefined) {
-      economy.setAccentSlot(id, Number(accent));
+    const colorButton = e.target.closest('[data-color-part]');
+    if (colorButton) {
+      const template = templateById(selectedTemplate.get(id) ?? PRINT_TEMPLATES[0].id);
+      economy.setColorSlot(id, template, Number(colorButton.dataset.colorPart), Number(colorButton.dataset.colorSlot));
       return;
     }
     const action = e.target.closest('[data-action]')?.dataset.action;

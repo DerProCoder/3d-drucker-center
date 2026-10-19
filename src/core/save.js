@@ -73,6 +73,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
         spools: p.spools.map((spool) => (spool ? { ...spool } : null)),
         activeSlot: p.activeSlot,
         accentSlot: p.accentSlot ?? null,
+        multiSlots: p.multiSlots ?? null,
         ledColor: p.ledColor ?? null,
         speedId: p.speedId,
         clogged: p.clogged,

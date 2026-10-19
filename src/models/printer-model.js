@@ -206,21 +206,25 @@ function buildA1Mini(g) {
   });
 }
 
-// ---------- Bambu Lab A1: Portal aus zwei Säulen und Querstrebe ----------
+// ---------- Bambu Lab A1 / A2L: Portal aus zwei Säulen und Querstrebe ----------
+// A2L: wie der A1, nur größer – Sockel, Druckbett und Portal wachsen mit dem Bauraum mit
 
-function buildA1(g) {
+const A1_VARIANTS = {
+  a1: { title: 'A1', plate: 0.256, baseW: 0.385, baseD: 0.39, frameH: 0.458 },
+  a2l: { title: 'A2L', plate: 0.325, baseW: 0.455, baseD: 0.49, frameH: 0.53 },
+};
+
+function buildA1(g, variant) {
+  const { title, plate: plateSize, baseW, baseD, frameH } = variant;
   const m = createMaterials();
   const FOOT = 0.008;
-  const baseW = 0.385;
   const baseH = 0.065;
-  const baseD = 0.39;
   const baseTop = FOOT + baseH;
-  const frameH = 0.458;
 
   addFeet(g, baseW, baseD, FOOT, m);
   g.add(rbox(baseW, baseH, baseD, 0.016, m.shell, 0, FOOT + baseH / 2, 0));
   g.add(box(baseW * 0.6, 0.007, 0.002, m.shellDark, -0.03, FOOT + baseH * 0.45, baseD / 2 + 0.001));
-  addLogo(g, 'A1', 0.009, '#4a4e55', -baseW / 2 + 0.06, FOOT + baseH * 0.75, baseD / 2 + 0.0012);
+  addLogo(g, title, 0.009, '#4a4e55', -baseW / 2 + 0.06, FOOT + baseH * 0.75, baseD / 2 + 0.0012);
   addSideVents(g, m, 0, baseW, FOOT + baseH * 0.5, -0.05, 5, 0.1);
   g.add(rbox(0.06, 0.014, 0.045, 0.004, m.shellMid, 0, baseTop + 0.007, -baseD / 2 + 0.035)); // Abdeckung hinten
   g.add(rbox(0.014, 0.02, 0.004, 0.002, m.black, baseW / 2 - 0.05, FOOT + baseH / 2, -baseD / 2 - 0.002)); // Netzschalter
@@ -242,14 +246,14 @@ function buildA1(g) {
   const carriageTop = baseTop + 0.015;
   const bedAxis = new THREE.Group();
   g.add(bedAxis);
-  bedAxis.add(box(0.18, 0.004, 0.18, m.shellDark, 0, carriageTop, bedZ));
-  const plate = createBuildPlate(0.256, m);
+  bedAxis.add(box(plateSize * 0.7, 0.004, plateSize * 0.7, m.shellDark, 0, carriageTop, bedZ));
+  const plate = createBuildPlate(plateSize, m);
   plate.position.set(0, carriageTop + 0.002, bedZ);
   bedAxis.add(plate);
   const plateTop = carriageTop + 0.002 + plate.userData.topY;
 
   // Druckkopf
-  const head = createToolhead(m, 'a1', { title: 'A1' });
+  const head = createToolhead(m, 'a1', { title });
   const beamD = 0.03;
   const beamH = 0.028;
   const beamZ = bedZ - beamD / 2 - head.userData.depth / 2;
@@ -281,7 +285,7 @@ function buildA1(g) {
   }
   g.add(rbox(baseW, 0.03, upD, 0.012, m.shell, 0, frameH - 0.015, beamZ));
   g.add(box(baseW * 0.5, 0.012, 0.002, m.shellDark, 0, frameH - 0.015, beamZ + upD / 2 + 0.001));
-  addLogo(g, 'A1', 0.0075, '#ffffff', 0, frameH - 0.015, beamZ + upD / 2 + 0.0024);
+  addLogo(g, title, 0.0075, '#ffffff', 0, frameH - 0.015, beamZ + upD / 2 + 0.0024);
 
   // X-Achse: Alu-Träger mit Riemen, Motor links hinten
   const beamLen = inner * 2 - 0.044;
@@ -296,7 +300,7 @@ function buildA1(g) {
   zAxis.add(xMotor);
 
   // Touchscreen vorne rechts
-  const screen = createTouchscreen(0.075, 0.05, 'A1', m);
+  const screen = createTouchscreen(0.075, 0.05, title, m);
   screen.rotation.x = -0.6;
   screen.position.set(baseW / 2 - 0.07, FOOT + baseH * 0.7, baseD / 2 + 0.014);
   g.add(screen);
@@ -347,6 +351,12 @@ const CUBE_VARIANTS = {
   h2d: {
     title: 'H2D', w: 0.492, d: 0.514, h: 0.585, enclosed: true, screen: [0.17, 0.096], buttons: false, fascia: 0.11,
     color: 0x2a2b2f, darkAms: true, sideWindow: 'large', topWindow: true, dualHead: true,
+    plate: 0.325, railDrop: 0.135,
+  },
+  // H2S: Gehäuse wie der H2D, etwas hellgrau, mit Einzeldüsen-Kopf und großem Bauteillüfter vorne
+  h2s: {
+    title: 'H2S', w: 0.492, d: 0.514, h: 0.585, enclosed: true, screen: [0.17, 0.096], buttons: false, fascia: 0.11,
+    color: 0x3b3e44, darkAms: true, sideWindow: 'large', topWindow: true, bigFan: true,
     plate: 0.325, railDrop: 0.135,
   },
   // H2C: Gehäuse wie der H2D, dazu Düsenwechsler rechts im Bauraum (8 Düsen), zwei AMS übereinander
@@ -542,7 +552,7 @@ function buildBambuCube(g, variant) {
   for (const sx of [-1, 1]) gantry.add(rbox(0.03, 0.04, 0.045, 0.005, frame, sx * railX, railY, -0.012)); // Gleitschuhe
   g.add(gantry);
 
-  // Druckbett auf Z-Träger, fährt nach unten; drei Gewindespindeln
+  // Druckbett auf Z-Träger, fährt nach unten; drei Gewindespindeln (zwei vorne an den Seiten, eine hinten mittig)
   const nozzleY = headY - head.userData.nozzleBelowCenter;
   const nozzleGap = 0.12;
   const plateTop = nozzleY - nozzleGap;
@@ -556,10 +566,30 @@ function buildBambuCube(g, variant) {
   bedAxis.add(box(plateSize + 0.034, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, backZ + 0.01)); // Träger hinten
   for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, plateSize + 0.044, frame, sx * bedX, plateTop - plate.userData.topY - 0.008, -0.02));
   g.add(bedAxis);
-  for (const sx of [-1, 0, 1]) { // drei Gewindespindeln hinten, damit der Blick durch die Tür frei bleibt
-    const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, railY - baseTop - 0.03, 10), m.steel);
-    screw.position.set(sx * bedX, baseTop + (railY - baseTop - 0.03) / 2, backZ);
+  // Vorne laufen die Spindeln durch die Seitenträger, hinten durch den Träger hinten. Unten sitzen sie in einem
+  // Lagerflansch auf dem Sockel (der Motor steckt im Sockel), oben in einem Lagerblock, den ein Halter mit der
+  // nächsten Wand verbindet – vorne mit der Seitenwand, hinten mit der Rückwand. Der Halter bleibt unter den
+  // Gleitschuhen der X-Brücke, damit die beim Fahren darüber hinweggleiten.
+  const frontZ = plateSize / 2 - 0.012;
+  const screwTop = railY - 0.03;
+  const blockY = screwTop - 0.006;
+  const innerX = w / 2 - post;
+  const innerBackZ = -d / 2 + post;
+  for (const [x, z] of [[-bedX, frontZ], [bedX, frontZ], [0, backZ]]) {
+    const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, screwTop - baseTop, 10), m.steel);
+    screw.position.set(x, baseTop + (screwTop - baseTop) / 2, z);
     g.add(screw);
+    const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.012, 0.007, 16), frame);
+    flange.position.set(x, baseTop + 0.0035, z);
+    g.add(flange);
+    g.add(rbox(0.022, 0.012, 0.022, 0.003, frame, x, blockY, z)); // Lagerblock oben
+    if (x) {
+      const len = innerX - Math.abs(x);
+      g.add(box(len + 0.004, 0.008, 0.014, frame, Math.sign(x) * (Math.abs(x) + len / 2), blockY, z));
+    } else {
+      const len = z - innerBackZ;
+      g.add(box(0.014, 0.008, len + 0.004, frame, 0, blockY, innerBackZ + len / 2));
+    }
   }
   const lowestPlate = baseTop + 0.012;
 
@@ -632,12 +662,14 @@ function buildBambuCube(g, variant) {
 
 const BUILDERS = {
   'a1-mini': (g) => buildA1Mini(g),
-  a1: (g) => buildA1(g),
+  a1: (g) => buildA1(g, A1_VARIANTS.a1),
+  a2l: (g) => buildA1(g, A1_VARIANTS.a2l),
   p1p: (g) => buildBambuCube(g, CUBE_VARIANTS.p1p),
   p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
   p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
   x2d: (g) => buildBambuCube(g, CUBE_VARIANTS.x2d),
   h2d: (g) => buildBambuCube(g, CUBE_VARIANTS.h2d),
+  h2s: (g) => buildBambuCube(g, CUBE_VARIANTS.h2s),
   h2c: (g) => buildBambuCube(g, CUBE_VARIANTS.h2c),
 };
 
