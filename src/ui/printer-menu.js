@@ -1,11 +1,22 @@
 // Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
 // Start/Pause/Abbrechen, fertiges Teil entnehmen.
 import {
-  FAILURES, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
+  FAILURES, LED_COLORS, PRINT_TEMPLATES, SPEED_MODES, filamentById, filamentLabel, templateById, speedById,
 } from '../core/catalog.js';
 import {
-  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, batchGrams, batchMinutes, plateLayout,
+  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, plateLayout,
 } from '../core/economy.js';
+import {
+  CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, SINGLE_NOZZLE_WASTE, accentSlot, hasDualNozzle, hasNozzleChanger,
+  isTwoColor, usesDualNozzle,
+  waitingFilament,
+} from '../core/two-color.js';
+
+// Farbpunkt(e) eines Teils oder Drucks: einer, bei zweifarbigen zwei
+export function colorDots(filamentId, filamentId2 = null) {
+  return [filamentId, filamentId2].filter(Boolean)
+    .map((id) => `<span class="dot" style="--c:${filamentById(id).hex}"></span>`).join('');
+}
 
 export function formatMinutes(minutes) {
   const total = Math.ceil(minutes);
@@ -40,7 +51,7 @@ export function createPrinterMenu(economy) {
       return { text: `⚠️ Fehldruck bei ${pct} %: ${FAILURES[job.failure].text}. Am Drucker wegräumen!`, cls: 'failed' };
     }
     if (job.pauseReason === 'filament') {
-      return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(job.filamentId))} einlegen`, cls: 'paused' };
+      return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(waitingFilament(job)))} einlegen`, cls: 'paused' };
     }
     if (job.status === 'paused') return { text: `Pausiert: ${name} – ${pct} %`, cls: 'paused' };
     const remaining = economy.remainingMinutes(p);
@@ -55,7 +66,8 @@ export function createPrinterMenu(economy) {
     const speed = speedById(p.speedId).percent / 100;
     return PRINT_TEMPLATES.map((t) => {
       const problem = p.job ? null : economy.printProblem(p, t);
-      const label = `${t.name} · ${t.grams} g · ${formatMinutes(t.minutes / speed)} · ${t.materials.join('/')}${problem ? ` – ${problem}` : ''}`;
+      const name = isTwoColor(t) ? `🎨 ${t.name} (zweifarbig)` : t.name;
+      const label = `${name} · ${Math.round(economy.jobGrams(p, t))} g · ${formatMinutes(economy.jobMinutes(p, t) / speed)} · ${t.materials.join('/')}${problem ? ` – ${problem}` : ''}`;
       return `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${label}</option>`;
     }).join('');
   }
@@ -88,7 +100,7 @@ export function createPrinterMenu(economy) {
     const risk = Math.round(economy.failureRisk(p, template, spoolNow, count) * 100);
     const speed = speedById(p.speedId).percent / 100;
     const total = count > 1
-      ? `<div class="risk info">Platte: ${count} × ${template.name} · ${batchGrams(template, count)} g · ${formatMinutes(batchMinutes(template, count) / speed)}`
+      ? `<div class="risk info">Platte: ${count} × ${template.name} · ${Math.round(economy.jobGrams(p, template, count))} g · ${formatMinutes(economy.jobMinutes(p, template, count) / speed)}`
         + ' – ein Fehldruck trifft alle Teile</div>'
       : '';
     const level = risk >= 30 ? 'high' : risk >= 12 ? 'mid' : 'low';
@@ -102,7 +114,37 @@ export function createPrinterMenu(economy) {
     const warn = shortfall > 0
       ? `<div class="risk high">🧵 Filament reicht nicht: Es fehlen ${Math.ceil(shortfall)} g – der Drucker hält an, bis du nachlegst.</div>`
       : '';
-    return `${total}<div class="risk ${level}">Fehldruckrisiko: ${risk} %${reasons.length ? ` · ${reasons.join(', ')}` : ''}</div>${warn}`;
+    return `${total}${twoColorInfo(p, template)}<div class="risk ${level}">Fehldruckrisiko: ${risk} %${reasons.length ? ` · ${reasons.join(', ')}` : ''}</div>${warn}`;
+  }
+
+  // Zweifarbig: mit zwei Düsen fast so schnell wie einfarbig, mit einer Düse Farbwechsel in jeder Schicht
+  function twoColorInfo(p, template) {
+    if (!isTwoColor(template)) return '';
+    if (hasNozzleChanger(p)) {
+      return `<div class="risk low">🎨 Düsenwechsler: der Kopf holt sich für jede Farbe ihre eigene Düse – nur ${Math.round((CHANGER_TIME - 1) * 100)} % länger als einfarbig, fast kein Spülabfall</div>`;
+    }
+    if (usesDualNozzle(p)) {
+      return `<div class="risk low">🎨 Dual-Nozzle: jede Farbe hat ihre eigene Düse – nur ${Math.round((DUAL_NOZZLE_TIME - 1) * 100)} % länger als einfarbig</div>`;
+    }
+    const why = hasDualNozzle(p) ? 'Eine Düse ist verstopft – ' : 'Nur eine Düse: ';
+    return `<div class="risk mid">🎨 ${why}Farbwechsel in jeder Schicht, dauert ${Math.round((SINGLE_NOZZLE_TIME - 1) * 100)} % länger`
+      + ` und braucht ${Math.round((SINGLE_NOZZLE_WASTE - 1) * 100)} % mehr Filament (Spülabfall)</div>`;
+  }
+
+  // Zweite Farbe für zweifarbige Vorlagen wählen (AMS-Fach). Ohne AMS gibt es nur den Hinweis aus printProblem.
+  function accentField(p, template) {
+    if (!isTwoColor(template) || p.spools.length < 2) return '';
+    const chosen = accentSlot(p);
+    const canPick = p.location === 'table' && !p.job;
+    const buttons = p.spools.map((s, i) => {
+      if (i === p.activeSlot) return '';
+      const label = s ? `${colorDots(s.filamentId)}${filamentLabel(filamentById(s.filamentId))}` : 'leer';
+      return `<button data-accent-slot="${i}" class="${i === chosen ? 'active' : ''}" ${canPick && s ? '' : 'disabled'}>
+          <small>Fach ${i + 1}</small>${label}
+        </button>`;
+    }).join('');
+    return `<div class="field">Zweite Farbe (muss anders sein als Fach ${p.activeSlot + 1})
+      <div class="ams-slots accent">${buttons}</div></div>`;
   }
 
   // Wie viele Teile auf einmal: bis zu so vielen, wie mit Abstand auf die Platte passen
@@ -121,7 +163,20 @@ export function createPrinterMenu(economy) {
     const wear = p.nozzleWear ?? 0;
     const cls = wear >= 1 ? 'bad' : wear >= NOZZLE_WORN ? 'warn' : 'ok';
     const text = wear >= 1 ? 'verschlissen – Ersatzdüse einbauen' : `${Math.round(wear * 100)} % abgenutzt`;
-    return `<dl class="specs"><dt>Düse</dt><dd class="wear ${cls}">🔧 ${text}</dd></dl>`;
+    const changer = hasNozzleChanger(p)
+      ? `<dt>Düsenwechsler</dt><dd>${p.model.nozzles} Düsen – eine im Kopf, ${p.model.nozzles - 1} im Wechsler rechts, eine pro AMS-Fach</dd>`
+      : '';
+    return `<dl class="specs"><dt>Düse</dt><dd class="wear ${cls}">🔧 ${text}</dd>${changer}</dl>`;
+  }
+
+  // LED-Leiste unten am Sockel (H2C): Farbe wählen, geht jederzeit
+  function ledField(p) {
+    if (!p.model.ledStrip) return '';
+    const buttons = LED_COLORS.map((c) => `
+      <button data-led="${c.id}" class="${c.id === (p.ledColor ?? LED_COLORS[0].id) ? 'active' : ''}">
+        <span class="dot" style="--c:${c.hex}"></span>${c.name}
+      </button>`).join('');
+    return `<div class="field">LED-Leiste<div class="speeds leds">${buttons}</div></div>`;
   }
 
   function card(p) {
@@ -160,9 +215,11 @@ export function createPrinterMenu(economy) {
         <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
         ${filament}
         ${nozzleInfo(p)}
+        ${ledField(p)}
         <label class="field">Druckvorlage
           <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
         </label>
+        ${onTable && !p.job ? accentField(p, template) : ''}
         ${onTable && !p.job ? countField(p, template) : ''}
         <div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>
         ${onTable && !p.job ? riskInfo(p, template) : ''}
@@ -172,7 +229,7 @@ export function createPrinterMenu(economy) {
 
   function render() {
     const parts = economy.partsList()
-      .map((x) => `<span class="dot" style="--c:${filamentById(x.filamentId).hex}"></span>${templateById(x.templateId).name} × ${x.count}`)
+      .map((x) => `${colorDots(x.filamentId, x.filamentId2)}${templateById(x.templateId).name} × ${x.count}`)
       .join(' ') || 'noch keine';
     const gameSeconds = Math.round(GAME_MINUTES_PER_SECOND * 60);
     const intro = `<p class="slots">Spielzeit: 1 echte Sekunde = ${gameSeconds} Sekunden im Spiel · Fertige Teile: <strong>${parts}</strong></p>`;
@@ -188,6 +245,11 @@ export function createPrinterMenu(economy) {
     const cardEl = e.target.closest('[data-printer]');
     if (!cardEl) return;
     const id = Number(cardEl.dataset.printer);
+    const led = e.target.closest('[data-led]')?.dataset.led;
+    if (led) {
+      economy.setLedColor(id, led);
+      return;
+    }
     const speed = e.target.closest('[data-speed]')?.dataset.speed;
     if (speed) {
       economy.setPrintSpeed(id, speed);
@@ -196,6 +258,11 @@ export function createPrinterMenu(economy) {
     const amsSlot = e.target.closest('[data-ams-slot]')?.dataset.amsSlot;
     if (amsSlot !== undefined) {
       economy.setActiveSlot(id, Number(amsSlot));
+      return;
+    }
+    const accent = e.target.closest('[data-accent-slot]')?.dataset.accentSlot;
+    if (accent !== undefined) {
+      economy.setAccentSlot(id, Number(accent));
       return;
     }
     const action = e.target.closest('[data-action]')?.dataset.action;

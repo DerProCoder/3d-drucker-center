@@ -2,13 +2,16 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, filamentLabel, templateById, speedById } from '../core/catalog.js';
+import { FAILURES, filamentById, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
 import { NOZZLE_POKES, plateLayout, spoolLabel } from '../core/economy.js';
-import { getPrintShape, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
+import { isTwoColor, waitingFilament } from '../core/two-color.js';
+import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
+import { animateNozzles } from '../models/printer-parts.js';
 import { createSpool } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
+import { isChangingTool, updateToolChanger } from './tool-changer.js';
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 
 export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
@@ -33,6 +36,18 @@ function partMaterial(filament, clip = null) {
     transparent,
     opacity: transparent ? 0.75 : 1,
   });
+}
+
+// Material(ien) für ein gedrucktes Teil: zweifarbige Formen haben zwei Geometrie-Gruppen (Grund- und Akzentfarbe)
+function partMaterials(template, filamentId, filamentId2, clip = null) {
+  const base = partMaterial(filamentById(filamentId), clip);
+  return isTwoColor(template) && filamentId2 ? [base, partMaterial(filamentById(filamentId2), clip)] : base;
+}
+
+// „PLA Schwarz“ bzw. zweifarbig „PLA Schwarz + Weiß“
+function colorsLabel(filamentId, filamentId2) {
+  const label = filamentLabel(filamentById(filamentId));
+  return filamentId2 ? `${label} + ${filamentById(filamentId2).color}` : label;
 }
 
 // Filament-Spaghetti: wirre Schlaufen über dem Druckbett, Ursprung auf der Plattenmitte
@@ -189,7 +204,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     }
     if (job?.status === 'done') {
       const count = job.count ?? 1;
-      const part = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}, ${filamentLabel(filamentById(job.filamentId))}`;
+      const part = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}, ${colorsLabel(job.filamentId, job.filamentId2)}`;
       const what = count > 1 ? 'fertige Teile' : 'fertiges Teil';
       return { text: `Linksklick: ${what} entnehmen (${part})`, run: () => economy.collectPart(printer.id) };
     }
@@ -202,8 +217,9 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       // Wartet der Drucker auf Filament, wird automatisch die passende Spule aus der Hand genommen
       let index = carry.selected;
       if (job?.pauseReason === 'filament') {
-        index = carry.spools.findIndex((s) => s.filamentId === job.filamentId);
-        if (index === -1) return { text: `Zum Weiterdrucken braucht ${name} ${filamentLabel(filamentById(job.filamentId))}` };
+        const missing = waitingFilament(job);
+        index = carry.spools.findIndex((s) => s.filamentId === missing);
+        if (index === -1) return { text: `Zum Weiterdrucken braucht ${name} ${filamentLabel(filamentById(missing))}` };
       }
       const spool = carry.spools[index];
       if (!supports(spool)) return { text: `${name} kann kein ${filamentById(spool.filamentId).material} drucken` };
@@ -254,7 +270,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
   function updatePart(model, printer) {
     const job = printer.job;
     const count = job?.count ?? 1;
-    const key = job ? `${job.templateId}|${job.filamentId}|${count}|${job.status === 'failed' ? job.failure : ''}` : null;
+    const key = job ? `${job.templateId}|${job.filamentId}|${job.filamentId2 ?? ''}|${count}|${job.status === 'failed' ? job.failure : ''}` : null;
     if (model.userData.partKey === key) return;
     for (const old of [model.userData.partMesh, model.userData.mess]) old?.parent.remove(old);
     model.userData.partMesh = null;
@@ -266,7 +282,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const shape = getPrintShape(template);
     const filament = filamentById(job.filamentId);
     const clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-    const material = partMaterial(filament, clip);
+    const material = partMaterials(template, job.filamentId, job.filamentId2, clip);
     const rig = model.userData.printRig;
     const part = new THREE.Group();
     part.position.copy(rig.plateCenter);
@@ -356,13 +372,13 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     for (const part of economy.looseParts) {
       if (loose.has(part.id)) continue;
       const template = templateById(part.templateId);
-      const filament = filamentById(part.filamentId);
-      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterial(filament));
+      const colors = colorsLabel(part.filamentId, part.filamentId2);
+      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterials(template, part.filamentId, part.filamentId2));
       mesh.position.set(part.x, 0, part.z);
       mesh.rotation.y = part.rotY;
       mesh.castShadow = true;
       mesh.userData.interaction = {
-        hint: () => `Linksklick: ${template.name} (${filamentLabel(filament)}) aufheben – der Kater war’s`,
+        hint: () => `Linksklick: ${template.name} (${colors}) aufheben – der Kater war’s`,
         action: () => economy.pickUpLoosePart(part.id),
       };
       group.add(mesh);
@@ -533,6 +549,18 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         rotor.rotation.z += rotor.userData.speed * dt;
       }
 
+      // Dual-Nozzle: die linke Düse druckt die Grundfarbe, die rechte die zweite Farbe. Ist eine verstopft,
+      // druckt die rechte alles. Während des Wechsels fährt eine Düse ein, die andere aus – die Bahn wartet so lange.
+      const color = job?.status === 'printing' || job?.status === 'paused' ? part?.userData.lastPoint?.color ?? 0 : 0;
+      // Düsenwechsler (H2C): solange der Kopf zum Wechsler und zurück fährt, wartet die Bahn ebenfalls
+      const swapping = animateNozzles(rig.head, printer.clogged ? 1 : color, dt) || isChangingTool(model);
+
+      // LED-Leiste (H2C) in der im Druckermenü gewählten Farbe
+      if (model.userData.setLedColor && model.userData.ledColor !== printer.ledColor) {
+        model.userData.ledColor = printer.ledColor;
+        model.userData.setLedColor(ledColorById(printer.ledColor).hex);
+      }
+
       const state = { mode: 'idle', x: 0, z: 0, layerY: 0, partHeight: 0 };
       if (job && part) {
         const { shape } = part.userData;
@@ -546,13 +574,26 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         } else {
           state.mode = 'printing'; // auch pausiert: Achsen bleiben an der Stelle stehen
           const outline = part.userData.outline(job.progress);
-          if (job.status === 'printing') {
+          if (part.userData.path !== outline) {
+            // Neue Schicht: dort weitermachen, wo die Düse gerade ist, statt quer übers Bett zu springen
+            const last = part.userData.lastPoint;
+            if (last) part.userData.pathT = nearestPathT(outline, last.x, last.z, last.color);
+            part.userData.path = outline;
+          }
+          if (job.status === 'printing' && !swapping) {
             // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe
             const speed = 0.06 * (speedById(printer.speedId).percent / 100);
             part.userData.pathT = (part.userData.pathT + (dt * speed) / Math.max(outlineLength(outline), 0.01)) % 1;
           }
-          Object.assign(state, outlinePoint(outline, part.userData.pathT));
+          part.userData.lastPoint = outlinePoint(outline, part.userData.pathT);
+          Object.assign(state, part.userData.lastPoint);
         }
+      }
+      if (model.userData.toolRack) {
+        // Braucht die Bahn eine andere Farbe, fährt die Düse statt zum Bahnpunkt zum Wechsler
+        const printing = state.mode === 'printing' ? part.userData.lastPoint : null;
+        const change = updateToolChanger(model, printer, printing, dt);
+        if (change) Object.assign(state, change);
       }
       rig.pose(state);
 

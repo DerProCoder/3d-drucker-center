@@ -72,6 +72,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
         arriveIn: p.arriveIn,
         spools: p.spools.map((spool) => (spool ? { ...spool } : null)),
         activeSlot: p.activeSlot,
+        accentSlot: p.accentSlot ?? null,
+        ledColor: p.ledColor ?? null,
         speedId: p.speedId,
         clogged: p.clogged,
         nozzlePokes: p.nozzlePokes,
@@ -158,7 +160,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   economy.nextPrinterId = e.nextPrinterId;
   economy.nextLooseId = e.nextLooseId ?? 1;
   economy.printers = e.printers
-    .map((p) => ({ clogged: false, nozzlePokes: 0, ...p, model: PRINTERS.find((m) => m.id === p.modelId) }))
+    .map((p) => ({ clogged: false, nozzlePokes: 0, accentSlot: null, ledColor: null, ...p, model: PRINTERS.find((m) => m.id === p.modelId) }))
     .filter((p) => p.model); // Modelle, die es nicht mehr gibt, fallen weg
   for (const p of economy.printers) delete p.modelId;
   economy.shelf = e.shelf ?? [];

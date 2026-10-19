@@ -2,6 +2,7 @@
 // bis zur Frist am PC abliefert und dafür bezahlt wird. Eilaufträge zahlen mehr, Stammkunden auch.
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
 import { FILAMENTS, PRINT_TEMPLATES, templateById } from './catalog.js';
+import { isTwoColor } from './two-color.js';
 
 export const NEW_ORDER_EVERY = 30; // Spielminuten zwischen zwei neuen Aufträgen
 const FIRST_ORDERS = 2;            // so viele Aufträge liegen beim Spielstart schon bereit
@@ -9,6 +10,8 @@ const RUSH_CHANCE = 0.15;          // Anteil Eilaufträge
 const RUSH_BONUS = 1.8;            // Eilaufträge zahlen so viel mehr
 const SPECIAL_CHANCE = 0.12;       // Anteil absurder Sonderaufträge
 const ANY_COLOR_CHANCE = 0.3;      // so oft ist dem Kunden die Farbe egal
+const TWO_COLOR_LEVEL = 3;         // ab diesem Level bestellen Kunden auch zweifarbige Teile
+const TWO_COLOR_BONUS = 1.4;       // zweifarbige Teile sind aufwendiger und werden besser bezahlt
 export const REGULAR_STARS = 3;    // ab so vielen Sternen ist man Stammkunde
 const MAX_STARS = 5;
 const MIN_STARS = -3;
@@ -53,16 +56,30 @@ const SPECIALS = [
     customer: 'Hausmeister Krawuttke', templateId: 'cable-clips', quantity: 10, material: 'PETG', filamentId: null, payFactor: 1.3,
     note: 'Im Serverraum sieht es aus wie bei Hempels unterm Sofa. Bitte schnell.', rush: true,
   },
+  {
+    customer: 'Schachclub Springer e.V.', templateId: 'chess-set', quantity: 2, material: 'PLA', filamentId: 'pla-schwarz',
+    filamentId2: 'pla-weiß', payFactor: 1.5, minLevel: TWO_COLOR_LEVEL,
+    note: 'Schwarz UND Weiß, bitte. Letztes Mal waren beide Seiten weiß – das Turnier dauerte elf Stunden.',
+  },
+];
+
+// Sprüche für zweifarbige Aufträge
+const TWO_COLOR_NOTES = [
+  'Zweifarbig, bitte – einfarbig hat ja jeder.',
+  'Die Schrift muss sich richtig abheben!',
+  'Zwei verschiedene Farben. Nicht zweimal dieselbe, das hatten wir schon.',
 ];
 
 export function unitPrice(template) {
   // Grundpreis pro Teil in €: Material + Druckzeit + Pauschale (≈ 15 € pro Druckstunde, Miete 3 €/h)
-  return 4 + template.grams * 0.1 + template.minutes * 0.16;
+  const base = 4 + template.grams * 0.1 + template.minutes * 0.16;
+  return isTwoColor(template) ? base * TWO_COLOR_BONUS : base;
 }
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
-// Auftrag: { id, customer, templateId, quantity, material, filamentId (null = Farbe egal), rush, note,
+// Auftrag: { id, customer, templateId, quantity, material, filamentId (null = Farbe egal),
+//            filamentId2 (zweite Farbe bei zweifarbigen Teilen, null = egal), rush, note,
 //            reward (€ gesamt), minutesLeft (Spielminuten bis zur Frist), special? }
 // progress (progress.js) bestimmt Lohnaufschlag und wie viele Aufträge gleichzeitig offen sein dürfen
 export class Orders {
@@ -107,18 +124,28 @@ export class Orders {
 
   // easy: nur kurze Drucke in PLA, ohne Eile, damit man am Anfang schnell etwas verdient
   createOrder(easy = false) {
-    if (!easy && Math.random() < SPECIAL_CHANCE) return this.createSpecial(pick(SPECIALS));
+    const level = this.progress.level;
+    if (!easy && Math.random() < SPECIAL_CHANCE) {
+      return this.createSpecial(pick(SPECIALS.filter((s) => (s.minLevel ?? 1) <= level)));
+    }
 
+    // Zweifarbige Teile gibt es erst ab TWO_COLOR_LEVEL (man braucht dafür mindestens ein AMS), und nur bei jedem
+    // zweiten Auftrag als Möglichkeit, damit sie nicht überhandnehmen
+    const twoColorOk = !easy && level >= TWO_COLOR_LEVEL && Math.random() < 0.5;
     const choices = easy
-      ? PRINT_TEMPLATES.filter((t) => t.minutes <= 100 && t.materials.includes('PLA'))
-      : PRINT_TEMPLATES;
+      ? PRINT_TEMPLATES.filter((t) => t.minutes <= 100 && t.materials.includes('PLA') && !isTwoColor(t))
+      : PRINT_TEMPLATES.filter((t) => !isTwoColor(t) || twoColorOk);
     const template = pick(choices);
     // Lange Drucke werden in kleineren Mengen bestellt
     const maxQuantity = template.minutes <= 60 ? 5 : template.minutes <= 150 ? 3 : 2;
     const quantity = 1 + Math.floor(Math.random() * maxQuantity);
     const material = easy ? 'PLA' : pick(template.materials);
     const colors = FILAMENTS.filter((f) => f.material === material);
-    const filamentId = !easy && Math.random() < ANY_COLOR_CHANCE ? null : pick(colors).id;
+    const anyColor = !easy && Math.random() < ANY_COLOR_CHANCE;
+    const first = pick(colors);
+    const filamentId = anyColor ? null : first.id;
+    // Zweite Farbe: immer eine andere als die erste
+    const filamentId2 = isTwoColor(template) && !anyColor ? pick(colors.filter((f) => f !== first)).id : null;
     const rush = !easy && Math.random() < RUSH_CHANCE;
     const customer = this.pickCustomer();
     const bonus = 0.9 + Math.random() * 0.4; // manche Kunden zahlen besser
@@ -130,8 +157,9 @@ export class Orders {
       quantity,
       material,
       filamentId,
+      filamentId2,
       rush,
-      note: pick(CUSTOMERS[customer]),
+      note: pick(isTwoColor(template) && Math.random() < 0.5 ? TWO_COLOR_NOTES : CUSTOMERS[customer]),
       reward: Math.round(pay * this.progress.rewardMultiplier * this.customerFactor(customer)),
       minutesLeft: this.deadline(template, quantity, rush),
     };
@@ -147,6 +175,7 @@ export class Orders {
       quantity: s.quantity,
       material: s.material,
       filamentId: s.filamentId,
+      filamentId2: s.filamentId2 ?? null,
       rush: !!s.rush,
       note: s.note,
       special: true,
@@ -155,7 +184,8 @@ export class Orders {
     };
   }
 
-  // Frist: doppelte Druckzeit für alle Teile plus Zeit fürs Einkaufen und Aufstellen – bei Eile deutlich knapper
+  // Frist: doppelte Druckzeit für alle Teile plus Zeit fürs Einkaufen und Aufstellen – bei Eile deutlich knapper.
+  // Zweifarbig zählt die Dual-Nozzle-Druckzeit: Eilaufträge schafft man dann praktisch nur mit zwei Düsen.
   deadline(template, quantity, rush) {
     return rush
       ? Math.round(template.minutes * quantity * 1.2 + 60)
@@ -168,7 +198,7 @@ export class Orders {
 
   // Was der Kunde haben will, für economy.countParts/takeParts
   static want(order) {
-    return { material: order.material ?? null, filamentId: order.filamentId ?? null };
+    return { material: order.material ?? null, filamentId: order.filamentId ?? null, filamentId2: order.filamentId2 ?? null };
   }
 
   partsReady(order) {

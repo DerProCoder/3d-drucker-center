@@ -99,7 +99,11 @@ economy.onEvent = (type, d) => {
       if (d.failure === 'spaghetti') achievements.add('spaghetti');
       break;
     case 'nozzle-switched':
-      hud.notify(`🔀 ${name}: Düse verstopft – die zweite Düse druckt weiter. Danach freistechen!`, 'bad');
+      hud.notify(d.changer
+        ? `🔀 ${name}: Düse verstopft – der Kopf holt sich eine Ersatzdüse aus dem Düsenwechsler und druckt weiter. Danach freistechen!`
+        : d.twoColor
+        ? `🔀 ${name}: Düse verstopft – die zweite Düse druckt beide Farben weiter, mit Farbwechsel dauert es länger. Danach freistechen!`
+        : `🔀 ${name}: Düse verstopft – die zweite Düse druckt weiter. Danach freistechen!`, 'bad');
       sound.play('warn');
       break;
     case 'out-of-filament':

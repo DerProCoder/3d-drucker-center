@@ -1,5 +1,5 @@
 // Drucker-Cam: Live-Bild eines aufgestellten Druckers für die PC-App, wie die Kamera im echten Gerät.
-// Rendert die Szene aus einer Kamera schräg vor dem Druckbett in ein kleines Bild (10 Bilder pro Sekunde)
+// Rendert die Szene aus der eingebauten Kamera des Druckers (vorne links in der Ecke) in ein kleines Bild (10 Bilder pro Sekunde)
 // und malt es mit Einblendungen (REC, Uhrzeit, Fortschritt) auf ein Canvas im PC-Fenster.
 // Drucker mit KI-Kamera (X2D) liefern ein schärferes Bild, die anderen sind etwas weicher.
 import * as THREE from 'three';
@@ -12,7 +12,7 @@ const FPS = 10;
 export function createPrinterCam({ renderer, scene, economy, workshop }) {
   const target = new THREE.WebGLRenderTarget(W, H);
   target.texture.colorSpace = THREE.SRGBColorSpace;
-  const camera = new THREE.PerspectiveCamera(58, W / H, 0.01, 30);
+  const camera = new THREE.PerspectiveCamera(72, W / H, 0.005, 30); // Weitwinkel wie die echte Gerätekamera
   const pixels = new Uint8Array(W * H * 4);
   const lookAt = new THREE.Vector3();
   let canvas = null;
@@ -94,12 +94,11 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
       noSignal();
       return;
     }
-    // Kamera schräg vorne links über dem Bett, Blick auf die Plattenmitte
-    const rig = model.userData.printRig;
-    lookAt.copy(rig.plateCenter);
-    model.localToWorld(lookAt);
-    lookAt.y += 0.04;
-    camera.position.set(-0.13, 0.13, 0.3).add(lookAt);
+    // Filmt aus der eingebauten Kamera vorne links in der Ecke, Blick aufs Bett
+    const mount = model.userData.camMount;
+    model.updateMatrixWorld(true);
+    model.localToWorld(camera.position.copy(mount.position));
+    model.localToWorld(lookAt.copy(mount.target));
     camera.lookAt(lookAt);
 
     renderer.setRenderTarget(target);

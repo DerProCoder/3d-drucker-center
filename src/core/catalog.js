@@ -95,7 +95,26 @@ export const PRINTERS = [
     build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.2, enclosed: true,
     spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'h2d', accent: '#e8c547',
   },
+  {
+    // H2C: so groß wie der H2D, mit Düsenwechsler rechts im Bauraum – 8 Düsen (eine im Kopf, sieben im Wechsler),
+    // für jedes der 8 AMS-Fächer (zwei AMS übereinander) eine eigene. Der Kopf holt sich für jede Farbe ihre Düse,
+    // dadurch fast kein Spülabfall (siehe two-color.js). LED-Leiste unten am Sockel, Farbe im Druckermenü wählbar.
+    id: 'h2c', name: 'Bambu Lab H2C', tier: 'Düsenwechsler', price: 2500,
+    build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.3, enclosed: true,
+    spoolSlots: 8, nozzles: 8, nozzleChanger: true, aiCamera: true, ledStrip: true, style: 'h2c', accent: '#b05cff',
+  },
 ];
+
+// Farben der LED-Leiste (H2C), wählbar im Druckermenü. Die erste ist die Werkseinstellung.
+export const LED_COLORS = [
+  { id: 'lila', name: 'Lila', hex: '#a347ff' },
+  { id: 'blau', name: 'Blau', hex: '#2f7dff' },
+  { id: 'orange', name: 'Orange', hex: '#ff7a1a' },
+  { id: 'gruen', name: 'Grün', hex: '#22d36b' },
+  { id: 'rot', name: 'Rot', hex: '#ff3344' },
+  { id: 'weiss', name: 'Weiß', hex: '#f2f4ff' },
+];
+export const ledColorById = (id) => LED_COLORS.find((c) => c.id === id) ?? LED_COLORS[0];
 
 export const formatBuildVolume = ({ x, y, z }) => `${x} × ${y} × ${z} mm`;
 
@@ -111,6 +130,12 @@ export const PRINT_TEMPLATES = [
   { id: 'vase', name: 'Vase', grams: 130, minutes: 260, size: { x: 140, y: 140, z: 220 }, materials: ['PLA', 'PETG'] },
   { id: 'dragon', name: 'Drachenfigur', grams: 95, minutes: 300, size: { x: 160, y: 90, z: 115 }, materials: ['PLA'] },
   { id: 'tool-holder', name: 'Werkzeughalter', grams: 160, minutes: 330, size: { x: 200, y: 120, z: 80 }, materials: ['PETG', 'ABS'] },
+  // Zweifarbig (colors: 2): Grund- und Akzentfarbe, accent = Anteil der Akzentfarbe am Filament. minutes gilt
+  // für Dual-Nozzle-Drucker; mit einer Düse dauert es wegen der Farbwechsel länger (siehe two-color.js).
+  { id: 'name-sign', name: 'Namensschild', colors: 2, accent: 0.3, grams: 22, minutes: 70, size: { x: 120, y: 35, z: 6 }, materials: ['PLA', 'PETG'] },
+  { id: 'coaster', name: 'Untersetzer mit Logo', colors: 2, accent: 0.35, grams: 18, minutes: 55, size: { x: 90, y: 90, z: 5 }, materials: ['PLA', 'PETG'] },
+  { id: 'dice', name: 'Spielwürfel-Set', colors: 2, accent: 0.15, grams: 14, minutes: 50, size: { x: 44, y: 18, z: 18 }, materials: ['PLA', 'PETG', 'ABS'] },
+  { id: 'chess-set', name: 'Schachfiguren', colors: 2, accent: 0.5, grams: 85, minutes: 260, size: { x: 150, y: 80, z: 46 }, materials: ['PLA'] },
 ];
 
 export const templateById = (id) => PRINT_TEMPLATES.find((t) => t.id === id);

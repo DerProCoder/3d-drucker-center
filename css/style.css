@@ -622,6 +622,8 @@ canvas { display: block; }
 .speeds button small { font-weight: 400; opacity: 0.7; }
 .speeds button.active { border-color: #3aa0ff; background: #20406a; color: #fff; }
 .speeds button:disabled { opacity: 0.4; cursor: not-allowed; }
+.speeds.leds { grid-template-columns: repeat(3, 1fr); }
+.speeds.leds button { flex-direction: row; justify-content: center; gap: 6px; }
 
 /* AMS-Fächer im Druckermenü */
 .ams-slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
@@ -642,6 +644,10 @@ canvas { display: block; }
 .ams-slots button small { opacity: 0.6; }
 .ams-slots button.active { border-color: #3aa0ff; background: #20406a; color: #fff; }
 .ams-slots button:disabled { cursor: not-allowed; }
+/* Zweite Farbe bei zweifarbigen Drucken */
+.ams-slots.accent button.active { border-color: #ff9a3a; background: #5a3416; }
+.ams-slots.accent button:disabled { opacity: 0.45; }
+.tag.two-color { background: linear-gradient(90deg, #2f6fd6, #d62f2f); color: #fff; }
 
 .actions { justify-content: flex-end; }
 .secondary, .danger {

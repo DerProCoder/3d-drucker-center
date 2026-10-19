@@ -71,10 +71,10 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat (Material und meist auch die Farbe), was du dafür bekommst und wie lange du Zeit hast.
-2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S, P2S, den **X2D** (950 €) mit zwei Düsen und KI-Kamera oder das Flaggschiff **H2D** (1.400 €) – ebenfalls mit zwei Düsen und KI-Kamera, dazu ein großer Bauraum (325 × 325 × 325 mm, mehr Teile pro Platte), Fenster vorne, an der Seite und im Dach und ein großes Touch-Display. Du startest klein: mit **150 €**, einem **A1 mini**, der schon auf dem ersten Drucktisch steht, und **einer Rolle weißem PLA** im Regal im Abstellraum – leg sie ein, erfüll die ersten Aufträge und spar auf Filament in weiteren Farben und bessere Drucker.
+2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, P1P, P1S, P2S, den **X2D** (950 €) mit zwei Düsen und KI-Kamera das Flaggschiff **H2D** (1.400 €) – ebenfalls mit zwei Düsen und KI-Kamera, dazu ein großer Bauraum (325 × 325 × 325 mm, mehr Teile pro Platte), Fenster vorne, an der Seite und im Dach und ein großes Touch-Display – oder den **H2C** (2.500 €): so groß wie der H2D, mit **Düsenwechsler** (8 Düsen), zwei AMS übereinander und einer LED-Leiste am Sockel. Du startest klein: mit **150 €**, einem **A1 mini**, der schon auf dem ersten Drucktisch steht, und **einer Rolle weißem PLA** im Regal im Abstellraum – leg sie ein, erfüll die ersten Aufträge und spar auf Filament in weiteren Farben und bessere Drucker.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
-5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
+5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1 und A1 mini haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Der H2C hat zwei AMS übereinander, also 8 Fächer. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
 6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
 7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
 8. **Liefern:** Hast du alle bestellten Teile in der richtigen Farbe, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
@@ -84,6 +84,11 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 - **Eilaufträge** (⚡) haben eine knappe Frist, zahlen aber fast das Doppelte.
 - **Sterne:** Jede pünktliche Lieferung bringt einen Stern beim Kunden, ein verfallener Auftrag kostet einen. Zufriedene Kunden zahlen mehr und melden sich öfter, ab 3 Sternen sind sie **Stammkunden**. Ablehnen kostet keinen Stern.
 - **Sonderwünsche** (🤪): Ab und zu kommen absurde Bestellungen – Jonas (12) braucht ein Dutzend Benchys für seine ganze Klasse, eine Influencerin will transparente Vasen für ihren Livestream …
+- **Zweifarbige Teile** (🎨): Ab Level 3 bestellen Kunden auch Namensschilder, Untersetzer mit Logo, Spielwürfel und Schachfiguren in **zwei verschiedenen Farben** – sie zahlen 40 % mehr. Dafür brauchst du zwei Spulen im gleichen Material, aber in unterschiedlichen Farben, also ein AMS. Im Druckermenü wählst du das Fach der Grundfarbe und darunter die **zweite Farbe**. Zweimal dieselbe Farbe geht nicht. Ob Grund- und Akzentfarbe vertauscht sind, ist dem Kunden egal.
+  - **Dual-Nozzle (X2D, H2D):** Jede Farbe hat ihre eigene Düse – kaum langsamer als einfarbig (+10 %) und fast ohne Abfall. Am Druckkopf siehst du, welche gerade druckt: die linke Düse (Grundfarbe) oder die rechte (zweite Farbe) ist ausgefahren, die andere eingefahren. Beim Farbwechsel tauschen sie die Plätze.
+  - **Düsenwechsler (H2C):** Rechts im Bauraum hängen die Düsen im Wechsler, eine für jedes der 8 AMS-Fächer (die farbige Socke zeigt, welche Farbe dazugehört) – eine steckt im Kopf, sieben warten im Wechsler. Braucht der Druck eine andere Farbe, fährt der Kopf nach rechts, hängt seine Düse ein, holt die Düse der neuen Farbe und druckt weiter. Nur **6 % langsamer** als einfarbig und fast ohne Spülabfall.
+  - **Eine Düse mit AMS (P1P, P1S, P2S):** Der Drucker muss in jeder Schicht die Farbe wechseln und die alte ausspülen. Das dauert **80 % länger** und braucht **50 % mehr Filament**. Eilaufträge schaffst du so kaum.
+  - **A1 und A1 mini** (nur ein Spulenhalter) können nicht zweifarbig drucken.
 
 ### Laufende Kosten
 
@@ -97,7 +102,9 @@ Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Dr
 - **Verstopfte Düse** (🪡): Fünfmal auf den Drucker klicken, um sie freizustechen.
 - **Filament leer** (🧵): Der Drucker hält an, bis du eine Spule in derselben Sorte und Farbe einlegst – dann druckt er von selbst weiter. Das **AMS** wechselt automatisch auf ein anderes Fach mit derselben Spule.
 - **Düsenverschleiß** (🔧): Jede Düse hält rund 48 Druckstunden, schnelle Stufen nutzen sie stärker ab. Den Zustand zeigt das Druckermenü. Ab 75 % gibt es mehr Fehldrucke, bei 100 % startet kein neuer Druck. **Ersatzdüsen** gibt es im Filament-Shop, sie landen direkt im Ersatzteilregal. Düse aus dem Regal nehmen und auf den Drucker klicken – das hilft auch bei einer verstopften Düse.
-- **X2D und H2D mit zwei Düsen** (🔀): Die beiden Düsen teilen sich die Arbeit und verschleißen nur halb so schnell. Verstopft eine mitten im Druck, druckt die zweite weiter – vor dem nächsten Druck musst du sie trotzdem freistechen. Ihre **KI-Kamera** erkennt Spaghetti und abgelöste Teile früh und stoppt sofort, so bleibt die Hälfte des Filaments auf der Spule. In der **Drucker-Cam** ist ihr Bild gestochen scharf.
+- **X2D und H2D mit zwei Düsen** (🔀): Die beiden Düsen teilen sich die Arbeit und verschleißen nur halb so schnell. Verstopft eine mitten im Druck, druckt die zweite weiter (ein zweifarbiger Druck dann mit Farbwechsel, also langsamer) – vor dem nächsten Druck musst du sie trotzdem freistechen. Ihre **KI-Kamera** erkennt Spaghetti und abgelöste Teile früh und stoppt sofort, so bleibt die Hälfte des Filaments auf der Spule. In der **Drucker-Cam** ist ihr Bild gestochen scharf.
+- **H2C mit Düsenwechsler** (🔀): Verstopft eine Düse, holt sich der Kopf einfach eine andere aus dem Wechsler und druckt weiter – auch beim zweiten Mal. Freistechen musst du trotzdem. Die 8 Düsen teilen sich den Verschleiß. KI-Kamera wie beim X2D und H2D.
+- **LED-Leiste (H2C):** Unten am Sockel leuchtet eine LED-Leiste, ab Werk lila. Im **Druckermenü** stellst du die Farbe um: Lila, Blau, Orange, Grün, Rot oder Weiß.
 - **Feuchtes Filament** (💧): Spulen im Regal ziehen mit der Zeit Feuchtigkeit, im AMS langsamer. Der **Filament-Trockenschrank** aus dem Filament-Shop hält das Regal trocken und trocknet feuchte Spulen wieder.
 
 ### Regale am Druckertisch
@@ -172,6 +179,7 @@ src/
     catalog.js        Drucker, Filamente, Druckvorlagen mit Preisen und Werten
     economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
     orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern
+    two-color.js      Zweifarbige Drucke: zweite Farbe, Dual-Nozzle gegen Farbwechsel mit einer Düse
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
     upgrades.js       Ausbau: Drucktische, Regalebenen
@@ -182,6 +190,7 @@ src/
     room.js           Halle mit Boden, Wänden, Fenstern, Licht
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
+    tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
     storage-room.js   Abstellraum mit Regal und Lieferzone
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
     cat.js            Kater Düsentrieb
@@ -193,6 +202,7 @@ src/
     util.js           Kleine 3D-Helfer (Schatten)
   models/           Reine 3D-Modelle, ohne Spiellogik
     printer-model.js, printer-parts.js   Drucker
+    nozzle-changer.js Düsenwechsler des H2C: Wechselkopf, Düsenhalter, LED-Leiste
     printer-box.js    Lieferkarton
     print-shapes.js   Formen der Druckvorlagen
     spool.js          Filamentspule

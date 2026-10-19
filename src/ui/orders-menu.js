@@ -1,7 +1,8 @@
 // Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
 import { filamentById, filamentLabel, templateById } from '../core/catalog.js';
 import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
-import { formatMinutes } from './printer-menu.js';
+import { DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isTwoColor } from '../core/two-color.js';
+import { colorDots, formatMinutes } from './printer-menu.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 
@@ -16,6 +17,11 @@ export function createOrdersMenu(orders, economy) {
 
   // Was genau bestellt ist: Farbe + Material, nur Material, oder (alte Aufträge) egal
   function wantText(order, t) {
+    if (order.filamentId && order.filamentId2) {
+      const [a, b] = [order.filamentId, order.filamentId2].map(filamentById);
+      return `${colorDots(a.id, b.id)}${order.material} ${a.color} + ${b.color}`;
+    }
+    if (isTwoColor(t) && order.material) return `${order.material}, zwei verschiedene Farben nach Wahl`;
     if (order.filamentId) {
       const f = filamentById(order.filamentId);
       return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)}`;
@@ -40,7 +46,12 @@ export function createOrdersMenu(orders, economy) {
     const tags = [
       order.rush ? '<span class="tag rush">⚡ Eilauftrag</span>' : '',
       order.special ? '<span class="tag special">🤪 Sonderwunsch</span>' : '',
+      isTwoColor(t) ? '<span class="tag two-color">🎨 Zweifarbig</span>' : '',
     ].join('');
+    // Zweifarbig: mit Dual-Nozzle deutlich schneller als mit einer Düse und AMS
+    const time = isTwoColor(t)
+      ? `${formatMinutes(t.minutes * DUAL_NOZZLE_TIME)} mit Dual-Nozzle, ${formatMinutes(t.minutes * SINGLE_NOZZLE_TIME)} mit einer Düse`
+      : formatMinutes(t.minutes);
     return `
       <div class="card order ${order.rush ? 'rush' : ''}" data-order="${order.id}">
         <div class="card-head">
@@ -52,7 +63,7 @@ export function createOrdersMenu(orders, economy) {
         ${order.note ? `<p class="order-note">„${order.note}“</p>` : ''}
         <dl class="specs">
           <dt>Gewünscht</dt><dd>${wantText(order, t)}</dd>
-          <dt>Pro Teil</dt><dd>${t.grams} g · ${formatMinutes(t.minutes)}</dd>
+          <dt>Pro Teil</dt><dd>${t.grams} g · ${time}</dd>
           <dt>Fertig im Lager</dt><dd>${Math.min(have, order.quantity)} / ${order.quantity}</dd>
         </dl>
         <div class="status ${urgent ? 'urgent' : 'idle'}" data-deadline>${deadlineText(order)}</div>

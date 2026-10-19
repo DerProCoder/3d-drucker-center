@@ -1,6 +1,7 @@
 // Personal: Azubis einstellen, die in der Halle mithelfen. Kostet eine Einstellungsgebühr und Lohn pro Spielstunde
 // (läuft über economy.wagesPerHour in die stündliche Rechnung). Hier steht nur, WAS es zu tun gibt und was eine
 // erledigte Aufgabe bewirkt – Laufen und Aussehen macht world/workers.js. Bewusst ohne Three.js und DOM.
+import { waitingFilament } from './two-color.js';
 
 export const MAX_WORKERS = 2;
 export const HIRE_FEE = 50;       // € einmalig
@@ -68,8 +69,8 @@ export class Staff {
       ...onTable.filter((p) => p.job?.status === 'done').map((p) => ({ type: 'collect', printerId: p.id })),
       ...onTable
         .filter((p) => p.job?.pauseReason === 'filament' && e.loadTarget(p) !== -1)
-        .filter((p) => e.shelf.some((s) => s.filamentId === p.job.filamentId))
-        .map((p) => ({ type: 'refill', printerId: p.id, filamentId: p.job.filamentId })),
+        .filter((p) => e.shelf.some((s) => s.filamentId === waitingFilament(p.job)))
+        .map((p) => ({ type: 'refill', printerId: p.id, filamentId: waitingFilament(p.job) })),
       ...e.looseParts.map((l) => ({ type: 'pick', looseId: l.id })),
     ];
     return candidates.find(free) ?? null;
@@ -84,7 +85,7 @@ export class Staff {
     if (task.type === 'clear') return p.job?.status === 'failed';
     if (task.type === 'poke') return p.clogged;
     if (task.type === 'collect') return p.job?.status === 'done';
-    if (task.type === 'refill') return p.job?.pauseReason === 'filament' && p.job.filamentId === task.filamentId;
+    if (task.type === 'refill') return p.job?.pauseReason === 'filament' && waitingFilament(p.job) === task.filamentId;
     return false;
   }
 

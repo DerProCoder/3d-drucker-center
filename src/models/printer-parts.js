@@ -225,8 +225,8 @@ function addFrontFan(head, radius, y, z, m) {
 
 // Druckkopf, Ursprung in der Mitte des Gehäuses, Rückseite bei z = -depth/2.
 // style 'a1': helle Frontabdeckung (A1-Serie) · 'p1': etwas breiter und ganz dunkel (P1/P2-Serie)
-// bigFan: großer Lüfter vorne wie beim X2D (P2S), sonst ein etwas kleinerer
-export function createToolhead(m, style = 'a1', { bigFan = false } = {}) {
+// bigFan: großer Lüfter vorne wie beim X2D (P2S), P1P/P1S mittelgroß, A1-Serie etwas kleiner
+export function createToolhead(m, style = 'a1', { bigFan = false, title = '' } = {}) {
   const head = new THREE.Group();
   const w = bigFan ? 0.07 : style === 'p1' ? 0.064 : 0.055;
   const h = bigFan ? 0.08 : 0.075;
@@ -240,10 +240,11 @@ export function createToolhead(m, style = 'a1', { bigFan = false } = {}) {
     head.add(rbox(w - 0.008, 0.012, 0.002, 0.003, m.shellDark, 0, -h / 2 + 0.012, d / 2 + 0.0085));
     head.add(box(0.012, 0.0015, 0.001, m.led, 0, -h / 2 + 0.012, d / 2 + 0.0098));
   }
-  const logo = createLabel('Bambu Lab', bigFan ? 0.0068 : 0.0055, style === 'p1' ? '#e8e8e8' : '#3a3d42');
-  logo.position.set(0, bigFan ? 0.028 : 0.022, d / 2 + 0.0085);
+  const logo = createLabel(`Bambu Lab ${title}`.trim(), bigFan ? 0.0068 : 0.0055, style === 'p1' ? '#e8e8e8' : '#3a3d42');
+  logo.position.set(0, bigFan || style === 'p1' ? 0.028 : 0.022, d / 2 + 0.0085);
   head.add(logo);
   if (bigFan) addFrontFan(head, 0.026, -0.009, d / 2 + 0.0085, m);
+  else if (style === 'p1') addFrontFan(head, 0.02, 0.003, d / 2 + 0.0085, m); // P1P/P1S: mittelgroß, Logo darüber
   else addFrontFan(head, 0.016, -0.001, d / 2 + 0.0085, m);
 
   // Schneidhebel oben links, PTFE-Kupplung oben
@@ -254,10 +255,11 @@ export function createToolhead(m, style = 'a1', { bigFan = false } = {}) {
   head.add(rbox(0.042, 0.01, 0.014, 0.003, m.shellDark, 0, -h / 2 - 0.003, d / 2 - 0.004));
   head.add(box(0.016, 0.011, 0.018, m.alu, 0, -h / 2 - 0.0055, -0.002));
   head.add(cylinder(0.0045, 0.0045, 0.004, 6, m.brass, 0, -h / 2 - 0.013, -0.002));
-  const tip = cylinder(0.0008, 0.0035, 0.005, 16, m.brass, 0, -h / 2 - 0.0175, -0.002);
+  const tip = cylinder(0.0028, 0.0002, 0.005, 16, m.brass, 0, -h / 2 - 0.0175, -0.002); // Spitze unten 0,4 mm
   head.add(tip);
 
   head.userData.depth = d;
+  head.userData.tip = tip; // Düsenspitze: dieser Punkt muss genau auf der Druckbahn sitzen
   head.userData.nozzleBelowCenter = h / 2 + 0.02;
   head.userData.topAboveCenter = h / 2 + 0.009;
   return head;
@@ -265,7 +267,31 @@ export function createToolhead(m, style = 'a1', { bigFan = false } = {}) {
 
 // Dual-Nozzle-Druckkopf (X2D): breiter und dunkel, vorne ein großer Bauteillüfter, darüber das leuchtende
 // „Bambu Lab“-Logo, unten zwei Düsen nebeneinander. Gleiche userData wie createToolhead.
-export function createDualToolhead(m) {
+const NOZZLE_RETRACT = 0.007; // so weit fährt die gerade nicht druckende Düse nach oben ein (m)
+const NOZZLE_SWAP_RATE = 5;   // Dämpfung beim Düsenwechsel: rund eine halbe Sekunde
+
+// Düsenwechsel am Dual-Nozzle-Kopf: active (0 = links, 1 = rechts) fährt aus, die andere ein, und der Achsenpunkt
+// gleitet zur aktiven Spitze. Gibt true zurück, solange der Wechsel noch läuft (dann wartet die Bahn).
+// Köpfe mit nur einer Düse: nichts zu tun.
+export function animateNozzles(head, active, dt) {
+  const nozzles = head.userData.nozzles;
+  if (!nozzles) return false;
+  let moving = false;
+  nozzles.forEach(({ unit }, i) => {
+    const target = i === active ? 0 : NOZZLE_RETRACT;
+    unit.position.y = THREE.MathUtils.damp(unit.position.y, target, NOZZLE_SWAP_RATE, dt);
+    if (Math.abs(unit.position.y - target) > 0.0003) moving = true;
+  });
+  const anchor = head.userData.tip;
+  const tip = nozzles[active].tip.position;
+  anchor.position.x = THREE.MathUtils.damp(anchor.position.x, tip.x, NOZZLE_SWAP_RATE, dt);
+  anchor.position.z = tip.z;
+  if (Math.abs(anchor.position.x - tip.x) > 0.0003) moving = true;
+  else anchor.position.x = tip.x;
+  return moving;
+}
+
+export function createDualToolhead(m, title = '') {
   const head = new THREE.Group();
   const w = 0.074;
   const h = 0.08;
@@ -275,20 +301,31 @@ export function createDualToolhead(m) {
   head.add(rbox(w + 0.003, h - 0.004, 0.008, 0.005, m.black, 0, 0.001, d / 2 + 0.002));
   // Großer Lüfter vorne, darüber das leuchtende Logo
   addFrontFan(head, 0.026, -0.009, d / 2 + 0.0065, m);
-  const logo = createLabel('Bambu Lab', 0.0068, '#ffffff', 700, 3);
+  const logo = createLabel(`Bambu Lab ${title}`.trim(), 0.0068, '#ffffff', 700, 3);
   logo.position.set(0, 0.028, d / 2 + 0.0065);
   head.add(logo);
 
   // Oben zwei PTFE-Kupplungen (eine pro Düse)
   for (const sx of [-1, 1]) head.add(cylinder(0.0055, 0.0055, 0.009, 16, m.black, sx * 0.012, h / 2 + 0.0045, -0.004));
 
-  // Unterseite: Luftleitblech, zwei Heizblöcke mit Düsen
+  // Unterseite: Luftleitblech, zwei Heizblöcke mit Düsen – links die Grundfarbe, rechts die zweite Farbe.
+  // Jede Düse fährt für sich: die druckende ist ausgefahren, die andere eingefahren (siehe animateNozzles).
   head.add(rbox(0.06, 0.01, 0.014, 0.003, m.shellDark, 0, -h / 2 - 0.003, d / 2 - 0.004));
-  for (const sx of [-1, 1]) {
-    head.add(box(0.014, 0.011, 0.018, m.alu, sx * 0.012, -h / 2 - 0.0055, -0.002));
-    head.add(cylinder(0.0042, 0.0042, 0.004, 6, m.brass, sx * 0.012, -h / 2 - 0.013, -0.002));
-    head.add(cylinder(0.0008, 0.0033, 0.005, 16, m.brass, sx * 0.012, -h / 2 - 0.0175, -0.002));
-  }
+  const nozzles = [-1, 1].map((sx) => {
+    const unit = new THREE.Group();
+    unit.add(box(0.014, 0.011, 0.018, m.alu, sx * 0.012, -h / 2 - 0.0055, -0.002));
+    unit.add(cylinder(0.0042, 0.0042, 0.004, 6, m.brass, sx * 0.012, -h / 2 - 0.013, -0.002));
+    const tip = cylinder(0.0026, 0.0002, 0.005, 16, m.brass, sx * 0.012, -h / 2 - 0.0175, -0.002); // Spitze unten 0,4 mm
+    unit.add(tip);
+    head.add(unit);
+    return { unit, tip };
+  });
+  nozzles[1].unit.position.y = NOZZLE_RETRACT;
+  // Punkt, nach dem sich die Achsen richten: gleitet beim Düsenwechsel von einer Spitze zur anderen
+  const anchor = new THREE.Object3D();
+  anchor.position.copy(nozzles[0].tip.position);
+  head.userData.tip = anchor;
+  head.userData.nozzles = nozzles;
 
   head.userData.depth = d;
   head.userData.nozzleBelowCenter = h / 2 + 0.02;

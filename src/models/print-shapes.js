@@ -42,6 +42,24 @@ function merge(geos) {
   }));
 }
 
+// Zweifarbige Teile: eine Geometrie mit zwei Gruppen – Gruppe 0 in der Grundfarbe, Gruppe 1 in der Akzentfarbe.
+// Das Mesh bekommt dafür zwei Materialien (siehe world/workshop.js).
+function twoTone(base, accent) {
+  return mergeGeometries([merge(base), merge(accent)], true);
+}
+
+function starShape(cx, cy, outer, inner) {
+  const star = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? inner : outer;
+    const a = Math.PI / 2 + (i * Math.PI) / 5;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) star.moveTo(x, y); else star.lineTo(x, y);
+  }
+  return star;
+}
+
 // ---------- Formen (mm) ----------
 
 const VASE_PROFILE = new THREE.SplineCurve([
@@ -224,27 +242,103 @@ function benchy() {
   return merge(parts);
 }
 
+// ---------- Zweifarbige Formen ----------
+
+// Namensschild: Grundplatte, darauf Rahmen und erhabene „Buchstaben“ in der Akzentfarbe
+function nameSign() {
+  const plate = extrudeUp(roundedRect(new THREE.Shape(), 120, 35, 6), 3);
+  const frame = roundedRect(new THREE.Shape(), 114, 29, 4);
+  frame.holes.push(roundedRect(new THREE.Path(), 108, 23, 3));
+  const accent = [extrudeUp(frame, 1.6)];
+  [[-38, 9], [-25, 11], [-11, 9], [3, 12], [17, 9], [31, 10]].forEach(([x, w], i) => {
+    const letter = extrudeUp(roundedRect(new THREE.Shape(), w, i % 2 ? 15 : 13, 2.5, x, 0), 2);
+    accent.push(letter);
+  });
+  for (const g of accent) g.translate(0, 3, 0);
+  return twoTone([plate], accent);
+}
+
+// Untersetzer: runde Scheibe, oben Ring und Stern als Logo in der Akzentfarbe
+function coaster() {
+  const disk = extrudeUp(circle(new THREE.Shape(), 0, 0, 45), 3.5);
+  const ring = circle(new THREE.Shape(), 0, 0, 41);
+  ring.holes.push(circle(new THREE.Path(), 0, 0, 37));
+  const accent = [extrudeUp(ring, 1.5), extrudeUp(starShape(0, 0, 24, 10), 1.5)];
+  for (const g of accent) g.translate(0, 3.5, 0);
+  return twoTone([disk], accent);
+}
+
+// Zwei Spielwürfel, die Augen sind in der Akzentfarbe eingelegt (oben und vorne)
+function dice() {
+  const base = [];
+  const accent = [];
+  const pip = (x, y, z, front) => {
+    const g = new THREE.CylinderGeometry(1.8, 1.8, 0.8, 14);
+    if (front) g.rotateX(Math.PI / 2);
+    g.translate(x, y, z);
+    accent.push(g);
+  };
+  const faces = { 1: [[0, 0]], 2: [[-4, -4], [4, 4]], 3: [[-4, -4], [0, 0], [4, 4]], 4: [[-4, -4], [4, -4], [-4, 4], [4, 4]],
+    5: [[-4, -4], [4, -4], [0, 0], [-4, 4], [4, 4]] };
+  [[-11, 5, 2], [11, 3, 4]].forEach(([cx, top, front]) => {
+    const cube = new THREE.BoxGeometry(16, 16, 16);
+    cube.translate(cx, 8, 0);
+    base.push(cube);
+    for (const [u, v] of faces[top]) pip(cx + u, 16.2, v, false);
+    for (const [u, v] of faces[front]) pip(cx + u, 8 + v, 8.2, true);
+  });
+  return twoTone(base, accent);
+}
+
+// Schachfiguren: auf jeder Seite ein König und vier Bauern, eine Seite pro Farbe
+function chessPiece(king) {
+  const profile = king
+    ? [[0, 0], [10, 0], [10, 3], [8, 4.5], [6, 7], [4, 22], [3.6, 30], [6.5, 31], [6.5, 33], [4.5, 34], [5, 38], [0, 38.5]]
+    : [[0, 0], [9, 0], [9, 3], [7, 4.5], [5, 7], [3.5, 15], [3, 18], [5.5, 19], [5.5, 20.5], [0, 21]];
+  const parts = [new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), 24)];
+  if (king) {
+    const upright = new THREE.BoxGeometry(2.4, 7, 2.4);
+    upright.translate(0, 41.5, 0);
+    const bar = new THREE.BoxGeometry(6, 2.4, 2.4);
+    bar.translate(0, 42.5, 0);
+    parts.push(upright, bar);
+  } else {
+    const head = new THREE.SphereGeometry(5, 16, 12);
+    head.translate(0, 24.5, 0);
+    parts.push(head);
+  }
+  return parts;
+}
+
+function chessSet() {
+  const side = (z) => [-60, -30, 0, 30, 60].flatMap((x) => chessPiece(x === 0).map((g) => g.translate(x, 0, z)));
+  return twoTone(side(20), side(-20));
+}
+
 const BUILDERS = {
   benchy,
   keychain, 'cable-clips': cableClips, 'phone-stand': phoneStand, 'phone-case': phoneCase,
   gears, vase, dragon, 'tool-holder': toolHolder,
+  'name-sign': nameSign, coaster, dice, 'chess-set': chessSet,
 };
 
 // ---------- Schichten schneiden (wie ein Slicer) ----------
 
-const LAYERS = 60;       // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
+const LAYERS = 120;      // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
 const KEY = 1e5;         // Schnittpunkte auf 0,01 mm runden, damit Nachbardreiecke zusammenfinden
 
-// Schnitt durch die Geometrie auf Höhe y: Liste von Konturen, jede eine Punktliste [{ x, z }] in Metern
-function sliceContours(geometry, y) {
+// Schnitt durch die Geometrie auf Höhe y: Liste von Konturen, jede eine Punktliste [{ x, z }] in Metern.
+// group: nur diese Geometrie-Gruppe schneiden (bei zweifarbigen Formen eine Farbe)
+function sliceContours(geometry, y, group = null) {
   const pos = geometry.attributes.position;
   const index = geometry.index;
-  const triCount = (index ? index.count : pos.count) / 3;
+  const first = group ? group.start / 3 : 0;
+  const triCount = group ? first + group.count / 3 : (index ? index.count : pos.count) / 3;
   const vy = [0, 0, 0];
   const ends = new Map(); // Punkt-Schlüssel → Segmente, die dort enden
   const segments = [];
   const keyOf = (p) => `${Math.round(p.x * KEY)},${Math.round(p.z * KEY)}`;
-  for (let t = 0; t < triCount; t++) {
+  for (let t = first; t < triCount; t++) {
     const ids = [0, 1, 2].map((k) => (index ? index.getX(t * 3 + k) : t * 3 + k));
     for (let k = 0; k < 3; k++) vy[k] = pos.getY(ids[k]);
     const cut = [];
@@ -286,11 +380,15 @@ function sliceContours(geometry, y) {
   return contours;
 }
 
-// Konturen einer Schicht für die Vorlage, Schicht wird aus der relativen Höhe hFrac bestimmt
+// Konturen einer Schicht für die Vorlage, Schicht wird aus der relativen Höhe hFrac bestimmt.
+// Jede Kontur hat eine Farbe (color: 0 = Grundfarbe, 1 = Akzentfarbe bei zweifarbigen Formen).
 function layerContours(shape, hFrac) {
   const layer = Math.min(LAYERS - 1, Math.max(0, Math.floor(hFrac * LAYERS)));
   if (!shape.layers[layer]) {
-    shape.layers[layer] = sliceContours(shape.geometry, ((layer + 0.5) / LAYERS) * shape.height);
+    const y = ((layer + 0.5) / LAYERS) * shape.height;
+    const groups = shape.geometry.groups.length > 1 ? shape.geometry.groups : [null];
+    shape.layers[layer] = groups.flatMap((group, color) => sliceContours(shape.geometry, y, group)
+      .map((c) => Object.assign(c, { color })));
   }
   return { layer, contours: shape.layers[layer] };
 }
@@ -319,28 +417,36 @@ export function getPrintShape(template) {
 // Bahn der Düse für eine ganze Druckplatte: Funktion hFrac → Bahn. Die Düse fährt in jeder Schicht die echten
 // Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks.
 // offsets: Mittelpunkte der Teile [{ x, z }] in Metern · rotated: Teile um 90° gedreht (wie die Meshes)
+// Zweifarbig wie ein echter Slicer: erst alle Umrisse der einen Farbe, dann die der anderen – so wird pro
+// Schicht möglichst selten gewechselt. Jeder Bahnpunkt trägt seine Farbe (color).
 export function plateOutline(shape, offsets, rotated = false) {
   const paths = new Map();
   return (hFrac) => {
     const { layer, contours } = layerContours(shape, hFrac);
     if (!paths.has(layer)) {
-      const loops = [];
+      const loops = [[], []];
       for (const o of offsets) {
         for (const c of contours) {
+          const color = c.color;
           // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
-          loops.push(c.map((p) => (rotated ? { x: o.x + p.z, z: o.z - p.x } : { x: o.x + p.x, z: o.z + p.z })));
+          loops[color].push(c.map((p) => (rotated
+            ? { x: o.x + p.z, z: o.z - p.x, color }
+            : { x: o.x + p.x, z: o.z + p.z, color })));
         }
       }
-      paths.set(layer, buildPath(orderLoops(loops)));
+      const points = [];
+      for (const group of loops) points.push(...orderLoops(group, points.at(-1)));
+      paths.set(layer, buildPath(points));
     }
     return paths.get(layer);
   };
 }
 
-// Konturen so ordnen, dass die Düse immer zur nächstgelegenen fährt; jede Kontur beginnt am nächsten Punkt
-function orderLoops(loops) {
+// Konturen so ordnen, dass die Düse immer zur nächstgelegenen fährt; jede Kontur beginnt am nächsten Punkt.
+// from: wo die Düse gerade steht
+function orderLoops(loops, from = { x: 0, z: 0 }) {
   const result = [];
-  let at = { x: 0, z: 0 };
+  let at = from;
   const left = [...loops];
   while (left.length) {
     let best = 0;
@@ -373,7 +479,8 @@ function buildPath(points) {
   return { points, lengths, total: lengths.at(-1) };
 }
 
-// Punkt auf der Bahn bei Parameter t ∈ [0, 1) – so fährt die Düse die Schicht ab
+// Punkt auf der Bahn bei Parameter t ∈ [0, 1) – so fährt die Düse die Schicht ab.
+// color: welche Farbe dort gedruckt wird (0 = Grundfarbe, 1 = Akzentfarbe)
 export function outlinePoint(path, t) {
   const d = t * path.total;
   const { points, lengths } = path;
@@ -386,9 +493,27 @@ export function outlinePoint(path, t) {
   }
   const span = lengths[hi] - lengths[lo] || 1;
   const f = Math.min(1, Math.max(0, (d - lengths[lo]) / span));
-  return { x: points[lo].x + (points[hi].x - points[lo].x) * f, z: points[lo].z + (points[hi].z - points[lo].z) * f };
+  return {
+    x: points[lo].x + (points[hi].x - points[lo].x) * f,
+    z: points[lo].z + (points[hi].z - points[lo].z) * f,
+    color: points[lo].color ?? 0,
+  };
 }
 
 export function outlineLength(path) {
   return path.total;
+}
+
+// Parameter t des Bahnpunkts, der (x, z) am nächsten liegt – für einen nahtlosen Übergang zur nächsten Schicht.
+// color: am liebsten mit derselben Farbe weitermachen, damit nicht unnötig die Düse gewechselt wird
+export function nearestPathT(path, x, z, color = null) {
+  let best = 0;
+  let bestDist = Infinity;
+  const sameColor = color !== null && path.points.some((p) => (p.color ?? 0) === color);
+  path.points.forEach((p, i) => {
+    if (sameColor && (p.color ?? 0) !== color) return;
+    const dist = (p.x - x) ** 2 + (p.z - z) ** 2;
+    if (dist < bestDist) [best, bestDist] = [i, dist];
+  });
+  return path.total > 0 ? (path.lengths[best] / path.total) % 1 : 0;
 }
