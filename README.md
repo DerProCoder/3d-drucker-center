@@ -173,6 +173,8 @@ In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lo
 
 Ohne Arbeit gehen sie in ihr **Büro** hinter der Ostwand (Tür mit dem Schild „BÜRO“ – sie geht auf, sobald du den ersten Azubi einstellst). Dort sitzen sie abwechselnd an der Werkbank mit Übungsdruckern, Ersatzteilen und Filament oder auf der Couch und zocken Kart-Rennen auf der Konsole. Fällt Arbeit an, springen sie sofort auf. Zielst du auf einen Azubi, siehst du, was er gerade tut. Entlassen geht in derselben App.
 
+Die Azubis sind echte animierte Menschen: Lea, Sophie und Aylin sind Frauen, Kevin, Mehmet und Finn Männer, und jeder sieht anders aus. Sie laufen in ihrem eigenen Tempo, drehen sich weich um, hantieren mit den Händen am Drucker, tragen Spulen vor dem Bauch, sitzen auf Stuhl und Couch und halten beim Zocken den Controller.
+
 ## Halle ausbauen
 
 Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
@@ -208,6 +210,7 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 index.html          Einstieg, Import-Map für Three.js
 css/style.css       HUD, Shop- und Menüfenster
 serve.ps1           Lokaler Webserver für Windows
+assets/people/      Menschenfiguren als GLB (Quaternius), auf die nötigen Animationen gekürzt
 .github/workflows/  pages.yml: veröffentlicht main automatisch auf GitHub Pages
 src/
   main.js           Verdrahtet alles: Szene, Steuerung, Spielschleife
@@ -251,6 +254,7 @@ src/
     furniture.js      Regale am Drucktisch und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
+    people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
@@ -265,5 +269,7 @@ src/
 ```
 
 Technik: [Three.js](https://threejs.org/) 0.169 als ES-Module direkt im Browser, ohne npm und ohne Build-Tools.
+
+Menschenfiguren: [Quaternius](https://quaternius.com) – „Ultimate Modular Men Pack“ und „Ultimate Modular Women Pack“ über [Poly Pizza](https://poly.pizza), CC0. Ausnahmen mit Namensnennung (CC-BY 3.0): „Worker“ (`worker-woman.glb`, https://poly.pizza/m/E8079Ahx7k) und „Suit“ (`suit-woman.glb`, https://poly.pizza/m/sOUciDsoVV) von Quaternius.
 
 Filament-Farbwerte: [Open Filament Database](https://github.com/OpenFilamentCollective/open-filament-database) (© 2025 OpenFilamentCollective, MIT-Lizenz). Preise: Stand Oktober 2026 bei 3DJake.de, Silk+, Translucent und die ABS-Spule geschätzt.

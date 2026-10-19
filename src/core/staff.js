@@ -9,6 +9,10 @@ export const MAX_WORKERS = 2;
 export const HIRE_FEE = 50;       // € einmalig
 export const WAGE_PER_HOUR = 2;   // € pro Spielstunde und Mitarbeiter
 const NAMES = ['Kevin', 'Lea', 'Mehmet', 'Sophie', 'Finn', 'Aylin'];
+const WOMEN = new Set(['Lea', 'Sophie', 'Aylin']);
+
+// 'm' oder 'w' – bestimmt, welche Figur der Azubi in der Halle bekommt
+export const workerGender = (worker) => (WOMEN.has(worker.name) ? 'w' : 'm');
 
 // Aufgaben nach Wichtigkeit. Jede hat ein Ziel (Drucker, Boden oder Lagerregal) und eine Arbeitszeit in Sekunden.
 //   clear  – Fehldruck vom Bett kratzen und denselben Druck gleich neu starten

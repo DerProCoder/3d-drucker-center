@@ -1,17 +1,20 @@
 // Mitarbeiter als Figuren in der Halle: holen sich Aufgaben aus core/staff.js, laufen über den Gang links neben den
 // Drucktischen (und durch die Tür ins Lager), arbeiten am Ziel und tragen dabei sichtbar Spulen. Ohne Arbeit gehen sie
 // ins Büro (world/office.js) und werkeln an der Werkbank oder zocken auf der Couch. Bewegung über Delta-Zeit.
+// Aussehen und Animationen kommen aus models/people.js (echte Menschenfiguren, je nach Name Mann oder Frau).
 import * as THREE from 'three';
 import { ROOM_SIZE, STORAGE_DOOR } from './room.js';
 import { slotX, slotZ } from './workshop.js';
 import { OFFICE_PATH, OFFICE_SPOTS, inOffice } from './office.js';
-import { WAGE_PER_HOUR, WORK_SECONDS, taskKey, taskText } from '../core/staff.js';
+import { WAGE_PER_HOUR, WORK_SECONDS, taskKey, taskText, workerGender } from '../core/staff.js';
 import { filamentById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createController } from '../models/office-furniture.js';
-import { enableShadows } from './util.js';
+import { createPerson, peopleFor } from '../models/people.js';
 
-const WALK_SPEED = 1.5;               // m/s
+const WALK_SPEED = [1.3, 1.6];        // m/s – jeder Azubi hat sein eigenes Tempo
+const WALK_CLIP_SPEED = 1.45;         // bei diesem Tempo passt die Laufanimation genau
+const TURN_SPEED = 8;                 // wie schnell sie sich zur Laufrichtung drehen (1/s)
 const LOOK_FOR_WORK_SECONDS = 0.5;    // so oft schaut ein freier Mitarbeiter nach Arbeit
 const HALL_EDGE_Z = ROOM_SIZE / 2;    // Wand zwischen Halle und Abstellraum
 const AISLE_X = -3.7;                 // Gang links neben den Drucktischen
@@ -20,7 +23,6 @@ const DOOR_OUT = { x: STORAGE_DOOR.x, z: HALL_EDGE_Z + 0.9 };
 const SHELF_SPOT = { x: -7.05, z: 12.3 }; // vor dem Lagerregal
 const FRONT_Z = 1.6;                  // Quergang vor dem ersten Drucktisch, über den sie zum Büro gehen
 const PRINTER_FRONT = 0.75;           // Abstand vor der Tischmitte, wo sie am Drucker stehen
-const HIP_HEIGHT = 0.88;              // Hüftgelenk über dem Boden (Ursprung der Beine)
 const IDLE_SECONDS = [20, 45];        // so lange bleiben sie an der Werkbank bzw. auf der Couch, dann wechseln sie
 
 const EAST_AISLE_X = 3.15;             // Gang rechts neben den Drucktischen, Richtung Büro
@@ -75,73 +77,28 @@ function createNameTag(name) {
   return tag;
 }
 
-// Figur mit Bambu-grünem Shirt und Kappe, schaut nach +z. Ursprung zwischen den Füßen.
-function createWorkerModel(name) {
-  const figure = new THREE.Group();
-  const shirt = new THREE.MeshStandardMaterial({ color: 0x00ae42, roughness: 0.8 });
-  const pants = new THREE.MeshStandardMaterial({ color: 0x2b3442, roughness: 0.85 });
-  const skin = new THREE.MeshStandardMaterial({ color: 0xe8b996, roughness: 0.7 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: 0.6 });
+// Unsichtbare Trefferbox: Anvisieren trifft sie statt der animierten Figur (das wäre viel teurer)
+const hitboxGeometry = new THREE.BoxGeometry(0.5, 1.8, 0.4).translate(0, 0.9, 0);
+const hitboxMaterial = new THREE.MeshBasicMaterial({ visible: false });
 
-  // Bein: Oberschenkel an der Hüfte, Unterschenkel mit Schuh am Knie – so können sie sich hinsetzen
-  const knees = [];
-  const legs = [-1, 1].map((side) => {
-    const leg = new THREE.Group();
-    leg.position.set(side * 0.1, HIP_HEIGHT, 0);
-    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.3, 4, 10), pants);
-    thigh.position.y = -0.21;
-    const knee = new THREE.Group();
-    knee.position.y = -0.42;
-    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.32, 4, 10), pants);
-    shin.position.y = -0.2;
-    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.22), dark);
-    shoe.position.set(0, -0.42, 0.04);
-    knee.add(shin, shoe);
-    leg.add(thigh, knee);
-    figure.add(leg);
-    knees.push(knee);
-    return leg;
-  });
-
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.38, 4, 14), shirt);
-  torso.position.y = 1.2;
-  torso.scale.z = 0.7;
-  figure.add(torso);
-
-  const arms = [-1, 1].map((side) => {
-    const arm = new THREE.Group();
-    arm.position.set(side * 0.26, 1.45, 0);
-    const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.42, 4, 10), shirt);
-    sleeve.position.y = -0.27;
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), skin);
-    hand.position.y = -0.55;
-    arm.add(sleeve, hand);
-    figure.add(arm);
-    return arm;
-  });
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 18, 14), skin);
-  head.position.y = 1.7;
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), shirt);
-  cap.position.y = 1.72;
-  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.015, 0.11), shirt);
-  brim.position.set(0, 1.73, 0.13);
-  figure.add(head, cap, brim);
-
-  const tag = createNameTag(name);
+// Halter für einen Azubi, schaut nach +z, Ursprung zwischen den Füßen. Die Figur kommt nach, sobald sie geladen ist.
+function createHolder(worker) {
+  const holder = new THREE.Group();
+  holder.add(new THREE.Mesh(hitboxGeometry, hitboxMaterial));
+  const tag = createNameTag(worker.name);
   tag.position.y = 2.05;
-  figure.add(tag);
-
-  // Controller zum Zocken, liegt zwischen den Händen (Arme nach vorn und leicht nach innen)
+  holder.add(tag);
   const controller = createController();
-  controller.position.set(0, 1.14, 0.4);
-  controller.rotation.x = 0.5;
   controller.visible = false;
-  figure.add(controller);
+  holder.add(controller);
+  holder.userData.controller = controller;
+  return holder;
+}
 
-  enableShadows(figure);
-  figure.userData.parts = { legs, knees, arms, controller };
-  return figure;
+// Figur passend zum Namen, zwei Azubis gleichen Geschlechts sehen verschieden aus
+function figureFor(worker) {
+  const choices = peopleFor('staff', workerGender(worker));
+  return choices[Math.floor((worker.id - 1) / 2) % choices.length].id;
 }
 
 // Was ein Azubi ohne Aufgabe gerade macht
@@ -150,6 +107,13 @@ function idleText(r) {
   if (r.phase === 'couch') return 'zockt im Büro auf der Konsole';
   if (r.phase === 'to-idle') return 'geht ins Büro';
   return 'wartet auf Arbeit';
+}
+
+// Winkel a weich in Richtung b drehen (kürzester Weg)
+function turnTowards(object, b, dt) {
+  const a = object.rotation.y;
+  const diff = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  object.rotation.y = a + diff * Math.min(1, TURN_SPEED * dt);
 }
 
 export function createWorkers({ economy, staff }) {
@@ -175,11 +139,12 @@ export function createWorkers({ economy, staff }) {
   }
 
   function add(worker) {
-    const mesh = createWorkerModel(worker.name);
+    const mesh = createHolder(worker);
     mesh.position.set(DOOR_IN.x, 0, DOOR_IN.z); // kommt durch die Lagertür herein
     const r = {
-      worker, mesh, path: [], task: null, phase: 'idle', timer: 0, look: 0, carried: null, spoolMesh: null,
-      seat: freeSeat(), spot: null, nextIdle: Math.random() < 0.5 ? 'desk' : 'couch', walkPhase: 0,
+      worker, mesh, person: null, path: [], task: null, phase: 'idle', timer: 0, look: 0, carried: null, spoolMesh: null,
+      seat: freeSeat(), spot: null, nextIdle: Math.random() < 0.5 ? 'desk' : 'couch', heading: 0,
+      speed: WALK_SPEED[0] + Math.random() * (WALK_SPEED[1] - WALK_SPEED[0]),
     };
     mesh.userData.interaction = {
       hint: () => `Azubi ${worker.name} ${statusText(r)} · Lohn ${WAGE_PER_HOUR} €/h`,
@@ -187,6 +152,12 @@ export function createWorkers({ economy, staff }) {
     };
     group.add(mesh);
     runners.set(worker.id, r);
+    createPerson(figureFor(worker)).then((person) => {
+      if (runners.get(worker.id) !== r) return; // inzwischen entlassen
+      person.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
+      r.person = person;
+      mesh.add(person.object);
+    }).catch((err) => console.warn('Azubi-Figur konnte nicht geladen werden', err));
   }
 
   function remove(id) {
@@ -212,7 +183,7 @@ export function createWorkers({ economy, staff }) {
   function holdSpool(r, spool) {
     r.carried = spool;
     r.spoolMesh = createSpool(filamentById(spool.filamentId));
-    r.spoolMesh.position.set(0, 1.05, 0.28);
+    r.spoolMesh.position.set(0, 1.0, 0.32);
     r.spoolMesh.scale.setScalar(0.9);
     r.mesh.add(r.spoolMesh);
   }
@@ -239,8 +210,9 @@ export function createWorkers({ economy, staff }) {
   }
 
   function sitDown(r) {
-    const { seat, y, rotY, kind } = r.spot;
-    r.mesh.position.set(seat.x, y + 0.07 - HIP_HEIGHT, seat.z);
+    const { seat, rotY, kind } = r.spot;
+    r.mesh.position.set(seat.x, 0, seat.z);
+    r.heading = rotY;
     r.mesh.rotation.y = rotY;
     r.phase = kind;
     r.timer = IDLE_SECONDS[0] + Math.random() * (IDLE_SECONDS[1] - IDLE_SECONDS[0]);
@@ -260,7 +232,7 @@ export function createWorkers({ economy, staff }) {
     }
     r.phase = r.phase === 'to-shelf' ? 'take' : 'work';
     r.timer = r.phase === 'take' ? WORK_SECONDS.take : WORK_SECONDS[r.task.type === 'refill' ? 'load' : r.task.type];
-    r.mesh.rotation.y = r.task.type === 'pick' ? Math.PI : r.phase === 'take' ? -Math.PI / 2 : Math.PI;
+    r.heading = r.task.type === 'pick' ? Math.PI : r.phase === 'take' ? -Math.PI / 2 : Math.PI;
   }
 
   function workDone(r) {
@@ -299,39 +271,30 @@ export function createWorkers({ economy, staff }) {
     }
   }
 
-  // Pose: Beine und Arme pendeln beim Laufen, beim Arbeiten bewegen sich die Hände, im Büro sitzen sie
+  const hands = new THREE.Vector3();
+  // Animation und Haltung passend zur Tätigkeit: laufen, am Drucker hantieren, sitzend werkeln oder zocken
   function animate(r, dt, moving) {
-    const { legs, knees, arms, controller } = r.mesh.userData.parts;
-    const now = performance.now();
-    r.walkPhase += dt * (moving ? 9 : 0);
-    const swing = moving ? Math.sin(r.walkPhase) * 0.5 : 0;
+    const { person } = r;
+    if (!person) return;
     const sitting = seated(r);
-    legs[0].rotation.x = sitting ? -Math.PI / 2 : swing;
-    legs[1].rotation.x = sitting ? -Math.PI / 2 : -swing;
-    knees[0].rotation.x = sitting ? Math.PI / 2 : Math.max(0, -swing) * 0.8;
-    knees[1].rotation.x = sitting ? Math.PI / 2 : Math.max(0, swing) * 0.8;
-    controller.visible = r.phase === 'couch';
+    person.sitDown(sitting ? r.spot.y : null);
+    person.arms = r.phase === 'couch' ? 'controller' : r.carried && !(r.phase === 'work') ? 'carry' : null;
+    if (moving) person.play('Walk', r.speed / WALK_CLIP_SPEED);
+    else if (r.phase === 'work' || r.phase === 'take') person.play('Interact');
+    else if (r.phase === 'desk') person.play('Interact', 0.55); // in Ruhe am Übungsdrucker tüfteln
+    else person.play(r.phase === 'couch' ? 'Idle_Neutral' : 'Idle');
+    person.update(dt);
 
-    if (r.phase === 'couch') {
-      // Controller halten, die Daumen zucken, in Kurven lehnt man sich mit
-      arms[0].rotation.set(-0.9 + Math.sin(now / 70) * 0.03, 0, 0.4);
-      arms[1].rotation.set(-0.9 + Math.sin(now / 83) * 0.03, 0, -0.4);
-      r.mesh.rotation.z = Math.sin(now / 900 + r.worker.id) * 0.04;
-      return;
+    const controller = r.mesh.userData.controller;
+    controller.visible = r.phase === 'couch';
+    if (controller.visible) {
+      controller.position.copy(person.handsCenter(hands));
+      controller.rotation.set(0.6, 0, 0);
     }
-    r.mesh.rotation.z = 0;
-    arms[0].rotation.z = 0;
-    arms[1].rotation.z = 0;
-    if (r.phase === 'desk') {
-      // An der Werkbank in Ruhe tüfteln: beide Hände am Übungsdrucker, versetzt
-      arms[0].rotation.x = -1.1 + Math.sin(now / 260) * 0.2;
-      arms[1].rotation.x = -1.1 + Math.sin(now / 310 + 1) * 0.2;
-      return;
+    if (r.spoolMesh) {
+      person.handsCenter(hands);
+      r.spoolMesh.position.set(0, hands.y + 0.02, hands.z + 0.06);
     }
-    const working = r.phase === 'work' || r.phase === 'take';
-    const reach = working ? -1.1 + Math.sin(now / 120) * 0.25 : r.carried ? -0.9 : -swing * 0.8;
-    arms[0].rotation.x = reach;
-    arms[1].rotation.x = working || r.carried ? reach : swing * 0.8;
   }
 
   function update(dt) {
@@ -351,8 +314,8 @@ export function createWorkers({ economy, staff }) {
         const dx = next.x - pos.x;
         const dz = next.z - pos.z;
         const dist = Math.hypot(dx, dz);
-        const step = WALK_SPEED * dt;
-        if (dist > 1e-3) r.mesh.rotation.y = Math.atan2(dx, dz);
+        const step = r.speed * dt;
+        if (dist > 1e-3) r.heading = Math.atan2(dx, dz);
         if (dist <= step) {
           pos.x = next.x;
           pos.z = next.z;
@@ -392,6 +355,8 @@ export function createWorkers({ economy, staff }) {
         }
       }
 
+      if (seated(r)) r.mesh.rotation.y = r.heading;
+      else turnTowards(r.mesh, r.heading, dt);
       animate(r, dt, moving);
     }
   }

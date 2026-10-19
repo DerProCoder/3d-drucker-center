@@ -26,6 +26,7 @@ import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
 import { createWorkers } from './world/workers.js';
 import { createOffice } from './world/office.js';
+import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
@@ -532,6 +533,7 @@ function precompileShaders() {
   }, 50);
 }
 economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
+onPersonLoaded(precompileShaders);    // Figuren (Azubis, Kunden, Passanten) kommen nach und nach dazu
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
