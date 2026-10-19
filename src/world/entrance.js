@@ -8,7 +8,7 @@ import { enableShadows } from './util.js';
 // Innenmaße (Welt-Koordinaten)
 export const ENTRANCE = { x0: -16.2, x1: -(ROOM_SIZE / 2 + WALL_THICKNESS), z0: -2.8, z1: 2.8, height: 3.0 };
 export const FRONT_DOOR = { z: 0, w: 1.6, h: 2.3 };  // Glas-Schiebetür in der Westwand des Vorraums (Welt-z)
-const OPEN_DISTANCE = 2.2;                           // ab dieser Nähe fährt die Tür auf (m)
+const SENSOR = { x: 2.0, z: 1.2 };                   // Bewegungsmelder: so nah vor/hinter bzw. neben der Tür (m)
 const SLIDE_SECONDS = 0.6;
 
 const X0 = ENTRANCE.x0;
@@ -210,7 +210,7 @@ export function createEntrance({ collision }) {
 
   // visitors: Positionen (x, z), die die Tür öffnen sollen – Spieler, Kunden, Azubis
   function update(dt, visitors) {
-    const near = visitors.some((p) => Math.abs(p.x - (X0 - t / 2)) < OPEN_DISTANCE && Math.abs(p.z - f.z) < OPEN_DISTANCE);
+    const near = visitors.some((p) => Math.abs(p.x - (X0 - t / 2)) < SENSOR.x && Math.abs(p.z - f.z) < SENSOR.z);
     open = THREE.MathUtils.clamp(open + (near ? 1 : -1) * (dt / SLIDE_SECONDS), 0, 1);
     const ease = open * open * (3 - 2 * open);
     for (const leaf of door.userData.leaves) {

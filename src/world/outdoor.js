@@ -90,15 +90,19 @@ function drawRender(ctx, w, h) {
 function drawSign(ctx, w, h) {
   ctx.fillStyle = '#1d2228';
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = '#ffffff';
   ctx.font = '800 92px "Segoe UI", Arial, sans-serif';
-  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('DRUCKER', w / 2 - 95, h / 2 + 4);
-  ctx.fillStyle = '#4ea8ff';
-  ctx.fillText('CENTER', w / 2 + 215, h / 2 + 4);
+  // Beide Wortteile ausmessen und zusammen mittig setzen, davor ein grüner Balken als Logo
+  const first = ctx.measureText('DRUCKER').width;
+  const total = 26 + 24 + first + ctx.measureText('CENTER').width;
+  let x = (w - total) / 2;
   ctx.fillStyle = '#00ae42';
-  ctx.fillRect(40, h / 2 - 34, 26, 68); // kleines Logo: grüner Balken
+  ctx.fillRect(x, h / 2 - 34, 26, 68);
+  x += 50;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('DRUCKER', x, h / 2 + 4);
+  ctx.fillStyle = '#4ea8ff';
+  ctx.fillText('CENTER', x + first, h / 2 + 4);
 }
 
 // ---------- Bauteile ----------
