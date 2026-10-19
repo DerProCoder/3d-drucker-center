@@ -3,6 +3,7 @@
 // erledigte Aufgabe bewirkt – Laufen und Aussehen macht world/workers.js. Bewusst ohne Three.js und DOM.
 import { waitingFilament } from './two-color.js';
 import { WASTE_EMPTY_AT } from './economy.js';
+import { templateById } from './catalog.js';
 
 export const MAX_WORKERS = 2;
 export const HIRE_FEE = 50;       // € einmalig
@@ -10,19 +11,22 @@ export const WAGE_PER_HOUR = 2;   // € pro Spielstunde und Mitarbeiter
 const NAMES = ['Kevin', 'Lea', 'Mehmet', 'Sophie', 'Finn', 'Aylin'];
 
 // Aufgaben nach Wichtigkeit. Jede hat ein Ziel (Drucker, Boden oder Lagerregal) und eine Arbeitszeit in Sekunden.
-//   clear  – Fehldruck vom Bett kratzen        poke   – verstopfte Düse freistechen (bis sie frei ist)
+//   clear  – Fehldruck vom Bett kratzen und denselben Druck gleich neu starten
+//   poke   – verstopfte Düse freistechen (bis sie frei ist)
+//   restart – Neustart nach einem Fehldruck nachholen, der beim Wegräumen noch nicht ging (z. B. Düse war zu)
 //   refill – passende Spule aus dem Lager holen und in den wartenden Drucker legen
 //   collect – fertiges Teil entnehmen          pick   – heruntergefallenes Teil vom Boden aufheben
 //   empty  – Mülleimer mit Spülabfall leeren (ab WASTE_EMPTY_AT; ist er voll und der Drucker wartet, ganz vorne)
-export const WORK_SECONDS = { clear: 3, poke: 1, collect: 1.5, pick: 1, take: 1.5, load: 2, empty: 2.5 };
+export const WORK_SECONDS = { clear: 3, poke: 1, restart: 1.5, collect: 1.5, pick: 1, take: 1.5, load: 2, empty: 2.5 };
 
 export class Staff {
   constructor(economy) {
     this.economy = economy;
     this.workers = []; // { id, name }
     this.nextId = 1;
+    this.retries = new Map(); // Drucker-ID → { templateId, count }: Fehldruck weggeräumt, Neustart steht noch aus
     this.listeners = new Set();
-    this.onEvent = null; // (type, data) => void – 'hired' | 'fired'
+    this.onEvent = null; // (type, data) => void – 'hired' | 'fired' | 'restarted' | 'restart-blocked'
   }
 
   get wagesPerHour() {
@@ -63,12 +67,14 @@ export class Staff {
   // Nächste Aufgabe, die noch niemand übernommen hat (reserved: Set der Aufgaben-Schlüssel) oder null
   findTask(reserved) {
     const e = this.economy;
+    this.dropStaleRetries();
     const free = (task) => !reserved.has(taskKey(task));
     const onTable = e.printers.filter((p) => p.location === 'table');
     const candidates = [
       ...onTable.filter((p) => p.job?.pauseReason === 'waste').map((p) => ({ type: 'empty', printerId: p.id })),
       ...onTable.filter((p) => p.job?.status === 'failed').map((p) => ({ type: 'clear', printerId: p.id })),
       ...onTable.filter((p) => p.clogged && !e.isBusy(p)).map((p) => ({ type: 'poke', printerId: p.id })),
+      ...onTable.filter((p) => this.retries.has(p.id) && !this.waitsForHelp(p)).map((p) => ({ type: 'restart', printerId: p.id })),
       ...onTable.filter((p) => p.job?.status === 'done').map((p) => ({ type: 'collect', printerId: p.id })),
       ...onTable
         .filter((p) => p.job?.pauseReason === 'filament' && e.loadTarget(p) !== -1)
@@ -91,7 +97,43 @@ export class Staff {
     if (task.type === 'collect') return p.job?.status === 'done';
     if (task.type === 'refill') return p.job?.pauseReason === 'filament' && waitingFilament(p.job) === task.filamentId;
     if (task.type === 'empty') return (p.waste ?? 0) > 0;
+    if (task.type === 'restart') return this.retries.has(p.id) && !p.job;
     return false;
+  }
+
+  // Neustarts vergessen, wenn der Drucker inzwischen wieder etwas tut oder nicht mehr auf dem Tisch steht
+  dropStaleRetries() {
+    for (const id of this.retries.keys()) {
+      const p = this.economy.printerById(id);
+      if (!p || p.location !== 'table' || p.job) this.retries.delete(id);
+    }
+  }
+
+  // Muss vor dem Neustart erst noch ein Azubi ran? (verstopfte Düse, voller Mülleimer)
+  waitsForHelp(printer) {
+    return printer.clogged || (printer.waste ?? 0) >= WASTE_EMPTY_AT;
+  }
+
+  // Den weggeräumten Fehldruck noch einmal starten – mit derselben Vorlage, Anzahl und Farbwahl.
+  // Geht es nicht und kann kein Azubi helfen, gibt es eine Meldung und der Neustart entfällt.
+  tryRestart(printerId, worker = null) {
+    const e = this.economy;
+    const retry = this.retries.get(printerId);
+    const p = e.printerById(printerId);
+    if (!retry || !p || p.job) {
+      this.retries.delete(printerId);
+      return;
+    }
+    const template = templateById(retry.templateId);
+    const problem = e.printProblem(p, template, retry.count);
+    if (!problem) {
+      this.retries.delete(printerId);
+      e.startPrint(printerId, template, retry.count);
+      this.onEvent?.('restarted', { printer: p, template, count: retry.count, worker });
+    } else if (!this.waitsForHelp(p)) {
+      this.retries.delete(printerId);
+      this.onEvent?.('restart-blocked', { printer: p, template, reason: problem, worker });
+    }
   }
 
   // Spule fürs Nachlegen aus dem Lagerregal nehmen (die trockenste passende) – oder null
@@ -104,10 +146,18 @@ export class Staff {
 
   // Aufgabe am Ziel ausführen. Gibt true zurück, wenn sie erledigt ist (poke braucht mehrere Stiche).
   // carried: Spule in der Hand (bei refill). Verdrängte oder nicht mehr gebrauchte Spulen gehen zurück ins Regal.
-  perform(task, carried = null) {
+  // worker: wer es tut (für Meldungen)
+  perform(task, carried = null, worker = null) {
     const e = this.economy;
     switch (task.type) {
-      case 'clear': e.clearFailedPrint(task.printerId); return true;
+      case 'clear': {
+        const job = e.printerById(task.printerId).job;
+        e.clearFailedPrint(task.printerId);
+        this.retries.set(task.printerId, { templateId: job.templateId, count: job.count ?? 1 });
+        this.tryRestart(task.printerId, worker);
+        return true;
+      }
+      case 'restart': this.tryRestart(task.printerId, worker); return true;
       case 'collect': e.collectPart(task.printerId); return true;
       case 'pick': e.pickUpLoosePart(task.looseId); return true;
       case 'empty': e.emptyWasteBin(task.printerId); return true;
@@ -146,6 +196,7 @@ export function taskText(task, economy, phase) {
   const where = printer ? ` am ${printer.model.name}` : '';
   switch (task.type) {
     case 'clear': return `räumt einen Fehldruck weg${where}`;
+    case 'restart': return `startet den Druck neu${where}`;
     case 'poke': return `sticht die Düse frei${where}`;
     case 'collect': return `nimmt ein fertiges Teil ab${where}`;
     case 'pick': return 'hebt ein Teil vom Boden auf';

@@ -6,6 +6,7 @@ export const ROOM_SIZE = 20;      // m, quadratisch
 export const ROOM_HEIGHT = 3.5;   // m
 export const WALL_THICKNESS = 0.2;
 export const STORAGE_DOOR = { x: -5, w: 1.0, h: 2.1 }; // Tür zum Abstellraum in der Südwand (Welt-x)
+export const OFFICE_DOOR = { z: 0, w: 1.0, h: 2.1 };   // Tür zum Büro der Azubis in der Ostwand (Welt-z)
 
 const WAINSCOT_HEIGHT = 1.0;      // Vertäfelung unten an der Wand
 const WINDOW_SILL = 1.0;          // Unterkante Fenster
@@ -256,7 +257,7 @@ function createSign(text) {
   return new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.12), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5 }));
 }
 
-// Türöffnung zur Raumseite: Rahmen, Laibung durch die Wanddicke, Schwelle, Schild
+// Türöffnung zur Raumseite: Rahmen, Laibung durch die Wanddicke, Schwelle, Schild (d.label, sonst „LAGER“)
 function createDoorway(d) {
   const door = new THREE.Group();
   const t = WALL_THICKNESS;
@@ -277,7 +278,7 @@ function createDoorway(d) {
   const threshold = box(d.w, 0.01, t, new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.6, roughness: 0.4 }), d.x, 0.005, -t / 2);
   door.add(threshold);
 
-  const sign = createSign('LAGER');
+  const sign = createSign(d.label ?? 'LAGER');
   sign.position.set(d.x, d.h + 0.3, 0.004);
   door.add(sign);
   return door;
@@ -382,13 +383,14 @@ export function createRoom() {
   };
 
   // Lokale +z jeder Wand zeigt in den Raum. Die Südwand ist um 180° gedreht,
-  // daher liegt die Tür dort lokal bei -STORAGE_DOOR.x.
+  // daher liegt die Tür dort lokal bei -STORAGE_DOOR.x. Bei der Ostwand entspricht lokales x der Welt-z.
   const southDoor = { ...STORAGE_DOOR, x: -STORAGE_DOOR.x };
+  const eastDoor = { x: OFFICE_DOOR.z, w: OFFICE_DOOR.w, h: OFFICE_DOOR.h, label: 'BÜRO' };
   const walls = [
     { pos: [0, 0, -half], rotY: 0, windows: [-6, 0, 6] },                          // Nord
     { pos: [0, 0, half], rotY: Math.PI, windows: [], doors: [southDoor] },        // Süd
     { pos: [-half, 0, 0], rotY: Math.PI / 2, windows: [-4, 4] },                  // West
-    { pos: [half, 0, 0], rotY: -Math.PI / 2, windows: [-4, 4] },                  // Ost
+    { pos: [half, 0, 0], rotY: -Math.PI / 2, windows: [-4, 4], doors: [eastDoor] }, // Ost
   ];
   for (const w of walls) {
     const wall = createWall(ROOM_SIZE, w.windows, materials, w.doors);
@@ -409,15 +411,17 @@ export function createRoom() {
   return room;
 }
 
-// Wände als Kollisionsrechtecke (Wanddicke liegt außerhalb des Raums), mit Lücke für die Lagertür
+// Wände als Kollisionsrechtecke (Wanddicke liegt außerhalb des Raums), mit Lücken für Lager- und Bürotür
 export function roomColliders() {
   const h = ROOM_SIZE / 2;
   const t = WALL_THICKNESS;
   const d = STORAGE_DOOR;
+  const o = OFFICE_DOOR;
   return [
     { minX: -h - t, maxX: h + t, minZ: -h - t, maxZ: -h },               // Nord
     { minX: -h - t, maxX: -h, minZ: -h, maxZ: h },                       // West
-    { minX: h, maxX: h + t, minZ: -h, maxZ: h },                         // Ost
+    { minX: h, maxX: h + t, minZ: -h, maxZ: o.z - o.w / 2 },             // Ost nördlich der Bürotür
+    { minX: h, maxX: h + t, minZ: o.z + o.w / 2, maxZ: h },              // Ost südlich der Bürotür
     { minX: -h - t, maxX: d.x - d.w / 2, minZ: h, maxZ: h + t },         // Süd links der Tür
     { minX: d.x + d.w / 2, maxX: h + t, minZ: h, maxZ: h + t },          // Süd rechts der Tür
   ];

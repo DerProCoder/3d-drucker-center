@@ -24,6 +24,7 @@ import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
 import { createWorkers } from './world/workers.js';
+import { createOffice } from './world/office.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
@@ -368,12 +369,23 @@ const throwing = createThrowing({
 });
 scene.add(throwing.group);
 
-// Azubis laufen durch Halle und Lager und helfen mit (Aufgaben aus core/staff.js)
+// Büro der Azubis hinter der Ostwand: Werkbank und Zockecke, die Tür geht mit dem ersten Azubi auf
+const office = createOffice({ staff, collision });
+scene.add(office.group);
+
+// Azubis laufen durch Halle und Lager und helfen mit (Aufgaben aus core/staff.js), ohne Arbeit sitzen sie im Büro
 const workers = createWorkers({ economy, staff });
 scene.add(workers.group);
 staff.onEvent = (type, d) => {
+  const who = d.worker ? `Azubi ${d.worker.name}` : 'Ein Azubi';
   if (type === 'hired') hud.notify(`🧑‍🔧 Azubi ${d.worker.name} ist eingestellt und kommt durch die Lagertür`, 'good');
   else if (type === 'fired') hud.notify(`👋 Azubi ${d.worker.name} hat die Halle verlassen`, 'info');
+  else if (type === 'restarted') hud.notify(`🔁 ${who} hat den Fehldruck weggeräumt und ${d.template.name} am ${d.printer.model.name} neu gestartet`, 'info');
+  else if (type === 'restart-blocked') {
+    hud.notify(`⚠️ ${who} konnte ${d.template.name} am ${d.printer.model.name} nicht neu starten: ${d.reason}`, 'bad');
+    sound.play('warn');
+    return;
+  }
   sound.play('pop');
 };
 economy.subscribe(() => {
@@ -452,7 +464,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, storage.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
+  targets: [room, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -569,6 +581,7 @@ renderer.setAnimationLoop(() => {
   cat.update(dt);
   throwing.update(dt);
   workers.update(dt);
+  office.update(dt, workers.gaming());
   hall.update(dt);
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
   economy.advanceDeliveries(dt);

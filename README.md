@@ -130,14 +130,14 @@ Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, 
 
 In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lohn pro Spielstunde, höchstens 2). Sie kommen durch die Lagertür, laufen über den Gang neben den Drucktischen und kümmern sich selbst um:
 
-1. Fehldrucke wegräumen
+1. Fehldrucke wegräumen und denselben Druck (Teil, Anzahl, Farben) gleich neu starten – ist die Düse verstopft, erst nach dem Freistechen. Geht der Neustart gar nicht (z. B. Düse verschlissen, Filament reicht nicht), gibt es eine Meldung.
 2. Verstopfte Düsen freistechen
 3. Fertige Teile abnehmen
 4. Neues Filament aus dem Lager holen, wenn ein Drucker darauf wartet
 5. Teile aufheben, die der Kater vom Tisch geworfen hat
 6. Den Mülleimer mit dem Spülabfall leeren (ab 70 g – ist er voll und der Drucker wartet, zuerst)
 
-Ohne Arbeit warten sie am Pausenplatz. Zielst du auf einen Azubi, siehst du, was er gerade tut. Entlassen geht in derselben App.
+Ohne Arbeit gehen sie in ihr **Büro** hinter der Ostwand (Tür mit dem Schild „BÜRO“ – sie geht auf, sobald du den ersten Azubi einstellst). Dort sitzen sie abwechselnd an der Werkbank mit Übungsdruckern, Ersatzteilen und Filament oder auf der Couch und zocken Kart-Rennen auf der Konsole. Fällt Arbeit an, springen sie sofort auf. Zielst du auf einen Azubi, siehst du, was er gerade tut. Entlassen geht in derselben App.
 
 ## Halle ausbauen
 
@@ -195,10 +195,11 @@ src/
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
     storage-room.js   Abstellraum mit Regal und Lieferzone
+    office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
     cat.js            Kater Düsentrieb
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
-    workers.js        Azubis als Figuren: Laufwege durch Halle und Lager, Arbeiten, Spule tragen
+    workers.js        Azubis als Figuren: Laufwege durch Halle, Lager und Büro, Arbeiten, Spule tragen, Sitzen, Zocken
     interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
     collision.js      Kollision der Spielfigur
     graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
@@ -211,6 +212,7 @@ src/
     spool.js          Filamentspule
     furniture.js      Regale am Drucktisch und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
+    office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
