@@ -38,12 +38,23 @@ function getShared() {
   return shared;
 }
 
+// Materialwerte je Sorte (filament.finish aus core/catalog.js): Matte schluckt Licht, Silk+ glänzt metallisch,
+// Glow leuchtet leicht nach, Translucent lässt Licht durch. roughness: Wert für normales Filament.
+export function finishProps(filament, roughness) {
+  switch (filament.finish) {
+    case 'matte': return { roughness: 0.92 };
+    case 'silk': return { roughness: 0.2, metalness: 0.55 };
+    case 'glow': return { roughness, emissive: filament.hex, emissiveIntensity: 0.75 };
+    case 'translucent': return { roughness: 0.15, transparent: true, opacity: 0.7 };
+    default: return { roughness };
+  }
+}
+
 // Materialien für den Wickelkörper: [Mantel mit Rillen, Deckfläche, Deckfläche] (Gruppen der CylinderGeometry)
 function filamentMaterials(filament) {
   const s = getShared();
   if (!s.filamentMats.has(filament.id)) {
-    const transparent = filament.color === 'Transparent';
-    const base = { color: filament.hex, roughness: 0.35, transparent, opacity: transparent ? 0.7 : 1 };
+    const base = { color: filament.hex, ...finishProps(filament, 0.35) };
     const side = new THREE.MeshStandardMaterial({ ...base, map: s.winding });
     const cap = new THREE.MeshStandardMaterial(base); // ohne Rillen, sonst flimmert die Stirnseite
     s.filamentMats.set(filament.id, [side, cap, cap]);

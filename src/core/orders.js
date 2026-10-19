@@ -10,6 +10,7 @@ const RUSH_CHANCE = 0.15;          // Anteil Eilaufträge
 const RUSH_BONUS = 1.8;            // Eilaufträge zahlen so viel mehr
 const SPECIAL_CHANCE = 0.12;       // Anteil absurder Sonderaufträge
 const ANY_COLOR_CHANCE = 0.3;      // so oft ist dem Kunden die Farbe egal
+const EFFECT_LINE_CHANCE = 0.2;    // so oft will der Kunde eine Effektsorte (Matte, Silk+, Glow, Translucent)
 const TWO_COLOR_LEVEL = 3;         // ab diesem Level bestellen Kunden auch zweifarbige Teile
 const TWO_COLOR_BONUS = 1.4;       // zweifarbige Teile sind aufwendiger und werden besser bezahlt
 const MULTI_COLOR_LEVEL = 6;       // ab diesem Level bestellen Kunden auch mehrfarbige Teile (dafür braucht man den H2C)
@@ -153,16 +154,21 @@ export class Orders {
     const quantity = 1 + Math.floor(Math.random() * maxQuantity);
     const material = easy ? 'PLA' : pick(template.materials);
     const colors = FILAMENTS.filter((f) => f.material === material);
+    // Meist Basic-Farben, ab und zu eine Effektsorte – dann sind beide Farben aus derselben Sorte und es gibt mehr Geld
+    const effects = colors.filter((f) => f.line.special);
+    const effectLine = !easy && effects.length && Math.random() < EFFECT_LINE_CHANCE ? pick(effects).lineId : null;
+    const palette = colors.filter((f) => (effectLine ? f.lineId === effectLine : !f.line.special));
     // Mehrfarbig sucht man die Farben selbst aus, nur das Material steht fest
     const anyColor = isMultiColor(template) || (!easy && Math.random() < ANY_COLOR_CHANCE);
-    const first = pick(colors);
+    const first = pick(palette);
     const filamentId = anyColor ? null : first.id;
     // Zweite Farbe: immer eine andere als die erste
-    const filamentId2 = isTwoColor(template) && !anyColor ? pick(colors.filter((f) => f !== first)).id : null;
+    const filamentId2 = isTwoColor(template) && !anyColor ? pick(palette.filter((f) => f !== first)).id : null;
     const rush = !easy && Math.random() < RUSH_CHANCE;
     const customer = this.pickCustomer();
     const bonus = 0.9 + Math.random() * 0.4; // manche Kunden zahlen besser
-    const pay = unitPrice(template) * quantity * bonus * (rush ? RUSH_BONUS : 1);
+    const effectBonus = anyColor ? 1 : first.line.payBonus ?? 1;
+    const pay = unitPrice(template) * quantity * bonus * effectBonus * (rush ? RUSH_BONUS : 1);
     return {
       id: this.nextId++,
       customer,

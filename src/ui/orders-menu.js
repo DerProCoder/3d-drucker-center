@@ -1,5 +1,5 @@
 // Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
-import { filamentById, filamentLabel, templateById } from '../core/catalog.js';
+import { filamentById, filamentColorName, filamentLabel, templateById } from '../core/catalog.js';
 import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
 import { CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isMultiColor, isTwoColor } from '../core/two-color.js';
 import { colorDots, formatMinutes } from './printer-menu.js';
@@ -19,7 +19,7 @@ export function createOrdersMenu(orders, economy) {
   function wantText(order, t) {
     if (order.filamentId && order.filamentId2) {
       const [a, b] = [order.filamentId, order.filamentId2].map(filamentById);
-      return `${colorDots(a.id, b.id)}${order.material} ${a.color} + ${b.color}`;
+      return `${colorDots(a.id, b.id)}${order.material} ${filamentColorName(a)} + ${filamentColorName(b)}`;
     }
     if (isTwoColor(t) && order.material) return `${order.material}, zwei verschiedene Farben nach Wahl`;
     if (isMultiColor(t) && order.material) return `${order.material}, ${t.colors} verschiedene Farben nach Wahl`;

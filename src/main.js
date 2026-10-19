@@ -9,6 +9,7 @@ import { Orders, REGULAR_STARS } from './core/orders.js';
 import { Progress } from './core/progress.js';
 import { Upgrades } from './core/upgrades.js';
 import { Staff } from './core/staff.js';
+import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
@@ -111,7 +112,7 @@ economy.onEvent = (type, d) => {
       sound.play('warn');
       break;
     case 'out-of-filament':
-      hud.notify(`🧵 ${name}: Filament leer – neue Spule ${d.filament.material} ${d.filament.color} einlegen`, 'bad');
+      hud.notify(`🧵 ${name}: Filament leer – neue Spule ${filamentLabel(d.filament)} einlegen`, 'bad');
       sound.play('warn');
       break;
     case 'ams-refill':

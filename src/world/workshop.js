@@ -2,13 +2,13 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
+import { FAILURES, filamentById, filamentColorName, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
-import { createSpool } from '../models/spool.js';
+import { createSpool, finishProps } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
@@ -30,14 +30,11 @@ export const rackZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / RACKS_PER_TABLE)];
 // ---------- Hilfsmodelle ----------
 
 function partMaterial(filament, clip = null) {
-  const transparent = filament.color === 'Transparent';
   return new THREE.MeshStandardMaterial({
     color: filament.hex,
-    roughness: 0.45,
+    ...finishProps(filament, 0.45), // matt, Seidenglanz, leuchtend oder durchscheinend je nach Sorte
     side: THREE.DoubleSide, // an der Schnittkante sieht man ins Innere
     clippingPlanes: clip ? [clip] : [],
-    transparent,
-    opacity: transparent ? 0.75 : 1,
   });
 }
 
@@ -48,11 +45,11 @@ function partMaterials(template, colors, clip = null) {
   return colors.map((id) => partMaterial(filamentById(id), clip));
 }
 
-// „PLA Schwarz“, zweifarbig „PLA Schwarz + Weiß“, mehrfarbig „PLA in 8 Farben“
+// „PLA Schwarz“, zweifarbig „PLA Schwarz + Matte Weiß“, mehrfarbig „PLA in 8 Farben“
 function colorsLabel(colors) {
   const label = filamentLabel(filamentById(colors[0]));
   if (colors.length > 2) return `${filamentById(colors[0]).material} in ${colors.length} Farben`;
-  return colors.length === 2 ? `${label} + ${filamentById(colors[1]).color}` : label;
+  return colors.length === 2 ? `${label} + ${filamentColorName(filamentById(colors[1]))}` : label;
 }
 
 // Filament-Spaghetti: wirre Schlaufen über dem Druckbett, Ursprung auf der Plattenmitte
