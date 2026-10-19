@@ -329,25 +329,33 @@ function buildA1(g, variant) {
 }
 
 // Spültrichter mit Rutsche und Mülleimer hinter dem Drucker (Drucker mit einer Düse und AMS).
-// spot: Spülstelle (x, z), tipY: Höhe der Düsenspitze, backZ: Außenseite der Rückwand.
-// Gibt { spot, tipY, funnelDepth, chuteDir } zurück.
-function addPurgeChute(g, { spot, tipY, backZ, frame }) {
-  const bin = new THREE.MeshStandardMaterial({ color: 0x4a4d53, roughness: 0.6 });
-  // Trichter: offener Kasten knapp unter der Düse
+// spot: Spülstelle (x, z), tipY: Höhe der Düsenspitze, backZ: Außenseite der Rückwand,
+// wall: Dicke der Rückwand (0 = offenes Gerüst ohne Rückwand, dann braucht es keine Öffnung).
+// Gibt { spot, tipY, funnelDepth, chuteDir, chuteStart, chuteEnd, bin } zurück; bin ist die Gruppe des Eimers mit
+// userData { w, d, h } – dort bleiben die Spülreste liegen (siehe world/purge.js).
+function addPurgeChute(g, { spot, tipY, backZ, wall, frame }) {
+  const bin = new THREE.MeshStandardMaterial({ color: 0x6f747c, roughness: 0.6 });
+  const rim = new THREE.MeshStandardMaterial({ color: 0xb4b9c1, roughness: 0.4, metalness: 0.3 }); // heller Rand
+  // Spülfeld: großer offener Trichter knapp unter der Düse mit hellem Rand, damit man ihn hinten im Drucker sieht.
+  // Der Boden fällt nach hinten zur Rutsche ab.
   const funnelTop = tipY - 0.004;
   const funnel = new THREE.Group();
-  const fw = 0.028;
-  const fh = 0.012;
-  for (const [sx, sz, w, d] of [[0, -1, fw, 0.002], [0, 1, fw, 0.002], [-1, 0, 0.002, fw], [1, 0, 0.002, fw]]) {
-    funnel.add(box(w, fh, d, frame, sx * (fw / 2 - 0.001), 0, sz * (fw / 2 - 0.001)));
+  const fw = 0.06;  // Breite (x)
+  const fd = 0.045; // Tiefe (z)
+  const fh = 0.016;
+  for (const [sx, sz, w, d] of [[0, -1, fw, 0.003], [0, 1, fw, 0.003], [-1, 0, 0.003, fd], [1, 0, 0.003, fd]]) {
+    funnel.add(box(w, fh, d, rim, sx * (fw / 2 - 0.0015), 0, sz * (fd / 2 - 0.0015)));
   }
+  const floor = box(fw - 0.006, 0.002, fd - 0.008, frame, 0, -fh / 2 + 0.005, 0);
+  floor.rotation.x = -0.2; // hinten tiefer
+  funnel.add(floor);
   funnel.position.set(spot.x, funnelTop - fh / 2, spot.z);
   g.add(funnel);
 
   // Mülleimer hängt hinten außen an der Rückwand, knapp unter dem Ende der schrägen Rutsche
-  const binW = 0.07;
-  const binD = 0.06;
-  const binH = 0.09;
+  const binW = 0.075;
+  const binD = 0.065;
+  const binH = 0.055;
   const binZ = backZ - binD / 2 - 0.004;
   const binTop = funnelTop - fh - (spot.z - binZ) * 0.8 - 0.01;
   const binGroup = new THREE.Group();
@@ -355,25 +363,42 @@ function addPurgeChute(g, { spot, tipY, backZ, frame }) {
   binGroup.add(box(binW, 0.003, binD, bin, 0, 0.0015, 0)); // Boden
   for (const sx of [-1, 1]) binGroup.add(box(0.003, binH, binD, bin, sx * (binW / 2 - 0.0015), binH / 2, 0));
   for (const sz of [-1, 1]) binGroup.add(box(binW, binH, 0.003, bin, 0, binH / 2, sz * (binD / 2 - 0.0015)));
-  // Ein paar alte Spülreste liegen schon drin
-  ['#d62f2f', '#f2f2f2', '#2f6fd6', '#1c1c1c', '#f2c419'].forEach((hex, i) => {
-    const blob = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), new THREE.MeshStandardMaterial({ color: hex, roughness: 0.5 }));
-    blob.scale.set(1.3, 0.7, 1);
-    blob.position.set(-0.02 + (i % 3) * 0.02, 0.01 + Math.floor(i / 3) * 0.008, -0.012 + (i % 2) * 0.022);
-    binGroup.add(blob);
-  });
   binGroup.position.set(spot.x, binTop - binH, binZ);
+  binGroup.userData = { w: binW, d: binD, h: binH };
   g.add(binGroup);
 
-  // Rutsche vom Trichter schräg nach hinten unten durch die Rückwand in den Eimer
-  const from = new THREE.Vector3(spot.x, funnelTop - fh, spot.z);
+  // Rutsche vom hinteren Ende des Trichters schräg nach hinten unten durch die Rückwand in den Eimer,
+  // mit Seitenwänden, damit nichts herunterfällt
+  const from = new THREE.Vector3(spot.x, funnelTop - fh, spot.z - fd / 2 + 0.006);
   const to = new THREE.Vector3(spot.x, binTop + 0.006, binZ);
-  const chute = box(0.02, 0.003, from.distanceTo(to), frame, 0, 0, 0);
+  const length = from.distanceTo(to);
+  const chute = new THREE.Group();
+  chute.add(box(0.03, 0.003, length, frame, 0, 0, 0));
+  for (const sx of [-1, 1]) chute.add(box(0.002, 0.01, length, rim, sx * 0.015, 0.005, 0));
   chute.position.copy(from).add(to).multiplyScalar(0.5);
   chute.lookAt(to);
   g.add(chute);
-  // Richtung der Rutsche, damit der Spülstrang ihr folgt; funnelDepth: so tief fällt er erst senkrecht
-  return { spot, tipY, funnelDepth: tipY - (funnelTop - fh), chuteDir: to.clone().sub(from).normalize() };
+
+  // Öffnung in der Rückwand, durch die die Rutsche nach draußen führt: ein dunkler Durchlass durch die ganze
+  // Wanddicke (von innen und außen als Loch zu sehen) mit hellem Rahmen auf beiden Seiten
+  if (wall) {
+    const midZ = backZ + wall / 2;
+    const at = from.clone().lerp(to, (midZ - from.z) / (to.z - from.z)); // wo die Rutsche die Wand kreuzt
+    const holeW = 0.042;
+    const holeH = 0.034;
+    const dark = new THREE.MeshBasicMaterial({ color: 0x050506 });
+    g.add(box(holeW, holeH, wall + 0.003, dark, at.x, at.y, midZ));
+    const ring = 0.004;
+    for (const z of [backZ - 0.001, backZ + wall + 0.001]) {
+      for (const sy of [-1, 1]) g.add(box(holeW + ring * 2, ring, 0.003, rim, at.x, at.y + sy * (holeH / 2 + ring / 2), z));
+      for (const sx of [-1, 1]) g.add(box(ring, holeH, 0.003, rim, at.x + sx * (holeW / 2 + ring / 2), at.y, z));
+    }
+  }
+  // chuteDir: Richtung der Rutsche, damit der Spülstrang ihr folgt; funnelDepth: so tief fällt er erst senkrecht
+  return {
+    spot, tipY, funnelDepth: tipY - (funnelTop - fh), chuteDir: to.clone().sub(from).normalize(),
+    chuteStart: from, chuteEnd: to, bin: binGroup,
+  };
 }
 
 // ---------- Bambu Lab P1P / P1S / P2S: CoreXY-Würfel mit AMS auf dem Dach ----------
@@ -398,6 +423,17 @@ const CUBE_VARIANTS = {
   // damit man von oben hineinsieht), sehr großes Touch-Display und Dual-Nozzle-Kopf
   h2d: {
     title: 'H2D', w: 0.492, d: 0.514, h: 0.585, enclosed: true, screen: [0.17, 0.096], buttons: false, fascia: 0.11,
+    color: 0x2a2b2f, darkAms: true, sideWindow: 'large', topWindow: true, dualHead: true,
+    plate: 0.325, railDrop: 0.135,
+  },
+  // X1E: Gehäuse wie der X2D (Seitenfenster, großes Display, Dual-Nozzle-Kopf), etwas dunkler
+  x1e: {
+    title: 'X1E', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.13, 0.078], buttons: false, fascia: 0.07,
+    color: 0x1d1e21, darkAms: true, sideWindow: true, dualHead: true, railDrop: 0.06,
+  },
+  // H2D Pro: genau wie der H2D, nur mit eigenem Schriftzug
+  'h2d-pro': {
+    title: 'H2D Pro', w: 0.492, d: 0.514, h: 0.585, enclosed: true, screen: [0.17, 0.096], buttons: false, fascia: 0.11,
     color: 0x2a2b2f, darkAms: true, sideWindow: 'large', topWindow: true, dualHead: true,
     plate: 0.325, railDrop: 0.135,
   },
@@ -620,7 +656,7 @@ function buildBambuCube(g, variant) {
   // Druckbahn), tipY: Höhe der Düsenspitze. Die Bewegung dazu steckt in world/purge.js.
   if (!variant.dualHead && !variant.nozzleChanger) {
     g.userData.purge = addPurgeChute(g, {
-      spot: { x: -plateSize / 2 + 0.035, z: -plateSize / 2 - 0.022 }, tipY: nozzleY, backZ: -d / 2, frame,
+      spot: { x: -plateSize / 2 + 0.045, z: -plateSize / 2 - 0.03 }, tipY: nozzleY, backZ: -d / 2, wall: enclosed ? 0.018 : 0, frame,
     });
   }
 
@@ -726,8 +762,10 @@ const BUILDERS = {
   p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
   p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
   x2d: (g) => buildBambuCube(g, CUBE_VARIANTS.x2d),
+  x1e: (g) => buildBambuCube(g, CUBE_VARIANTS.x1e),
   h2d: (g) => buildBambuCube(g, CUBE_VARIANTS.h2d),
   h2s: (g) => buildBambuCube(g, CUBE_VARIANTS.h2s),
+  'h2d-pro': (g) => buildBambuCube(g, CUBE_VARIANTS['h2d-pro']),
   h2c: (g) => buildBambuCube(g, CUBE_VARIANTS.h2c),
 };
 

@@ -194,7 +194,7 @@ export function createShop(economy, {
             <div class="card-title">${p.name}</div>
           </div>
           <dl class="specs">
-            <dt>Geschwindigkeit</dt><dd>${speedRange(p)}${p.turboSpeed ? ' – mit Turbo-Stufe' : ''}</dd>
+            <dt>Geschwindigkeit</dt><dd>${speedRange(p)}${p.maxSpeed ? ` – mit ${speedModesFor(p).at(-1).name}-Stufe` : ''}</dd>
             <dt>Bauraum</dt><dd>${formatBuildVolume(p.build)}</dd>
             <dt>Materialien</dt><dd>${p.materials.join(', ')}</dd>
             <dt>Filament</dt><dd>${p.spoolSlots > 4 ? `${p.spoolSlots / 4} AMS mit zusammen ${p.spoolSlots} Fächern` : p.spoolSlots > 1 ? `AMS mit ${p.spoolSlots} Fächern` : '1 Spule'}</dd>
@@ -202,7 +202,7 @@ export function createShop(economy, {
             ${p.nozzleChanger ? `<dt>Düsen</dt><dd>${p.nozzles} im Düsenwechsler – eigene Düse pro Farbe, kaum Spülabfall, Ersatz bei Verstopfung</dd>`
               : p.nozzles > 1 ? `<dt>Düsen</dt><dd>${p.nozzles} – halber Verschleiß, Ersatzdüse bei Verstopfung</dd>` : ''}
             ${p.ledStrip ? '<dt>Beleuchtung</dt><dd>LED-Leiste am Sockel, Farbe im Druckermenü wählbar</dd>' : ''}
-            ${p.failureFactor < 1 ? '<dt>Präzision</dt><dd>Präzisere Mechanik und starke Bauteilkühlung – nur halb so viele Fehldrucke</dd>' : ''}
+            ${p.failureFactor < 1 ? `<dt>Präzision</dt><dd>Präzisere Mechanik und starke Bauteilkühlung – ${Math.round((1 - p.failureFactor) * 100)} % weniger Fehldrucke</dd>` : ''}
             ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – stoppt Fehldrucke früh, spart Filament</dd>' : ''}
             <dt>Strom beim Drucken</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>

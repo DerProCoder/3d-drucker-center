@@ -42,18 +42,20 @@ export const filamentById = (id) => FILAMENTS.find((f) => f.id === id);
 export const filamentLabel = (f) => `${f.material} ${f.color}`;
 
 // Druckgeschwindigkeit in Prozent der Standardgeschwindigkeit. Gilt für alle Drucker gleich, mehr als 166 % geht
-// nicht – außer mit turbo: true (Drucker mit turboSpeed, z. B. H2S), dann bis 200 %.
+// nicht – außer der Drucker hat ein höheres maxSpeed (H2S und H2D Pro bis 200 %, X1E bis 300 %).
 export const SPEED_MODES = [
   { id: 'silent', name: 'Leise', percent: 50 },
   { id: 'standard', name: 'Standard', percent: 100 },
   { id: 'sport', name: 'Sport', percent: 125 },
   { id: 'ludicrous', name: 'Ludicrous', percent: 166 },
-  { id: 'turbo', name: 'Turbo', percent: 200, turbo: true },
+  { id: 'turbo', name: 'Turbo', percent: 200 },
+  { id: 'hyper', name: 'Hyper', percent: 300 },
 ];
 
 export const speedById = (id) => SPEED_MODES.find((s) => s.id === id);
+export const DEFAULT_MAX_SPEED = 166; // ohne maxSpeed im Katalogeintrag
 // Stufen, die dieser Drucker (Katalogeintrag) fahren kann
-export const speedModesFor = (model) => SPEED_MODES.filter((s) => !s.turbo || model.turboSpeed);
+export const speedModesFor = (model) => SPEED_MODES.filter((s) => s.percent <= (model.maxSpeed ?? DEFAULT_MAX_SPEED));
 
 // build: Bauraum in mm (Breite × Tiefe × Höhe), powerPerHour: Stromkosten in € pro Spielstunde beim Drucken
 // (im Leerlauf nur ein Bruchteil, siehe economy.js), enclosed: geschlossenes Gehäuse – ohne verzieht sich ABS gern
@@ -99,17 +101,30 @@ export const PRINTERS = [
     spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'x2d', accent: '#ff7a1a',
   },
   {
+    // X1E: Bauraum wie der X2D, zwei Düsen, AMS und KI-Kamera – dazu der schnellste Drucker der Halle mit der
+    // Hyper-Stufe bis 300 % und einem Fehldruckrisiko von nur 75 % (failureFactor) gegenüber dem P1S
+    id: 'x1e', name: 'Bambu Lab X1E', tier: 'Hyper-Speed', price: 2200,
+    build: { x: 256, y: 256, z: 256 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.1, enclosed: true,
+    spoolSlots: 4, nozzles: 2, aiCamera: true, maxSpeed: 300, failureFactor: 0.75, style: 'x1e', accent: '#2ee6a8',
+  },
+  {
     // H2D: großer Bauraum, zwei Düsen und KI-Kamera wie der X2D, rundum Fenster und ein großes Display
     id: 'h2d', name: 'Bambu Lab H2D', tier: 'Flaggschiff', price: 1400,
     build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.2, enclosed: true,
     spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'h2d', accent: '#e8c547',
   },
   {
-    // H2S: so groß wie der H2D mit KI-Kamera, aber nur eine Düse. Dafür turboSpeed (bis 200 %) und
+    // H2S: so groß wie der H2D mit KI-Kamera, aber nur eine Düse. Dafür maxSpeed 200 (Turbo-Stufe) und
     // failureFactor: präzisere Mechanik und stärkere Bauteilkühlung – nur halb so viele Fehldrucke
     id: 'h2s', name: 'Bambu Lab H2S', tier: 'Speed', price: 1800,
     build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.3, enclosed: true,
-    spoolSlots: 4, aiCamera: true, turboSpeed: true, failureFactor: 0.5, style: 'h2s', accent: '#19c3e6',
+    spoolSlots: 4, aiCamera: true, maxSpeed: 200, failureFactor: 0.5, style: 'h2s', accent: '#19c3e6',
+  },
+  {
+    // H2D Pro: wie der H2D (großer Bauraum, zwei Düsen, KI-Kamera), dazu die Turbo-Stufe bis 200 % wie beim H2S
+    id: 'h2d-pro', name: 'Bambu Lab H2D Pro', tier: 'Dual-Nozzle Pro', price: 2000,
+    build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.3, enclosed: true,
+    spoolSlots: 4, nozzles: 2, aiCamera: true, maxSpeed: 200, style: 'h2d-pro', accent: '#ff4f6e',
   },
   {
     // H2C: so groß wie der H2D, mit Düsenwechsler rechts im Bauraum – 8 Düsen (eine im Kopf, sieben im Wechsler),

@@ -26,6 +26,12 @@ export const isMultiColor = (template) => colorCount(template) > 2;
 // Alle Farben eines Drucks oder fertigen Teils: [Grundfarbe, …]
 export const partColors = (x) => x.filamentIds ?? [x.filamentId, x.filamentId2].filter(Boolean);
 
+// Eine Düse mit AMS (P1P, P1S, P2S, H2S): beim Farbwechsel wird die alte Farbe in einen Mülleimer hinten am
+// Drucker ausgespült. Der Spülabfall (Anteil PURGE_SHARE vom Verbrauch zwei- und mehrfarbiger Drucke) sammelt sich
+// dort, bis jemand den Eimer leert (economy.emptyWasteBin).
+export const hasWasteBin = (model) => (model.nozzles ?? 1) === 1 && model.spoolSlots > 1;
+export const PURGE_SHARE = 1 - 1 / SINGLE_NOZZLE_WASTE;
+
 export const hasDualNozzle = (printer) => (printer.model.nozzles ?? 1) > 1;
 export const hasNozzleChanger = (printer) => !!printer.model.nozzleChanger;
 

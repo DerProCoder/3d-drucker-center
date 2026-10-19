@@ -105,6 +105,10 @@ economy.onEvent = (type, d) => {
         : `🔀 ${name}: Düse verstopft – die zweite Düse druckt weiter. Danach freistechen!`, 'bad');
       sound.play('warn');
       break;
+    case 'waste-bin-full':
+      hud.notify(`🗑️ ${name}: Mülleimer mit dem Spülabfall ist voll – leeren, dann druckt er weiter`, 'bad');
+      sound.play('warn');
+      break;
     case 'out-of-filament':
       hud.notify(`🧵 ${name}: Filament leer – neue Spule ${d.filament.material} ${d.filament.color} einlegen`, 'bad');
       sound.play('warn');

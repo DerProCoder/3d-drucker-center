@@ -3,7 +3,7 @@
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
 import { FAILURES, filamentById, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
-import { NOZZLE_POKES, plateLayout, spoolLabel } from '../core/economy.js';
+import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
@@ -105,6 +105,7 @@ function badgeFor(printer) {
   if (printer.clogged) return ['🪡', '#c0392b'];
   if ((printer.nozzleWear ?? 0) >= 1) return ['🔧', '#c0392b'];
   if (job?.pauseReason === 'filament') return ['🧵', '#d68910'];
+  if (job?.pauseReason === 'waste') return ['🗑️', '#d68910'];
   if (job?.status === 'done') return ['✔', '#27ae60'];
   return null;
 }
@@ -200,6 +201,12 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         text: `Linksklick: Ersatzdüse einbauen (alte Düse ${wear} % abgenutzt${printer.clogged ? ', verstopft' : ''})`,
         run: () => { if (economy.replaceNozzle(printer.id)) carry.releaseNozzle(); },
       };
+    }
+    // Mülleimer hinten am Drucker: ab WASTE_EMPTY_AT kann man ihn leeren, ist er voll, wartet der Druck darauf
+    if ((printer.waste ?? 0) >= WASTE_EMPTY_AT && !carry.hasSpools) {
+      const grams = Math.min(WASTE_BIN_GRAMS, Math.round(printer.waste));
+      const full = job?.pauseReason === 'waste' ? ' – Druck wartet' : '';
+      return { text: `Linksklick: Mülleimer leeren (${grams} / ${WASTE_BIN_GRAMS} g${full})`, run: () => economy.emptyWasteBin(printer.id) };
     }
     if (printer.clogged) {
       return {

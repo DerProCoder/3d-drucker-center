@@ -4,11 +4,11 @@ import {
   FAILURES, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentLabel, templateById, speedById, speedModesFor,
 } from '../core/catalog.js';
 import {
-  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WET, plateLayout,
+  DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, WET, plateLayout,
 } from '../core/economy.js';
 import {
   CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, SINGLE_NOZZLE_WASTE, hasDualNozzle, hasNozzleChanger,
-  colorCount, isMultiColor, isTwoColor, partColors, usesDualNozzle,
+  colorCount, hasWasteBin, isMultiColor, isTwoColor, partColors, usesDualNozzle,
   waitingFilament,
 } from '../core/two-color.js';
 import { renderPartPreview } from './printer-preview.js';
@@ -55,6 +55,9 @@ export function createPrinterMenu(economy) {
     if (job.pauseReason === 'filament') {
       return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(waitingFilament(job)))} einlegen`, cls: 'paused' };
     }
+    if (job.pauseReason === 'waste') {
+      return { text: `🗑️ Mülleimer voll bei ${pct} % – leeren, dann geht es weiter`, cls: 'paused' };
+    }
     if (job.status === 'paused') return { text: `Pausiert: ${name} – ${pct} %`, cls: 'paused' };
     const remaining = economy.remainingMinutes(p);
     const realMinutes = remaining / GAME_MINUTES_PER_SECOND / 60;
@@ -91,6 +94,7 @@ export function createPrinterMenu(economy) {
       ? '<button class="secondary" data-action="pause">Pause</button>'
       : '<button class="buy" data-action="resume">Fortsetzen</button>';
     if (job.pauseReason === 'filament') toggle = '<button class="buy" disabled>Neue Spule einlegen</button>';
+    if (job.pauseReason === 'waste') toggle = '<button class="buy" data-action="empty">Mülleimer leeren</button>';
     return `${toggle}<button class="danger" data-action="cancel">Abbrechen</button>`;
   }
 
@@ -112,7 +116,7 @@ export function createPrinterMenu(economy) {
     if (speedById(p.speedId).percent > 100) reasons.push('hohe Geschwindigkeit');
     if (material === 'ABS' && !p.model.enclosed) reasons.push('ABS ohne Gehäuse verzieht sich');
     if (spool.moisture > DAMP) reasons.push('feuchtes Filament');
-    if (p.model.failureFactor < 1) reasons.push('halbiert durch präzise Mechanik und starke Kühlung');
+    if (p.model.failureFactor < 1) reasons.push(`−${Math.round((1 - p.model.failureFactor) * 100)} % durch präzise Mechanik und starke Kühlung`);
     const shortfall = economy.filamentShortfall(p, template, count);
     const warn = shortfall > 0
       ? `<div class="risk high">🧵 Filament reicht nicht: Es fehlen ${Math.ceil(shortfall)} g – der Drucker hält an, bis du nachlegst.</div>`
@@ -177,7 +181,16 @@ export function createPrinterMenu(economy) {
     const changer = hasNozzleChanger(p)
       ? `<dt>Düsenwechsler</dt><dd>${p.model.nozzles} Düsen – eine im Kopf, ${p.model.nozzles - 1} im Wechsler rechts, eine pro AMS-Fach</dd>`
       : '';
-    return `<dl class="specs"><dt>Düse</dt><dd class="wear ${cls}">🔧 ${text}</dd>${changer}</dl>`;
+    return `<dl class="specs"><dt>Düse</dt><dd class="wear ${cls}">🔧 ${text}</dd>${changer}${wasteInfo(p)}</dl>`;
+  }
+
+  // Mülleimer für den Spülabfall (eine Düse mit AMS): Füllstand, ab WASTE_EMPTY_AT gelb, voll rot
+  function wasteInfo(p) {
+    if (!hasWasteBin(p.model)) return '';
+    const grams = Math.min(WASTE_BIN_GRAMS, Math.round(p.waste ?? 0));
+    const cls = grams >= WASTE_BIN_GRAMS ? 'bad' : grams >= WASTE_EMPTY_AT ? 'warn' : 'ok';
+    const empty = grams > 0 && p.location === 'table' ? ' <button class="secondary small" data-action="empty">Leeren</button>' : '';
+    return `<dt>Mülleimer</dt><dd class="wear ${cls}">🗑️ ${grams} / ${WASTE_BIN_GRAMS} g Spülabfall${empty}</dd>`;
   }
 
   // LED-Leiste unten am Sockel (H2C): Farbe wählen, geht jederzeit
@@ -287,6 +300,7 @@ export function createPrinterMenu(economy) {
     if (action === 'resume') economy.resumePrint(id);
     if (action === 'cancel' && confirm(`Druck auf ${p.model.name} abbrechen? Das Filament ist dann verloren.`)) economy.cancelPrint(id);
     if (action === 'collect') economy.collectPart(id);
+    if (action === 'empty') economy.emptyWasteBin(id);
   }
 
   // Gibt true zurück, wenn neu gezeichnet werden muss

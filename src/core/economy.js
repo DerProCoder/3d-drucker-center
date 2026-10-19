@@ -2,10 +2,11 @@
 // Spulen, Druckauftrag, Pannen), Filamentlager mit Feuchte, fertige Teile, Zubehör.
 // Bewusst ohne Three.js, damit die Logik unabhängig vom Rendering bleibt.
 import {
-  FAILURES, LED_COLORS, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, speedById, templateById,
+  FAILURES, LED_COLORS, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, speedById, speedModesFor, templateById,
 } from './catalog.js';
 import {
-  accentProblem, accentSlot, colorTimeFactor, gramsPerColor, hasNozzleChanger, isMultiColor, isTwoColor,
+  PURGE_SHARE, accentProblem, accentSlot, colorCount, colorTimeFactor, gramsPerColor, hasNozzleChanger, hasWasteBin,
+  isMultiColor, isTwoColor,
   multiColorProblem, multiColorSlots, partColors, waitingFilament,
 } from './two-color.js';
 
@@ -23,6 +24,8 @@ export const DAMP = 0.4;           // ab dieser Feuchte steigt das Fehldruckrisi
 export const NOZZLE_POKES = 5;     // so oft muss man eine verstopfte Düse freistechen
 export const NOZZLE_LIFE_HOURS = 48; // so viele Druckstunden (bei 100 %) hält eine Düse
 export const NOZZLE_WORN = 0.75;   // ab diesem Verschleiß steigt das Fehldruckrisiko
+export const WASTE_BIN_GRAMS = 100; // so viel Spülabfall passt in den Mülleimer (eine Düse mit AMS)
+export const WASTE_EMPTY_AT = 70;   // ab so viel Gramm leeren Azubis den Eimer bzw. kann man ihn am Drucker leeren
 export const PLATE_GAP = 5;        // mm Abstand zwischen Teilen auf der Druckplatte
 export const MAX_PER_PLATE = 16;   // mehr Teile auf einmal lässt das Spiel nicht zu
 const BATCH_TIME_SHARE = 0.9;      // jedes weitere Teil braucht 90 % der Zeit (Aufheizen, Kalibrieren nur einmal)
@@ -84,8 +87,9 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   speedId: gewählte Geschwindigkeitsstufe
 //   clogged / nozzlePokes: verstopfte Düse und wie oft schon gestochert wurde
 //   nozzleWear: Verschleiß der Düse 0…1 – bei 1 ist sie hinüber und muss getauscht werden
+//   waste: Gramm Spülabfall im Mülleimer (nur eine Düse mit AMS), bei WASTE_BIN_GRAMS ist er voll
 //   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
-//          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament', failure?: Schlüssel aus FAILURES,
+//          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament' | 'waste', failure?: Schlüssel aus FAILURES,
 //          zweifarbig zusätzlich filamentId2, slot2 und missingFilament (auf welche Spule der Drucker wartet),
 //          mehrfarbig filamentIds und slots (alle Farben, [0] = filamentId/slot) und missingFilament }
 //        oder null
@@ -260,7 +264,7 @@ export class Economy {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
       spools: Array(model.spoolSlots).fill(null), activeSlot: 0, accentSlot: null, multiSlots: null, speedId: 'standard', job: null,
       ledColor: model.ledStrip ? LED_COLORS[0].id : null,
-      clogged: false, nozzlePokes: 0, nozzleWear: 0, storageSpot: this.freeStorageSpot(),
+      clogged: false, nozzlePokes: 0, nozzleWear: 0, waste: 0, storageSpot: this.freeStorageSpot(),
     };
     this.printers.push(printer);
     this.notify();
@@ -478,9 +482,26 @@ export class Economy {
     if (!fitsFlat || z > b.z) return 'Passt nicht in den Bauraum';
     if (count > plateLayout(template, b).max) return `Nur ${plateLayout(template, b).max} passen auf die Platte`;
     if (spool.grams <= 0) return 'Spule ist leer';
+    if (hasWasteBin(printer.model) && colorCount(template) > 1 && (printer.waste ?? 0) >= WASTE_BIN_GRAMS) {
+      return 'Mülleimer voll – erst leeren';
+    }
     if (isTwoColor(template)) return accentProblem(printer);
     if (isMultiColor(template)) return multiColorProblem(printer, template);
     return null;
+  }
+
+  // Mülleimer hinten am Drucker leeren (Spieler oder Azubi). Wartet der Druck deshalb, geht er weiter.
+  emptyWasteBin(printerId) {
+    const p = this.printerById(printerId);
+    if (!p || !(p.waste > 0)) return;
+    p.waste = 0;
+    if (p.job?.pauseReason === 'waste') {
+      p.job.status = 'printing';
+      delete p.job.pauseReason;
+      this.emit('print-resumed', { printer: p });
+    }
+    this.emit('waste-emptied', { printer: p });
+    this.notify();
   }
 
   // Fächer, aus denen ein Druck dieser Vorlage käme: [Grundfarbe, weitere Farben …]
@@ -559,7 +580,7 @@ export class Economy {
 
   setPrintSpeed(printerId, speedId) {
     const p = this.printerById(printerId);
-    if (speedById(speedId)?.turbo && !p.model.turboSpeed) return;
+    if (!speedModesFor(p.model).some((s) => s.id === speedId)) return; // zu schnell für diesen Drucker
     p.speedId = speedId;
     this.notify();
   }
@@ -641,6 +662,16 @@ export class Economy {
       // Filament verbrauchen, bei zwei- und mehrfarbigen Drucken aus mehreren Fächern. Ist eine Spule leer, füllt
       // das AMS aus einem Fach mit gleicher Sorte nach, sonst wartet der Drucker auf eine neue Spule.
       // Drucke aus alten Spielständen haben ihr Filament schon beim Start bezahlt (prepaid)
+      // Eine Düse mit AMS: der Spülabfall des Farbwechsels landet im Mülleimer. Ist der voll, wartet der Drucker,
+      // bis ihn jemand leert.
+      const purging = hasWasteBin(p.model) && colorCount(template) > 1;
+      if (purging && (p.waste ?? 0) >= WASTE_BIN_GRAMS) {
+        job.status = 'paused';
+        job.pauseReason = 'waste';
+        this.emit('waste-bin-full', { printer: p });
+        changed = true;
+        continue;
+      }
       const spool = p.spools[job.slot];
       const perColor = gramsPerColor(p, template, count);
       let reached = 1; // Anteil des Schritts, für den das Filament gereicht hat
@@ -651,6 +682,7 @@ export class Economy {
         const used = Math.min(need, s?.grams ?? 0);
         if (s) s.grams -= used;
         job.gramsUsed += used;
+        if (purging) p.waste = (p.waste ?? 0) + used * PURGE_SHARE;
         if (s && s.grams > 0.001) return;
         if (s) p.spools[slot] = null; // leere Spule fliegt raus
         const refill = p.spools.findIndex((x) => x?.filamentId === filamentId && x.grams > 0);

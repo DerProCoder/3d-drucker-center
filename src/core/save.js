@@ -79,6 +79,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
         clogged: p.clogged,
         nozzlePokes: p.nozzlePokes,
         nozzleWear: p.nozzleWear ?? 0,
+        waste: p.waste ?? 0,
         job: p.job ? { ...p.job } : null,
       })),
       shelf,

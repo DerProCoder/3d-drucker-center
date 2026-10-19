@@ -2,6 +2,7 @@
 // (läuft über economy.wagesPerHour in die stündliche Rechnung). Hier steht nur, WAS es zu tun gibt und was eine
 // erledigte Aufgabe bewirkt – Laufen und Aussehen macht world/workers.js. Bewusst ohne Three.js und DOM.
 import { waitingFilament } from './two-color.js';
+import { WASTE_EMPTY_AT } from './economy.js';
 
 export const MAX_WORKERS = 2;
 export const HIRE_FEE = 50;       // € einmalig
@@ -12,7 +13,8 @@ const NAMES = ['Kevin', 'Lea', 'Mehmet', 'Sophie', 'Finn', 'Aylin'];
 //   clear  – Fehldruck vom Bett kratzen        poke   – verstopfte Düse freistechen (bis sie frei ist)
 //   refill – passende Spule aus dem Lager holen und in den wartenden Drucker legen
 //   collect – fertiges Teil entnehmen          pick   – heruntergefallenes Teil vom Boden aufheben
-export const WORK_SECONDS = { clear: 3, poke: 1, collect: 1.5, pick: 1, take: 1.5, load: 2 };
+//   empty  – Mülleimer mit Spülabfall leeren (ab WASTE_EMPTY_AT; ist er voll und der Drucker wartet, ganz vorne)
+export const WORK_SECONDS = { clear: 3, poke: 1, collect: 1.5, pick: 1, take: 1.5, load: 2, empty: 2.5 };
 
 export class Staff {
   constructor(economy) {
@@ -64,6 +66,7 @@ export class Staff {
     const free = (task) => !reserved.has(taskKey(task));
     const onTable = e.printers.filter((p) => p.location === 'table');
     const candidates = [
+      ...onTable.filter((p) => p.job?.pauseReason === 'waste').map((p) => ({ type: 'empty', printerId: p.id })),
       ...onTable.filter((p) => p.job?.status === 'failed').map((p) => ({ type: 'clear', printerId: p.id })),
       ...onTable.filter((p) => p.clogged && !e.isBusy(p)).map((p) => ({ type: 'poke', printerId: p.id })),
       ...onTable.filter((p) => p.job?.status === 'done').map((p) => ({ type: 'collect', printerId: p.id })),
@@ -72,6 +75,7 @@ export class Staff {
         .filter((p) => e.shelf.some((s) => s.filamentId === waitingFilament(p.job)))
         .map((p) => ({ type: 'refill', printerId: p.id, filamentId: waitingFilament(p.job) })),
       ...e.looseParts.map((l) => ({ type: 'pick', looseId: l.id })),
+      ...onTable.filter((p) => (p.waste ?? 0) >= WASTE_EMPTY_AT).map((p) => ({ type: 'empty', printerId: p.id })),
     ];
     return candidates.find(free) ?? null;
   }
@@ -86,6 +90,7 @@ export class Staff {
     if (task.type === 'poke') return p.clogged;
     if (task.type === 'collect') return p.job?.status === 'done';
     if (task.type === 'refill') return p.job?.pauseReason === 'filament' && waitingFilament(p.job) === task.filamentId;
+    if (task.type === 'empty') return (p.waste ?? 0) > 0;
     return false;
   }
 
@@ -105,6 +110,7 @@ export class Staff {
       case 'clear': e.clearFailedPrint(task.printerId); return true;
       case 'collect': e.collectPart(task.printerId); return true;
       case 'pick': e.pickUpLoosePart(task.looseId); return true;
+      case 'empty': e.emptyWasteBin(task.printerId); return true;
       case 'poke': return e.pokeNozzle(task.printerId);
       case 'refill': {
         if (!carried) return true;
@@ -143,6 +149,7 @@ export function taskText(task, economy, phase) {
     case 'poke': return `sticht die Düse frei${where}`;
     case 'collect': return `nimmt ein fertiges Teil ab${where}`;
     case 'pick': return 'hebt ein Teil vom Boden auf';
+    case 'empty': return `leert den Mülleimer${where}`;
     case 'refill': return phase === 'to-shelf' ? 'holt Filament aus dem Lager' : `legt Filament ein${where}`;
     default: return '';
   }
