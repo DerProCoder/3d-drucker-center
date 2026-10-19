@@ -87,7 +87,7 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 - **Zweifarbige Teile** (🎨): Ab Level 3 bestellen Kunden auch Namensschilder, Untersetzer mit Logo, Spielwürfel und Schachfiguren in **zwei verschiedenen Farben** – sie zahlen 40 % mehr. Dafür brauchst du zwei Spulen im gleichen Material, aber in unterschiedlichen Farben, also ein AMS. Im Druckermenü wählst du unter **Farben** für jedes Teil (z. B. beim Spielwürfel für Würfel und Augen) eine der eingelegten Spulen – die gewählte Farbe ist grün, die anderen grau. Daneben zeigt eine **Vorschau**, wie das Teil in diesen Farben aussieht. Wählst du für ein Teil die Farbe eines anderen, tauschen die beiden. Zweimal dieselbe Farbe geht nicht. Ob Grund- und Akzentfarbe vertauscht sind, ist dem Kunden egal.
   - **Dual-Nozzle (X2D, H2D):** Jede Farbe hat ihre eigene Düse – kaum langsamer als einfarbig (+10 %) und fast ohne Abfall. Am Druckkopf siehst du, welche gerade druckt: die linke Düse (Grundfarbe) oder die rechte (zweite Farbe) ist ausgefahren, die andere eingefahren. Beim Farbwechsel tauschen sie die Plätze.
   - **Düsenwechsler (H2C):** Rechts im Bauraum hängen die Düsen im Wechsler, eine für jedes der 8 AMS-Fächer (die farbige Socke zeigt, welche Farbe dazugehört) – eine steckt im Kopf, sieben warten im Wechsler. Braucht der Druck eine andere Farbe, fährt der Kopf nach rechts, hängt seine Düse ein, holt die Düse der neuen Farbe und druckt weiter. Nur **6 % langsamer** als einfarbig und fast ohne Spülabfall.
-  - **Eine Düse mit AMS (P1P, P1S, P2S):** Der Drucker muss in jeder Schicht die Farbe wechseln und die alte ausspülen. Das dauert **80 % länger** und braucht **50 % mehr Filament**. Eilaufträge schaffst du so kaum.
+  - **Eine Düse mit AMS (P1P, P1S, P2S, H2S):** Der Drucker muss in jeder Schicht die Farbe wechseln und die alte ausspülen. Das dauert **80 % länger** und braucht **50 % mehr Filament**. Du siehst es auch: Der Kopf fährt zum Spültrichter hinten links, drückt erst die alte und dann langsam die neue Farbe heraus, streift die Düse mit einem Ruck nach rechts ab und druckt weiter. Der Strang rutscht in den kleinen Mülleimer hinter dem Drucker. Eilaufträge schaffst du so kaum.
   - **A1, A1 mini und A2L** (nur ein Spulenhalter) können nicht zweifarbig drucken.
 - **Mehrfarbige Teile** (🌈): Ab Level 6 bestellen Kunden auch den **Regenbogen** (8 Farben) und den **Papagei** (6 Farben) in PLA – sie zahlen 80 % mehr. Jede Farbe braucht ein eigenes AMS-Fach, deshalb geht das nur auf dem **H2C** mit seinen 8 Fächern. Wie bei den zweifarbigen Teilen wählst du im Druckermenü unter **Farben** für jedes Teil die Farbe (beim Papagei Sockel, Körper, Kopf, Schnabel, Flügel und Augen) und siehst die Vorschau. Teile ohne eigene Wahl bekommen die nächsten freien PLA-Farben im AMS. Welche Farben du nimmst, ist dem Kunden egal, sie müssen nur alle verschieden sein. Der Düsenwechsler holt sich für jede Farbe ihre eigene Düse.
 
@@ -150,7 +150,7 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 
 - **Speichern:** Das Spiel speichert automatisch alle 10 Sekunden, beim Pausieren und beim Schließen des Tabs (unten rechts blinkt „💾 Gespeichert“). Beim nächsten Start steht im Titelbildschirm **Weiterspielen**. **Neues Spiel** löscht den Spielstand.
 - **Erfolge:** Die App **Erfolge** am PC zeigt freigeschaltete Erfolge (erstes Benchy, erste Spaghetti, Katzenmensch …) und Statistiken.
-- **Ton:** Drucker surren je nach Geschwindigkeit, piepen bei fertig oder Fehler, der Kater miaut und schnurrt. `M` schaltet den Ton aus.
+- **Ton:** Drucker surren je nach Tempo ihres Druckkopfs – tief beim langsamen Drucken, höher bei schnellen Stufen, Leerfahrten und Düsenwechseln –, piepen bei fertig oder Fehler, der Kater miaut und schnurrt. `M` schaltet den Ton aus.
 - **Level:** Jeder gelieferte Auftrag bringt XP (1 XP pro Euro). Mit jedem Level gibt es einen neuen Titel – vom *Bastler* bis zur *Legende des Filaments* –, 10 % mehr Lohn pro Auftrag und nach und nach mehr Aufträge gleichzeitig.
 - **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung), **Mittel** und **Niedrig** wählen. „Niedrig“ rechnet mit voller statt doppelter Pixeldichte und einfacheren Schatten – für schwächere Rechner.
 - **Alte Spielstände** werden übernommen. Fertige Teile von früher bekommen dabei Weiß als Farbe, weil die Farbe damals nicht gespeichert wurde.
@@ -192,6 +192,7 @@ src/
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
+    purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
     storage-room.js   Abstellraum mit Regal und Lieferzone
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
     cat.js            Kater Düsentrieb

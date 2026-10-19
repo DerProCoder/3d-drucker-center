@@ -526,6 +526,9 @@ function orderLoops(loops, from = { x: 0, z: 0 }) {
     const ring = closed ? loop.slice(0, -1) : loop;
     const start = Math.min(bestPoint, ring.length - 1);
     const ordered = closed ? [...ring.slice(start), ...ring.slice(0, start + 1)] : ring;
+    // Der Weg zum Anfang der Kontur ist eine Leerfahrt (travel): dort druckt die Düse nicht und fährt schneller.
+    // Kopie, weil bei geschlossenen Konturen Anfangs- und Endpunkt dasselbe Objekt sind.
+    ordered[0] = { ...ordered[0], travel: true };
     result.push(...ordered);
     at = ordered.at(-1);
   }
@@ -544,6 +547,7 @@ function buildPath(points) {
 
 // Punkt auf der Bahn bei Parameter t ∈ [0, 1) – so fährt die Düse die Schicht ab.
 // color: welche Farbe dort gedruckt wird (0 = Grundfarbe, 1 = Akzentfarbe)
+// travel: die Düse ist gerade auf einer Leerfahrt zur nächsten Kontur
 export function outlinePoint(path, t) {
   const d = t * path.total;
   const { points, lengths } = path;
@@ -560,6 +564,7 @@ export function outlinePoint(path, t) {
     x: points[lo].x + (points[hi].x - points[lo].x) * f,
     z: points[lo].z + (points[hi].z - points[lo].z) * f,
     color: points[lo].color ?? 0,
+    travel: !!points[hi].travel,
   };
 }
 

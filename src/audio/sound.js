@@ -1,8 +1,10 @@
 // Geräusche ganz ohne Audiodateien, per WebAudio erzeugt: Schrittmotoren-Surren der Drucker (Tonhöhe je nach
-// Geschwindigkeitsstufe, leiser mit Abstand), Piepser für fertig/Fehler, Kasse, Miauen und Schnurren.
+// Geschwindigkeit des Druckkopfs, leiser mit Abstand), Piepser für fertig/Fehler, Kasse, Miauen und Schnurren.
 // Browser erlauben Ton erst nach einer Nutzeraktion – unlock() wird beim ersten Klick ins Spiel aufgerufen.
 
 const MUTE_KEY = 'druckercenter-ton';
+const HUM_BASE_HZ = 110;        // Surren der Motoren im Stand
+const HUM_HZ_PER_SPEED = 1600;  // so viel höher pro m/s Kopfgeschwindigkeit
 
 function loadMuted() {
   try {
@@ -111,8 +113,9 @@ export function createSound() {
     EFFECTS[name]?.();
   }
 
-  // Surren der druckenden Drucker. printers: [{ id, distance, speed (Faktor), printing }]
-  // Schrittmotoren klingen wie ein Summen, dessen Tonhöhe beim Abfahren des Umrisses wandert.
+  // Surren der druckenden Drucker. printers: [{ id, distance, headSpeed (m/s), printing }]
+  // Schrittmotoren singen umso höher, je schneller sie drehen: Die Tonhöhe folgt der tatsächlichen Geschwindigkeit
+  // des Druckkopfs – tief beim langsamen Drucken, höher bei schnellen Stufen, Leerfahrten und Düsenwechseln.
   function updatePrinters(printers, dt) {
     if (!ctx || ctx.state !== 'running') return;
     const active = new Set();
@@ -138,8 +141,9 @@ export function createSound() {
         hum = { osc, osc2, gain, filter, phase: Math.random() * 10 };
         hums.set(p.id, hum);
       }
-      hum.phase += dt * (1.5 + p.speed * 2);
-      const base = 160 + p.speed * 140 + Math.sin(hum.phase) * 40 + Math.sin(hum.phase * 2.7) * 20;
+      hum.phase += dt * 3;
+      // 0,06 m/s (Standard) ≈ 210 Hz, Turbo ≈ 300 Hz, Leerfahrten und Düsenwechsel ≈ 400–470 Hz
+      const base = HUM_BASE_HZ + p.headSpeed * HUM_HZ_PER_SPEED + Math.sin(hum.phase) * 4;
       const t = ctx.currentTime;
       hum.osc.frequency.setTargetAtTime(base, t, 0.03);
       hum.osc2.frequency.setTargetAtTime(base * 1.5, t, 0.03);

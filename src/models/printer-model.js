@@ -328,6 +328,54 @@ function buildA1(g, variant) {
   });
 }
 
+// Spültrichter mit Rutsche und Mülleimer hinter dem Drucker (Drucker mit einer Düse und AMS).
+// spot: Spülstelle (x, z), tipY: Höhe der Düsenspitze, backZ: Außenseite der Rückwand.
+// Gibt { spot, tipY, funnelDepth, chuteDir } zurück.
+function addPurgeChute(g, { spot, tipY, backZ, frame }) {
+  const bin = new THREE.MeshStandardMaterial({ color: 0x4a4d53, roughness: 0.6 });
+  // Trichter: offener Kasten knapp unter der Düse
+  const funnelTop = tipY - 0.004;
+  const funnel = new THREE.Group();
+  const fw = 0.028;
+  const fh = 0.012;
+  for (const [sx, sz, w, d] of [[0, -1, fw, 0.002], [0, 1, fw, 0.002], [-1, 0, 0.002, fw], [1, 0, 0.002, fw]]) {
+    funnel.add(box(w, fh, d, frame, sx * (fw / 2 - 0.001), 0, sz * (fw / 2 - 0.001)));
+  }
+  funnel.position.set(spot.x, funnelTop - fh / 2, spot.z);
+  g.add(funnel);
+
+  // Mülleimer hängt hinten außen an der Rückwand, knapp unter dem Ende der schrägen Rutsche
+  const binW = 0.07;
+  const binD = 0.06;
+  const binH = 0.09;
+  const binZ = backZ - binD / 2 - 0.004;
+  const binTop = funnelTop - fh - (spot.z - binZ) * 0.8 - 0.01;
+  const binGroup = new THREE.Group();
+  binGroup.add(box(binW * 0.6, 0.012, 0.012, frame, 0, binH + 0.004, binD / 2 + 0.004)); // Haken an der Rückwand
+  binGroup.add(box(binW, 0.003, binD, bin, 0, 0.0015, 0)); // Boden
+  for (const sx of [-1, 1]) binGroup.add(box(0.003, binH, binD, bin, sx * (binW / 2 - 0.0015), binH / 2, 0));
+  for (const sz of [-1, 1]) binGroup.add(box(binW, binH, 0.003, bin, 0, binH / 2, sz * (binD / 2 - 0.0015)));
+  // Ein paar alte Spülreste liegen schon drin
+  ['#d62f2f', '#f2f2f2', '#2f6fd6', '#1c1c1c', '#f2c419'].forEach((hex, i) => {
+    const blob = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), new THREE.MeshStandardMaterial({ color: hex, roughness: 0.5 }));
+    blob.scale.set(1.3, 0.7, 1);
+    blob.position.set(-0.02 + (i % 3) * 0.02, 0.01 + Math.floor(i / 3) * 0.008, -0.012 + (i % 2) * 0.022);
+    binGroup.add(blob);
+  });
+  binGroup.position.set(spot.x, binTop - binH, binZ);
+  g.add(binGroup);
+
+  // Rutsche vom Trichter schräg nach hinten unten durch die Rückwand in den Eimer
+  const from = new THREE.Vector3(spot.x, funnelTop - fh, spot.z);
+  const to = new THREE.Vector3(spot.x, binTop + 0.006, binZ);
+  const chute = box(0.02, 0.003, from.distanceTo(to), frame, 0, 0, 0);
+  chute.position.copy(from).add(to).multiplyScalar(0.5);
+  chute.lookAt(to);
+  g.add(chute);
+  // Richtung der Rutsche, damit der Spülstrang ihr folgt; funnelDepth: so tief fällt er erst senkrecht
+  return { spot, tipY, funnelDepth: tipY - (funnelTop - fh), chuteDir: to.clone().sub(from).normalize() };
+}
+
 // ---------- Bambu Lab P1P / P1S / P2S: CoreXY-Würfel mit AMS auf dem Dach ----------
 // Kopf fährt X und Y (vor/zurück) unter der Decke, das Bett fährt nach unten (Z).
 // P1P: offenes Gerüst ohne Wände und Tür. P1S/P2S: geschlossenes Gehäuse, Glastür vorne, Glasdeckel oben.
@@ -566,6 +614,16 @@ function buildBambuCube(g, variant) {
   bedAxis.add(box(plateSize + 0.034, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, backZ + 0.01)); // Träger hinten
   for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, plateSize + 0.044, frame, sx * bedX, plateTop - plate.userData.topY - 0.008, -0.02));
   g.add(bedAxis);
+  // Drucker mit einer Düse und AMS (P1P, P1S, P2S, H2S) spülen beim Farbwechsel die alte Farbe aus: hinten links
+  // hinter dem Bett sitzt ein Trichter auf Düsenhöhe, eine Rutsche führt durch die Rückwand in einen kleinen
+  // Mülleimer hinter dem Drucker. purge.spot: wo die Düse zum Spülen steht (relativ zur Plattenmitte wie die
+  // Druckbahn), tipY: Höhe der Düsenspitze. Die Bewegung dazu steckt in world/purge.js.
+  if (!variant.dualHead && !variant.nozzleChanger) {
+    g.userData.purge = addPurgeChute(g, {
+      spot: { x: -plateSize / 2 + 0.035, z: -plateSize / 2 - 0.022 }, tipY: nozzleY, backZ: -d / 2, frame,
+    });
+  }
+
   // Vorne laufen die Spindeln durch die Seitenträger, hinten durch den Träger hinten. Unten sitzen sie in einem
   // Lagerflansch auf dem Sockel (der Motor steckt im Sockel), oben in einem Lagerblock, den ein Halter mit der
   // nächsten Wand verbindet – vorne mit der Seitenwand, hinten mit der Rückwand. Der Halter bleibt unter den

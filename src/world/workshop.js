@@ -12,11 +12,14 @@ import { createSpool } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
+import { isPurging, updatePurge } from './purge.js';
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 
 export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
 export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern
 export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
+const TRAVEL_FACTOR = 3;     // Leerfahrten zur nächsten Kontur gehen so viel schneller als das Drucken
+const MAX_HEAD_SPEED = 0.4;  // m/s – mehr gilt als Sprung (z. B. neue Schicht), nicht als Bewegung
 
 // Weltposition eines Drucker- bzw. Regalplatzes. Plätze sind über alle Tische durchnummeriert.
 export const slotX = (slot) => PRINTER_SLOTS_X[slot % SLOTS_PER_TABLE];
@@ -554,8 +557,9 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       // Dual-Nozzle: die linke Düse druckt die Grundfarbe, die rechte die zweite Farbe. Ist eine verstopft,
       // druckt die rechte alles. Während des Wechsels fährt eine Düse ein, die andere aus – die Bahn wartet so lange.
       const color = job?.status === 'printing' || job?.status === 'paused' ? part?.userData.lastPoint?.color ?? 0 : 0;
-      // Düsenwechsler (H2C): solange der Kopf zum Wechsler und zurück fährt, wartet die Bahn ebenfalls
-      const swapping = animateNozzles(rig.head, printer.clogged ? 1 : color, dt) || isChangingTool(model);
+      // Düsenwechsler (H2C) und Spülen beim Farbwechsel (eine Düse mit AMS): solange der Kopf zum Wechsler bzw.
+      // Trichter und zurück fährt, wartet die Bahn ebenfalls
+      const swapping = animateNozzles(rig.head, printer.clogged ? 1 : color, dt) || isChangingTool(model) || isPurging(model);
 
       // LED-Leiste (H2C) in der im Druckermenü gewählten Farbe
       if (model.userData.setLedColor && model.userData.ledColor !== printer.ledColor) {
@@ -583,8 +587,10 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
             part.userData.path = outline;
           }
           if (job.status === 'printing' && !swapping) {
-            // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe
-            const speed = 0.06 * (speedById(printer.speedId).percent / 100);
+            // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe. Leerfahrten zur
+            // nächsten Kontur gehen schneller, wie bei einem echten Drucker.
+            const travel = part.userData.lastPoint?.travel ? TRAVEL_FACTOR : 1;
+            const speed = 0.06 * (speedById(printer.speedId).percent / 100) * travel;
             part.userData.pathT = (part.userData.pathT + (dt * speed) / Math.max(outlineLength(outline), 0.01)) % 1;
           }
           part.userData.lastPoint = outlinePoint(outline, part.userData.pathT);
@@ -596,8 +602,14 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         const printing = state.mode === 'printing' ? part.userData.lastPoint : null;
         const change = updateToolChanger(model, printer, printing, dt);
         if (change) Object.assign(state, change);
+      } else if (model.userData.purge) {
+        // Eine Düse mit AMS: bei einer anderen Farbe erst zum Spültrichter, dann weiter
+        const printing = state.mode === 'printing' ? part.userData.lastPoint : null;
+        const purge = updatePurge(model, printer, printing, dt);
+        if (purge) Object.assign(state, purge);
       }
       rig.pose(state);
+      measureHeadSpeed(model, state, dt);
 
       if (part) {
         // Schnittebene erst nach dem Bewegen setzen, weil das Teil mit dem Bett mitfährt.
@@ -615,6 +627,21 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     }
   }
 
+  // Wie schnell die Düse gerade über das Bett fährt (m/s, leicht geglättet) – fürs Surren der Motoren.
+  // Gemessen an der tatsächlichen Bewegung: Drucken, Leerfahrten und Fahrten zum Düsenwechsler.
+  function measureHeadSpeed(model, state, dt) {
+    const last = model.userData.lastHead;
+    let measured = 0;
+    if (state.mode === 'printing' && last && dt > 0) {
+      measured = Math.min(MAX_HEAD_SPEED, Math.hypot(state.x - last.x, state.z - last.z) / dt);
+    }
+    model.userData.lastHead = state.mode === 'printing' ? { x: state.x, z: state.z } : null;
+    model.userData.headSpeed = THREE.MathUtils.damp(model.userData.headSpeed ?? 0, measured, 10, dt);
+  }
+
+  // Aktuelle Kopfgeschwindigkeit eines aufgestellten Druckers in m/s (0, wenn er steht)
+  const headSpeed = (printerId) => built.get(printerId)?.userData.headSpeed ?? 0;
+
   // Weltposition eines aufgestellten Druckers (für Kater und Geräusche), oder null
   function printerPosition(printerId) {
     const model = built.get(printerId);
@@ -624,5 +651,5 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
   // 3D-Modell eines aufgestellten Druckers (z. B. für die Drucker-Cam) oder undefined
   const modelOf = (printerId) => built.get(printerId);
 
-  return { group, sync, animate, printerPosition, modelOf };
+  return { group, sync, animate, printerPosition, headSpeed, modelOf };
 }

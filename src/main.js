@@ -28,7 +28,6 @@ import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
 import { enableShadows } from './world/util.js';
-import { speedById } from './core/catalog.js';
 import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './world/graphics.js';
 
 const WALK_SPEED = 4;          // m/s
@@ -531,7 +530,7 @@ function printerSounds(dt) {
     return {
       id: p.id,
       printing: p.job?.status === 'printing' && !!pos,
-      speed: speedById(p.speedId).percent / 100,
+      headSpeed: workshop.headSpeed(p.id),
       distance: pos ? camera.position.distanceTo(printerPos) : 99,
     };
   }), dt);
