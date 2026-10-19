@@ -25,8 +25,10 @@ export function createStaffMenu(staff, getStatus) {
   function render() {
     const problem = staff.hireProblem();
     return `
-      <p class="slots">Azubis räumen Fehldrucke weg, stechen verstopfte Düsen frei, nehmen fertige Teile ab,
-        heben runtergefallene Teile auf und holen neues Filament aus dem Lager, wenn ein Drucker darauf wartet.</p>
+      <p class="slots">Azubis räumen Fehldrucke weg und starten den Druck gleich neu, stechen verstopfte Düsen frei,
+        nehmen fertige Teile ab, heben runtergefallene Teile auf und holen neues Filament aus dem Lager, wenn ein
+        Drucker darauf wartet. Ohne Arbeit sitzen sie in ihrem Büro hinter der Ostwand – an der Werkbank oder zum
+        Zocken auf der Couch.</p>
       <div class="grid">
         ${staff.workers.map(card).join('')}
         <div class="card staff hire">
