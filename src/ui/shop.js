@@ -3,7 +3,7 @@
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
-  ACCESSORIES, FILAMENTS, FURNITURE, MATERIALS, PRINTERS, SPARE_PARTS, formatBuildVolume, speedModesFor,
+  ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SPARE_PARTS, filamentLabel, formatBuildVolume, speedModesFor,
 } from '../core/catalog.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { renderPrinterPreviews } from './printer-preview.js';
@@ -107,13 +107,14 @@ export function createShop(economy, {
 
   function renderFilaments() {
     const shelfFree = freeShelfSpace();
-    const sections = Object.values(MATERIALS).map((mat) => {
-      const cards = FILAMENTS.filter((f) => f.material === mat.name).map((f) => `
+    // Ein Abschnitt pro Bambu-Sorte (PLA Basic, PLA Matte, PLA Glow …)
+    const sections = Object.entries(FILAMENT_LINES).map(([lineId, line]) => {
+      const cards = FILAMENTS.filter((f) => f.lineId === lineId).map((f) => `
         <div class="card">
           <div class="card-head">
             <span class="spool" style="--c:${f.hex}"></span>
             <div>
-              <div class="card-title">${f.material} – ${f.color}</div>
+              <div class="card-title">${f.color}</div>
               <div class="card-sub">1 kg Spule · 1,75 mm</div>
             </div>
           </div>
@@ -125,7 +126,7 @@ export function createShop(economy, {
         </div>`).join('');
       return `
         <section>
-          <h3>${mat.name} <span class="hint">${mat.hint}</span></h3>
+          <h3>Bambu ${line.name} <span class="hint">${line.hint}</span></h3>
           <div class="grid">${cards}</div>
         </section>`;
     }).join('');
@@ -441,7 +442,7 @@ export function createShop(economy, {
       if (economy.buyAccessory(a)) toast(`Gekauft: ${a.name} – steht im Abstellraum`);
     } else if (app === 'filaments') {
       const f = FILAMENTS.find((x) => x.id === id);
-      if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${f.material} ${f.color} – liegt im Lagerregal`);
+      if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${filamentLabel(f)} – liegt im Lagerregal`);
     } else if (app === 'printers') {
       const p = PRINTERS.find((x) => x.id === id);
       if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Bestellt: ${p.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);

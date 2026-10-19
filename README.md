@@ -79,6 +79,23 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
 8. **Liefern:** Hast du alle bestellten Teile in der richtigen Farbe, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
 
+### Filament-Sorten
+
+Im **Filament-Shop** gibt es echte Bambu-Lab-Sorten mit ihren Originalfarben, sortiert nach Sorte:
+
+| Sorte | Preis je kg | Besonderheit |
+|---|---|---|
+| PLA Basic | 19,99 € | 12 Farben, der Allrounder |
+| PLA Matte | 19,99 € | samtig matt – Teile glänzen nicht |
+| PLA Silk+ | 22,99 € | seidiger Metallic-Glanz |
+| PLA Glow | 27,99 € | leuchtet im Dunkeln nach |
+| PLA Translucent | 22,99 € | durchscheinend |
+| PETG Basic / Translucent | 18,99 € / 19,99 € | robust, Translucent durchscheinend |
+| ABS | 19,99 € | hitzebeständig, braucht ein geschlossenes Gehäuse |
+| TPU 95A HF | 34,99 € | flexibel |
+
+Für Drucker und Aufträge zählt nur das Material (PLA, PETG, ABS, TPU) – PLA Glow druckt also überall, wo PLA geht. Wie die Teile aussehen, hängt aber von der Sorte ab. Kunden bestellen meist Basic-Farben, ab und zu aber eine **Effektsorte** und zahlen dafür mehr: Matte +15 %, Translucent +25 %, Silk+ +30 %, Glow +50 %.
+
 ### Kunden
 
 - **Eilaufträge** (⚡) haben eine knappe Frist, zahlen aber fast das Doppelte.
@@ -178,7 +195,7 @@ serve.ps1           Lokaler Webserver für Windows
 src/
   main.js           Verdrahtet alles: Szene, Steuerung, Spielschleife
   core/             Spiellogik, ohne Three.js und ohne DOM
-    catalog.js        Drucker, Filamente, Druckvorlagen mit Preisen und Werten
+    catalog.js        Drucker, Bambu-Filamentsorten und -farben, Druckvorlagen mit Preisen und Werten
     economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
     orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern
     two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse
@@ -209,7 +226,7 @@ src/
     nozzle-changer.js Düsenwechsler des H2C: Wechselkopf, Düsenhalter, LED-Leiste
     printer-box.js    Lieferkarton
     print-shapes.js   Formen der Druckvorlagen
-    spool.js          Filamentspule
+    spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend, durchscheinend)
     furniture.js      Regale am Drucktisch und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
@@ -227,3 +244,5 @@ src/
 ```
 
 Technik: [Three.js](https://threejs.org/) 0.169 als ES-Module direkt im Browser, ohne npm und ohne Build-Tools.
+
+Filament-Farbwerte: [Open Filament Database](https://github.com/OpenFilamentCollective/open-filament-database) (© 2025 OpenFilamentCollective, MIT-Lizenz). Preise: Stand Oktober 2026 bei 3DJake.de, Silk+, Translucent und die ABS-Spule geschätzt.

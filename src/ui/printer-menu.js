@@ -1,7 +1,7 @@
 // Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
 // Start/Pause/Abbrechen, fertiges Teil entnehmen.
 import {
-  FAILURES, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentLabel, templateById, speedById, speedModesFor,
+  FAILURES, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentColorName, filamentLabel, templateById, speedById, speedModesFor,
 } from '../core/catalog.js';
 import {
   DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, WET, plateLayout,
@@ -152,7 +152,7 @@ export function createPrinterMenu(economy) {
     const rows = template.parts.map((part, i) => {
       const buttons = p.spools.map((s, slot) => (s ? `
         <button data-color-part="${i}" data-color-slot="${slot}" class="${slots[i] === slot ? 'chosen' : ''}"
-          title="Fach ${slot + 1}">${colorDots(s.filamentId)}${filamentById(s.filamentId).color}</button>` : '')).join('');
+          title="Fach ${slot + 1}">${colorDots(s.filamentId)}${filamentColorName(filamentById(s.filamentId))}</button>` : '')).join('');
       return `<div class="color-row"><small>${part}</small><div class="color-options">${buttons}</div></div>`;
     }).join('');
     return `<div class="field">Farben
