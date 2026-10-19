@@ -1,7 +1,8 @@
 // Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
-// Start/Pause/Abbrechen, fertiges Teil entnehmen.
+// Start/Pause/Abbrechen, fertiges Teil entnehmen. Der Laser R1 hat eine eigene Karte (Platte, Text oder Motiv, Vorschau).
 import {
-  FAILURES, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentColorName, filamentLabel, templateById, speedById, speedModesFor,
+  FAILURES, LASER_MOTIFS, LASER_TEMPLATES, LASER_TEXT_MAX, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentColorName,
+  filamentLabel, templateById, speedById, speedModesFor, woodById,
 } from '../core/catalog.js';
 import {
   DAMP, GAME_MINUTES_PER_SECOND, NOZZLE_POKES, NOZZLE_WORN, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, WET, plateLayout,
@@ -12,6 +13,11 @@ import {
   waitingFilament,
 } from '../core/two-color.js';
 import { renderPartPreview } from './printer-preview.js';
+import { isLaser, laserDesign, laserJobLabel, laserProblem } from '../core/laser.js';
+import { drawSheetPreview } from '../models/laser-art.js';
+
+// Eigenen Text sicher in HTML einsetzen (Gravurtext im Eingabefeld)
+const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // Farbpunkt(e) eines Teils oder Drucks: einer, bei zweifarbigen zwei, mehrfarbig einer pro Farbe.
 // Nimmt einzelne Filament-IDs oder eine Liste.
@@ -45,8 +51,8 @@ export function createPrinterMenu(economy) {
     const job = p.job;
     if (!job && p.clogged) return { text: `🪡 Düse verstopft – am Drucker freistechen (${p.nozzlePokes}/${NOZZLE_POKES})`, cls: 'failed' };
     if (!job) return { text: 'Bereit', cls: 'ready' };
-    const count = job.count ?? 1;
-    const name = `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}`;
+    const count = job.pieces ?? job.count ?? 1;
+    const name = job.laser ? laserJobLabel(job) : `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}`;
     const pct = Math.floor(job.progress * 100);
     if (job.status === 'done') return { text: `Fertig: ${name} – ${count > 1 ? 'Teile' : 'Teil'} entnehmen (PC oder am Drucker)`, cls: 'done' };
     if (job.status === 'failed') {
@@ -62,7 +68,7 @@ export function createPrinterMenu(economy) {
     const remaining = economy.remainingMinutes(p);
     const realMinutes = remaining / GAME_MINUTES_PER_SECOND / 60;
     return {
-      text: `Druckt: ${name} – ${pct} % · noch ${formatMinutes(remaining)} (echt ca. ${formatMinutes(realMinutes)})`,
+      text: `${job.laser ? 'Lasert' : 'Druckt'}: ${name} – ${pct} % · noch ${formatMinutes(remaining)} (echt ca. ${formatMinutes(realMinutes)})`,
       cls: 'printing',
     };
   }
@@ -87,7 +93,8 @@ export function createPrinterMenu(economy) {
       return `<button class="buy" data-action="start">${count > 1 ? `${count} Teile drucken` : 'Druck starten'}</button>`;
     }
     if (job.status === 'done') {
-      return `<button class="buy" data-action="collect">${(job.count ?? 1) > 1 ? `${job.count} Teile entnehmen` : 'Teil entnehmen'}</button>`;
+      const count = job.pieces ?? job.count ?? 1;
+      return `<button class="buy" data-action="collect">${count > 1 ? `${count} Teile entnehmen` : 'Teil entnehmen'}</button>`;
     }
     if (job.status === 'failed') return '<button class="buy" disabled>Fehldruck am Drucker wegräumen</button>';
     let toggle = job.status === 'printing'
@@ -203,7 +210,94 @@ export function createPrinterMenu(economy) {
     return `<div class="field">LED-Leiste<div class="speeds leds">${buttons}</div></div>`;
   }
 
+  // ---------- Laser R1 ----------
+
+  const laserChoice = new Map(); // Drucker-ID → { templateId, text, motif } (nur Anzeige-Zustand)
+  function choiceFor(p) {
+    if (!laserChoice.has(p.id)) laserChoice.set(p.id, { templateId: LASER_TEMPLATES[0].id, text: '', motif: LASER_MOTIFS[0].id });
+    return laserChoice.get(p.id);
+  }
+
+  // Vorschau der Platte mit Gravur bzw. Schnittlinien als Bild (Holzart der eingelegten Platte)
+  function laserPreview(p, choice, template) {
+    const woodId = p.sheet?.woodId ?? 'holz-pappel';
+    const design = laserDesign({ laser: template.laser, text: choice.text || 'Dein Text', motif: choice.motif, woodId });
+    const canvas = document.createElement('canvas');
+    canvas.width = design.sheet.x;
+    canvas.height = design.sheet.y;
+    drawSheetPreview(canvas.getContext('2d'), design, 1);
+    return canvas.toDataURL();
+  }
+
+  function laserActions(p, template, choice) {
+    if (p.job) return actions(p, template);
+    const problem = laserProblem(p, template, choice);
+    return problem
+      ? `<button class="buy" disabled>${problem}</button>`
+      : `<button class="buy" data-action="laser-start">🔥 Lasern starten</button>`;
+  }
+
+  // Karte im Druckermenü: Platte, was gelasert wird (eigener Text oder Motiv), Vorschau, Geschwindigkeit, Start
+  function laserCard(p) {
+    const onTable = p.location === 'table';
+    const status = statusOf(p);
+    const choice = choiceFor(p);
+    const template = templateById(p.job?.templateId ?? choice.templateId);
+    const idle = onTable && !p.job;
+    const wood = p.sheet && woodById(p.sheet.woodId);
+    const sheet = wood
+      ? `<span class="dot" style="--c:${wood.hex}"></span>${wood.name}`
+      : 'Keine eingelegt – im Abstellraum von der Palette nehmen und in den R1 legen';
+    const options = LASER_TEMPLATES.map((t) => `<option value="${t.id}" ${t.id === template.id ? 'selected' : ''}>
+        ${t.name} · ${formatMinutes(t.minutes)}${t.pieces > 1 ? ` · ${t.pieces} Stück pro Platte` : ''}</option>`).join('');
+    const detail = template.laser === 'text'
+      ? `<label class="field">Text für die Gravur (höchstens ${LASER_TEXT_MAX} Zeichen)
+          <input type="text" class="laser-text" data-laser-text data-keep-focus="laser-text-${p.id}" maxlength="${LASER_TEXT_MAX}"
+            value="${escapeHtml(choice.text)}" placeholder="z. B. Kater Düsentrieb"></label>`
+      : `<div class="field">${template.laser === 'cut' ? 'Figur zum Ausschneiden' : 'Logo'}
+          <div class="color-options">${LASER_MOTIFS.map((m) => `
+            <button data-laser-motif="${m.id}" class="${m.id === choice.motif ? 'chosen' : ''}">${m.name}</button>`).join('')}</div></div>`;
+    const speeds = speedModesFor(p.model).map((s) => `
+      <button data-speed="${s.id}" class="${s.id === p.speedId ? 'active' : ''}" ${onTable ? '' : 'disabled'}>
+        ${s.name}<small>${s.percent} %</small>
+      </button>`).join('');
+    return `
+      <div class="card control" data-printer="${p.id}">
+        <div class="card-head">
+          <div>
+            <div class="card-title">${p.model.name} <span class="tag laser">🔥 Laser</span></div>
+            <div class="card-sub">${onTable ? `Platz ${p.slot + 1} auf dem Druckertisch` : 'Nicht aufgestellt'}</div>
+          </div>
+        </div>
+        <div class="status ${status.cls}" data-status>${escapeHtml(status.text)}</div>
+        <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
+        <dl class="specs"><dt>Holzplatte</dt><dd>${sheet}</dd></dl>
+        <label class="field">Was soll der Laser machen?
+          <select data-laser-template ${idle ? '' : 'disabled'}>${options}</select>
+        </label>
+        ${idle ? detail : ''}
+        ${idle ? `<img class="laser-preview" data-laser-preview src="${laserPreview(p, choice, template)}" alt="Vorschau der Holzplatte">` : ''}
+        <div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>
+        <div class="card-foot actions" data-laser-actions>${laserActions(p, template, choice)}</div>
+      </div>`;
+  }
+
+  // Tippen im Gravurtext: Vorschau und Startknopf sofort anpassen, ohne die Karte neu aufzubauen (sonst
+  // verliert das Textfeld den Fokus)
+  function handleInput(e) {
+    const field = e.target.closest('[data-laser-text]');
+    if (!field) return;
+    const cardEl = field.closest('[data-printer]');
+    const p = economy.printerById(Number(cardEl.dataset.printer));
+    const choice = choiceFor(p);
+    choice.text = field.value;
+    const template = templateById(choice.templateId);
+    cardEl.querySelector('[data-laser-preview]').src = laserPreview(p, choice, template);
+    cardEl.querySelector('[data-laser-actions]').innerHTML = laserActions(p, template, choice);
+  }
+
   function card(p) {
+    if (isLaser(p)) return laserCard(p);
     const onTable = p.location === 'table';
     const status = statusOf(p);
     const templateId = p.job?.templateId ?? selectedTemplate.get(p.id) ?? PRINT_TEMPLATES[0].id;
@@ -235,7 +329,7 @@ export function createPrinterMenu(economy) {
             <div class="card-sub">${onTable ? `Platz ${p.slot + 1} auf dem Druckertisch` : 'Nicht aufgestellt'}</div>
           </div>
         </div>
-        <div class="status ${status.cls}" data-status>${status.text}</div>
+        <div class="status ${status.cls}" data-status>${escapeHtml(status.text)}</div>
         <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
         ${filament}
         ${nozzleInfo(p)}
@@ -269,6 +363,11 @@ export function createPrinterMenu(economy) {
     const cardEl = e.target.closest('[data-printer]');
     if (!cardEl) return;
     const id = Number(cardEl.dataset.printer);
+    const motif = e.target.closest('[data-laser-motif]')?.dataset.laserMotif;
+    if (motif) {
+      choiceFor(economy.printerById(id)).motif = motif;
+      return true; // nur Anzeige: neu zeichnen
+    }
     const led = e.target.closest('[data-led]')?.dataset.led;
     if (led) {
       economy.setLedColor(id, led);
@@ -296,6 +395,10 @@ export function createPrinterMenu(economy) {
       const template = templateById(selectedTemplate.get(id) ?? PRINT_TEMPLATES[0].id);
       economy.startPrint(id, template, countFor(p, template));
     }
+    if (action === 'laser-start') {
+      const choice = choiceFor(p);
+      economy.startLaser(id, templateById(choice.templateId), choice);
+    }
     if (action === 'pause') economy.pausePrint(id);
     if (action === 'resume') economy.resumePrint(id);
     if (action === 'cancel' && confirm(`Druck auf ${p.model.name} abbrechen? Das Filament ist dann verloren.`)) economy.cancelPrint(id);
@@ -306,6 +409,10 @@ export function createPrinterMenu(economy) {
   // Gibt true zurück, wenn neu gezeichnet werden muss
   function handleChange(e) {
     const id = Number(e.target.closest('[data-printer]')?.dataset.printer);
+    if (e.target.closest('[data-laser-template]')) {
+      choiceFor(economy.printerById(id)).templateId = e.target.value;
+      return true;
+    }
     if (e.target.closest('[data-template]')) {
       selectedTemplate.set(id, e.target.value);
       return true;
@@ -330,5 +437,5 @@ export function createPrinterMenu(economy) {
     }
   }
 
-  return { render, handleClick, handleChange, liveUpdate };
+  return { render, handleClick, handleChange, handleInput, liveUpdate };
 }

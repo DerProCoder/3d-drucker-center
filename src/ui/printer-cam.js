@@ -4,6 +4,7 @@
 // Drucker mit KI-Kamera (X2D) liefern ein schärferes Bild, die anderen sind etwas weicher.
 import * as THREE from 'three';
 import { templateById } from '../core/catalog.js';
+import { laserJobLabel } from '../core/laser.js';
 
 const W = 480;
 const H = 270;
@@ -30,11 +31,11 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
   function statusText(p) {
     const job = p.job;
     if (!job) return 'Bereit';
-    const name = `${(job.count ?? 1) > 1 ? `${job.count} × ` : ''}${templateById(job.templateId).name}`;
+    const name = job.laser ? laserJobLabel(job) : `${(job.count ?? 1) > 1 ? `${job.count} × ` : ''}${templateById(job.templateId).name}`;
     if (job.status === 'done') return `Fertig: ${name}`;
     if (job.status === 'failed') return `Fehldruck: ${name}!`;
     const pct = Math.floor(job.progress * 100);
-    return `${job.status === 'paused' ? 'Pausiert' : 'Druckt'}: ${name} · ${pct} %`;
+    return `${job.status === 'paused' ? 'Pausiert' : job.laser ? 'Lasert' : 'Druckt'}: ${name} · ${pct} %`;
   }
 
   function overlay(p) {

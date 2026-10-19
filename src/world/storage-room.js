@@ -1,7 +1,8 @@
 // Abstellraum hinter der Südwand: Keller-Look mit Betonboden, Kalksandsteinwänden, Leuchtstoffröhre.
-// Gekaufte Spulen liegen im Schwerlastregal, Drucker stehen als Karton in der Lieferzone.
+// Gekaufte Spulen liegen im Schwerlastregal, Drucker stehen als Karton in der Lieferzone, Holzplatten für den Laser
+// liegen auf einer Palette an der Rückwand.
 import * as THREE from 'three';
-import { filamentById } from '../core/catalog.js';
+import { SHEET_MM, WOODS, filamentById } from '../core/catalog.js';
 import { WET, spoolLabel } from '../core/economy.js';
 import { createSpool } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
@@ -35,6 +36,12 @@ export const SHELF_CAPACITY = SHELF.levels.length * SHELF.perLevel; // alle Eben
 const DRYER = {
   x: -7.76, z: 10.6, w: 0.42, d: 0.5, h: 0.95,
   collider: { minX: -7.97, maxX: -7.55, minZ: 10.35, maxZ: 10.85 },
+};
+
+// Holzpalette an der Rückwand: ein Stapel Holzplatten pro Holzart (aus dem Holzshop) nebeneinander
+const WOOD_PALLET = {
+  x: -5.4, z: 14.35, w: 1.15, d: 0.42, h: 0.12, spacing: 0.37, sheetH: 0.004,
+  collider: { minX: -6.0, maxX: -4.8, minZ: 14.12, maxZ: 14.7 },
 };
 
 const ZONE = { x0: -3.1, x1: -2.05, z0: 10.55, z1: 14.2 };
@@ -204,6 +211,35 @@ function floorText(text, width) {
   return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 0.8 }));
 }
 
+// Holzpalette: Bretter mit Klötzen dazwischen, Ursprung unten in der Mitte
+function createPallet() {
+  const group = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0xb08a5a, roughness: 0.9 });
+  const { w, d, h } = WOOD_PALLET;
+  for (const sx of [-1, 0, 1]) group.add(box(0.1, h - 0.04, d, wood, sx * (w / 2 - 0.05), (h - 0.04) / 2, 0));
+  for (let i = 0; i < 5; i++) group.add(box(w, 0.02, 0.07, wood, 0, h - 0.01, -d / 2 + 0.035 + i * ((d - 0.07) / 4)));
+  return group;
+}
+
+// Schild vor einem Holzstapel: Holzart und wie viele Platten noch da sind
+function woodSign(wood, count) {
+  const texture = canvasTexture(256, 96, (ctx, w, h) => {
+    ctx.fillStyle = '#f4efe4';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = wood.hex;
+    ctx.fillRect(0, 0, 18, h);
+    ctx.fillStyle = '#2a2a2a';
+    ctx.font = '700 34px "Segoe UI", Arial, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(wood.color, 30, 32);
+    ctx.font = '500 26px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(`${count} Platte${count === 1 ? '' : 'n'}`, 30, 70);
+  });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.11), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.7 }));
+  sign.rotation.set(-0.2, Math.PI, 0); // fast aufrecht, lesbar von der Tür aus
+  return sign;
+}
+
 // ---------- Raum ----------
 
 // upgrades: Ausbau-Stand – bestimmt, wie viele Regalebenen es gibt
@@ -280,6 +316,15 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   };
   group.add(shelf);
 
+  // Holzpalette für die Platten aus dem Holzshop. Klick mit einer Platte in der Hand legt sie zurück.
+  const pallet = createPallet();
+  pallet.position.set(WOOD_PALLET.x, 0, WOOD_PALLET.z);
+  pallet.userData.interaction = {
+    hint: () => (carry.sheet ? 'Linksklick: Holzplatte zurück auf den Stapel legen' : 'Holzpalette – Platten gibt es im Holzshop am PC'),
+    action: () => { if (carry.sheet) carry.returnToStorage(); },
+  };
+  group.add(pallet);
+
   // Gerümpel in der Ecke: alte, leere Kartons
   const oldCardboard = new THREE.MeshStandardMaterial({ color: 0x9c7a4f, roughness: 0.95 });
   group.add(box(0.5, 0.4, 0.5, oldCardboard, X0 + 0.3, 0.2, Z1 - 0.35));
@@ -326,6 +371,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
     { minX: SHELF.x0, maxX: SHELF.x1, minZ: SHELF.z0, maxZ: SHELF.z1 },
     { minX: d.x - d.w / 2, maxX: d.x - d.w / 2 + 0.06, minZ: Z0, maxZ: Z0 + d.w },
     { minX: X0, maxX: X0 + 0.6, minZ: Z1 - 0.65, maxZ: Z1 },
+    WOOD_PALLET.collider,
   ]) collision.addBox(b);
 
   // ---------- Inhalt: Spulen und Kartons, wird bei jeder Änderung neu aufgebaut ----------
@@ -349,6 +395,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
       hint: () => {
         if (carry.printer || carry.furniture) return 'Hände voll – erst den Karton abstellen (Q)';
         if (carry.nozzle) return 'Hände voll – erst die Ersatzdüse zurücklegen (Q)';
+        if (carry.sheet) return 'Hände voll – erst die Holzplatte zurücklegen (Q)';
         if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
         const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
         const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
@@ -358,6 +405,27 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
         if (!carry.canTakeSpool) return;
         const taken = economy.takeSpoolFromShelf(spool.shelfSlot);
         if (taken) carry.addSpool(taken);
+      },
+    };
+  }
+
+  // Holzstapel: oberste Platte nehmen, oder die Platte aus der Hand zurücklegen
+  function woodInteraction(wood) {
+    return {
+      hint: () => {
+        if (carry.sheet) return 'Linksklick: Holzplatte zurück auf den Stapel legen';
+        if (!carry.isEmpty) return 'Hände voll – Q legt alles zurück ins Lager';
+        const count = economy.woodCount(wood.id);
+        return count ? `Linksklick: ${wood.name} nehmen (${count} da)` : `${wood.name} – leer, Nachschub im Holzshop`;
+      },
+      action: () => {
+        if (carry.sheet) {
+          carry.returnToStorage();
+          return;
+        }
+        if (!carry.isEmpty) return;
+        const sheet = economy.takeWoodSheet(wood.id);
+        if (sheet) carry.holdSheet(sheet);
       },
     };
   }
@@ -395,6 +463,24 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
       mesh.userData.interaction = spoolInteraction(spool);
       contents.add(mesh);
     }
+
+    // Holzstapel auf der Palette: einer pro Holzart, so hoch wie Platten da sind, davor ein Schild
+    WOODS.forEach((wood, i) => {
+      const count = economy.woodCount(wood.id);
+      const x = WOOD_PALLET.x + (i - (WOODS.length - 1) / 2) * WOOD_PALLET.spacing;
+      const interaction = woodInteraction(wood);
+      if (count) {
+        const h = count * WOOD_PALLET.sheetH;
+        const stack = box(SHEET_MM.x / 1000, h, SHEET_MM.y / 1000, new THREE.MeshStandardMaterial({ color: wood.hex, roughness: 0.85 }),
+          x, WOOD_PALLET.h + h / 2, WOOD_PALLET.z + 0.04);
+        stack.userData.interaction = interaction;
+        contents.add(stack);
+      }
+      const sign = woodSign(wood, count);
+      sign.position.set(x, WOOD_PALLET.h + 0.05, WOOD_PALLET.z - WOOD_PALLET.d / 2 - 0.012);
+      sign.userData.interaction = interaction;
+      contents.add(sign);
+    });
 
     const boxColliders = [];
     // Kartons in der Lieferzone: Drucker und Regale

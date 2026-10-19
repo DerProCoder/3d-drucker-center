@@ -107,11 +107,43 @@ export const FILAMENTS = [
   filament('tpu-95a', 'Gelb', '#F3E600', 34.99),
 ];
 
-export const filamentById = (id) => FILAMENTS.find((f) => f.id === id);
-// Farbe mit Sorte, z. B. „Matte Aschgrau“ (bei Basic nur „Aschgrau“)
-export const filamentColorName = (f) => (f.line.label ? `${f.line.label} ${f.color}` : f.color);
+// Findet auch Holzsorten (WOODS): fertige Laserteile haben ihr Holz dort stehen, wo gedruckte Teile ihr Filament
+// haben, damit Lager, Aufträge und Farbpunkte für beide gleich funktionieren
+export const filamentById = (id) => FILAMENTS.find((f) => f.id === id) ?? WOODS.find((w) => w.id === id);
+// Farbe mit Sorte, z. B. „Matte Aschgrau“ (bei Basic und Holz nur „Aschgrau“)
+export const filamentColorName = (f) => (f.line?.label ? `${f.line.label} ${f.color}` : f.color);
 // Voller Name, z. B. „PLA Matte Aschgrau“
 export const filamentLabel = (f) => `${f.material} ${filamentColorName(f)}`;
+
+// ---------- Laser (R1) und Holzshop ----------
+
+// Holzplatten aus dem Holzshop, Format SHEET_MM. color: Holzart (für Beschriftungen wie „Holz Birke“),
+// hex: Farbe der Platte, burn: Farbe der gelaserten Stellen
+export const SHEET_MM = { x: 300, y: 200 };
+export const WOODS = [
+  { id: 'holz-pappel', material: 'Holz', color: 'Pappel', name: 'Pappelsperrholz 3 mm', hex: '#e3c99a', burn: '#5a3a1e', price: 4 },
+  { id: 'holz-birke', material: 'Holz', color: 'Birke', name: 'Birkensperrholz 3 mm', hex: '#efdcb8', burn: '#6b4524', price: 6 },
+  { id: 'holz-walnuss', material: 'Holz', color: 'Walnuss', name: 'Walnuss-Platte 3 mm', hex: '#8a5d3b', burn: '#2b170b', price: 9 },
+];
+export const woodById = (id) => WOODS.find((w) => w.id === id);
+
+// Was der R1 aus einer Holzplatte macht. laser: 'text' (eigener Text eingraviert), 'logo' (Motiv eingraviert),
+// 'cut' (Motiv mehrfach ausgeschnitten). pieces: so viele fertige Teile gibt eine Platte, minutes: Zeit bei 100 %
+export const LASER_TEMPLATES = [
+  { id: 'wood-sign', name: 'Holzschild mit Gravur', laser: 'text', minutes: 35, pieces: 1 },
+  { id: 'wood-logo', name: 'Holzbild mit Logo', laser: 'logo', minutes: 45, pieces: 1 },
+  { id: 'wood-cutout', name: 'Ausgeschnittene Holzfiguren', laser: 'cut', minutes: 30, pieces: 6 },
+];
+export const isLaserTemplate = (template) => !!template?.laser;
+
+// Motive für Logo-Gravur und Ausschneiden (Umrisse in models/laser-motifs.js)
+export const LASER_MOTIFS = [
+  { id: 'stern', name: 'Stern' },
+  { id: 'herz', name: 'Herz' },
+  { id: 'katze', name: 'Katze' },
+  { id: 'zahnrad', name: 'Zahnrad' },
+];
+export const LASER_TEXT_MAX = 24; // so viele Zeichen passen aufs Schild
 
 // Druckgeschwindigkeit in Prozent der Standardgeschwindigkeit. Gilt für alle Drucker gleich, mehr als 166 % geht
 // nicht – außer der Drucker hat ein höheres maxSpeed (H2S und H2D Pro bis 200 %, X1E bis 300 %).
@@ -206,6 +238,13 @@ export const PRINTERS = [
     build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.3, enclosed: true,
     spoolSlots: 8, nozzles: 8, nozzleChanger: true, aiCamera: true, ledStrip: true, style: 'h2c', accent: '#b05cff',
   },
+  {
+    // R1: Laser statt Drucker – graviert und schneidet Holzplatten aus dem Holzshop (kind: 'laser', siehe core/laser.js).
+    // Steht wie ein Drucker auf dem Drucktisch, hat aber keine Spulen, sondern ein Fach für eine Holzplatte.
+    id: 'r1', name: 'Bambu Lab R1', kind: 'laser', tier: 'Laser', price: 600, laserWatts: 10, aiCamera: true,
+    build: { x: 300, y: 200, z: 10 }, materials: [], powerPerHour: 0.8, enclosed: true,
+    spoolSlots: 0, style: 'r1', accent: '#ff8a1a',
+  },
 ];
 
 // Farben der LED-Leiste (H2C), wählbar im Druckermenü. Die erste ist die Werkseinstellung.
@@ -254,7 +293,8 @@ export const PRINT_TEMPLATES = [
   },
 ];
 
-export const templateById = (id) => PRINT_TEMPLATES.find((t) => t.id === id);
+// Druck- und Laservorlagen
+export const templateById = (id) => PRINT_TEMPLATES.find((t) => t.id === id) ?? LASER_TEMPLATES.find((t) => t.id === id);
 
 export const SPOOL_GRAMS = 1000; // eine volle Spule
 

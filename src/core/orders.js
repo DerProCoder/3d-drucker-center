@@ -1,7 +1,7 @@
 // Kundenaufträge: Kunden bestellen fertige Teile in einem Material (oft auch in einer bestimmten Farbe), die man
 // bis zur Frist am PC abliefert und dafür bezahlt wird. Eilaufträge zahlen mehr, Stammkunden auch.
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
-import { FILAMENTS, PRINT_TEMPLATES, templateById } from './catalog.js';
+import { FILAMENTS, LASER_TEMPLATES, PRINT_TEMPLATES, WOODS, templateById } from './catalog.js';
 import { isMultiColor, isTwoColor } from './two-color.js';
 
 export const NEW_ORDER_EVERY = 30; // Spielminuten zwischen zwei neuen Aufträgen
@@ -15,6 +15,9 @@ const TWO_COLOR_LEVEL = 3;         // ab diesem Level bestellen Kunden auch zwei
 const TWO_COLOR_BONUS = 1.4;       // zweifarbige Teile sind aufwendiger und werden besser bezahlt
 const MULTI_COLOR_LEVEL = 6;       // ab diesem Level bestellen Kunden auch mehrfarbige Teile (dafür braucht man den H2C)
 const MULTI_COLOR_BONUS = 1.8;     // mehrfarbige Teile zahlen noch besser
+const LASER_LEVEL = 4;             // ab diesem Level bestellen Kunden auch gelaserte Holzteile (dafür braucht man den R1)
+const LASER_CHANCE = 0.25;         // so oft ist ein neuer Auftrag dann ein Laserauftrag
+const LASER_BONUS = 1.3;           // Gravieren und Schneiden wird gut bezahlt
 export const REGULAR_STARS = 3;    // ab so vielen Sternen ist man Stammkunde
 const MAX_STARS = 5;
 const MIN_STARS = -3;
@@ -80,7 +83,19 @@ const MULTI_COLOR_NOTES = [
   'Für das Kinderzimmer – je bunter, desto besser.',
 ];
 
+// Sprüche für Laseraufträge
+const LASER_NOTES = [
+  'Mit Gravur, bitte – das macht es persönlich.',
+  'Holz ist das neue Plastik!',
+  'Bitte sauber geschnitten, ohne Brandflecken am Rand.',
+];
+
+// Wie viele Platten bzw. Drucke ein Auftrag braucht (Laser: eine Platte gibt mehrere Teile)
+const runsFor = (template, quantity) => (template.laser ? Math.ceil(quantity / template.pieces) : quantity);
+
 export function unitPrice(template) {
+  // Laser: Holz + Laserzeit + Pauschale, aufgeteilt auf die Teile einer Platte
+  if (template.laser) return ((7 + template.minutes * 0.16) / template.pieces + 2) * LASER_BONUS;
   // Grundpreis pro Teil in €: Material + Druckzeit + Pauschale (≈ 15 € pro Druckstunde, Miete 3 €/h)
   const base = 4 + template.grams * 0.1 + template.minutes * 0.16;
   if (isMultiColor(template)) return base * MULTI_COLOR_BONUS;
@@ -139,6 +154,7 @@ export class Orders {
     if (!easy && Math.random() < SPECIAL_CHANCE) {
       return this.createSpecial(pick(SPECIALS.filter((s) => (s.minLevel ?? 1) <= level)));
     }
+    if (!easy && level >= LASER_LEVEL && Math.random() < LASER_CHANCE) return this.createLaserOrder();
 
     // Zweifarbige Teile gibt es erst ab TWO_COLOR_LEVEL (man braucht dafür mindestens ein AMS), und nur bei jedem
     // zweiten Auftrag als Möglichkeit, damit sie nicht überhandnehmen
@@ -207,9 +223,36 @@ export class Orders {
   // Frist: doppelte Druckzeit für alle Teile plus Zeit fürs Einkaufen und Aufstellen – bei Eile deutlich knapper.
   // Zweifarbig zählt die Dual-Nozzle-Druckzeit: Eilaufträge schafft man dann praktisch nur mit zwei Düsen.
   deadline(template, quantity, rush) {
+    const runs = runsFor(template, quantity);
     return rush
-      ? Math.round(template.minutes * quantity * 1.2 + 60)
-      : Math.round(template.minutes * quantity * 2 + 180);
+      ? Math.round(template.minutes * runs * 1.2 + 60)
+      : Math.round(template.minutes * runs * 2 + 180);
+  }
+
+  // Laserauftrag: Holzschild, Holzbild oder ausgeschnittene Figuren, in einer bestimmten Holzart oder egal welche
+  createLaserOrder() {
+    const template = pick(LASER_TEMPLATES);
+    const quantity = template.pieces > 1
+      ? template.pieces * (1 + Math.floor(Math.random() * 2)) - Math.floor(Math.random() * 3) // z. B. 4–12 Figuren
+      : 1 + Math.floor(Math.random() * 3);
+    const anyWood = Math.random() < ANY_COLOR_CHANCE;
+    const rush = Math.random() < RUSH_CHANCE;
+    const customer = this.pickCustomer();
+    const bonus = 0.9 + Math.random() * 0.4;
+    const pay = unitPrice(template) * quantity * bonus * (rush ? RUSH_BONUS : 1);
+    return {
+      id: this.nextId++,
+      customer,
+      templateId: template.id,
+      quantity,
+      material: 'Holz',
+      filamentId: anyWood ? null : pick(WOODS).id,
+      filamentId2: null,
+      rush,
+      note: pick(Math.random() < 0.5 ? LASER_NOTES : CUSTOMERS[customer]),
+      reward: Math.round(pay * this.progress.rewardMultiplier * this.customerFactor(customer)),
+      minutesLeft: this.deadline(template, quantity, rush),
+    };
   }
 
   orderById(id) {
@@ -228,7 +271,8 @@ export class Orders {
   // Grund, warum der Auftrag nicht geliefert werden kann, oder null
   deliveryProblem(order) {
     const have = this.partsReady(order);
-    if (have < order.quantity) return `Noch ${order.quantity - have} × drucken`;
+    const verb = templateById(order.templateId)?.laser ? 'lasern' : 'drucken';
+    if (have < order.quantity) return `Noch ${order.quantity - have} × ${verb}`;
     return null;
   }
 

@@ -14,6 +14,7 @@ import {
   createLabel, createVents, createFanGrille, createDualToolhead,
 } from './printer-parts.js';
 import { createChangerToolhead, createLedStrip, createNozzleRack } from './nozzle-changer.js';
+import { buildLaserR1 } from './laser-model.js';
 
 // Lüftungsschlitze an beiden Seiten eines Sockels (Mitte bei x, Seitenflächen bei x ± w/2)
 function addSideVents(g, m, x, w, y, z, count, length) {
@@ -756,6 +757,7 @@ function buildBambuCube(g, variant) {
 
 const BUILDERS = {
   'a1-mini': (g) => buildA1Mini(g),
+  r1: (g) => buildLaserR1(g, createMaterials()),
   a1: (g) => buildA1(g, A1_VARIANTS.a1),
   a2l: (g) => buildA1(g, A1_VARIANTS.a2l),
   p1p: (g) => buildBambuCube(g, CUBE_VARIANTS.p1p),

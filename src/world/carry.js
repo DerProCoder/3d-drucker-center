@@ -1,8 +1,9 @@
 // Was der Spieler gerade in der Hand hat: entweder einen Karton (Drucker oder Regal), bis zu MAX_SPOOLS
-// Filamentspulen oder eine Ersatzdüse. Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
-// Spule: { filamentId, grams, moisture }
+// Filamentspulen, eine Ersatzdüse oder eine Holzplatte für den Laser. Bei mehreren Spulen wählt das Mausrad aus,
+// welche als Nächstes eingelegt wird.
+// Spule: { filamentId, grams, moisture } · Holzplatte: { woodId }
 import * as THREE from 'three';
-import { filamentById } from '../core/catalog.js';
+import { SHEET_MM, filamentById, woodById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
 import { createPrinterModel } from '../models/printer-model.js';
@@ -20,13 +21,14 @@ export class Carry {
     this.unboxed = false;    // Drucker ohne Karton (vom Tisch oder Boden aufgehoben)
     this.furnitureId = null; // Regalkarton
     this.nozzle = false;     // Ersatzdüse in der Hand
+    this.sheet = null;       // Holzplatte in der Hand ({ woodId })
     this.spools = [];
     this.selected = 0;
     this.mesh = null;
   }
 
   get isEmpty() {
-    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.spools.length;
+    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.sheet && !this.spools.length;
   }
 
   get printer() {
@@ -42,7 +44,7 @@ export class Carry {
   }
 
   get canTakeSpool() {
-    return this.printerId === null && this.furnitureId === null && !this.nozzle && this.spools.length < MAX_SPOOLS;
+    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.sheet && this.spools.length < MAX_SPOOLS;
   }
 
   get selectedSpool() {
@@ -107,6 +109,20 @@ export class Carry {
     this.refresh();
   }
 
+  holdSheet(sheet) {
+    if (!this.isEmpty || !sheet) return false;
+    this.sheet = sheet;
+    this.refresh();
+    return true;
+  }
+
+  releaseSheet() {
+    const sheet = this.sheet;
+    this.sheet = null;
+    this.refresh();
+    return sheet;
+  }
+
   // Mausrad: nächste/vorige Spule wählen
   cycle(direction) {
     if (this.spools.length < 2) return;
@@ -122,6 +138,7 @@ export class Carry {
       this.economy.returnNozzle();
       this.releaseNozzle();
     }
+    if (this.sheet) this.economy.returnWoodSheet(this.releaseSheet());
     const spools = this.spools;
     this.spools = [];
     this.selected = 0;
@@ -165,6 +182,18 @@ export class Carry {
       nozzle.rotation.set(0.3, 0, -0.4);
       this.show(nozzle);
       this.setInfo('In der Hand: Ersatzdüse – auf einen Drucker klicken, um die Düse zu tauschen · Q: zurück ins Regal');
+      return;
+    }
+    if (this.sheet) {
+      const wood = woodById(this.sheet.woodId);
+      const plank = new THREE.Mesh(
+        new THREE.BoxGeometry(SHEET_MM.x / 1000, 0.003, SHEET_MM.y / 1000),
+        new THREE.MeshStandardMaterial({ color: wood.hex, roughness: 0.8 }),
+      );
+      plank.position.set(0.05, -0.26, -0.45);
+      plank.rotation.set(0.5, 0.3, 0); // schräg vor dem Bauch, wie mit beiden Händen gehalten
+      this.show(plank);
+      this.setInfo(`In der Hand: ${wood.name} – in den Laser R1 legen · Q: zurück auf den Stapel`);
       return;
     }
     if (!this.spools.length) {

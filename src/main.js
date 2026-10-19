@@ -71,6 +71,7 @@ achievements.onUnlock = (a) => {
 const autosave = startAutosave(game, hud.showSaved, () => ({
   spools: [...carry.spools, ...workers.carriedSpools()],
   nozzles: carry.nozzle ? 1 : 0,
+  sheet: carry.sheet,
 }));
 
 // Spielereignisse → Meldungen, Geräusche und Erfolge
@@ -88,7 +89,7 @@ economy.onEvent = (type, d) => {
       hud.notify(`✔ ${name}: ${d.count > 1 ? `${d.count} × ` : ''}${d.template.name} fertig`, 'good');
       sound.play('done');
       achievements.add('printsDone');
-      achievements.add('grams', d.template.grams * d.count);
+      achievements.add('grams', (d.template.grams ?? 0) * d.count); // Laser: kein Filament
       if (d.template.id === 'benchy') achievements.add('benchys', d.count);
       if (d.speedId === 'ludicrous') achievements.add('ludicrousDone');
       break;

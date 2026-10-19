@@ -133,6 +133,23 @@ Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Dr
 - **Ersatzteilregal** (12 Ersatzdüsen): Gekaufte Ersatzdüsen landen hier. Klick nimmt eine Düse in die Hand.
 - Ein **leeres** Regal kannst du wieder aufheben und woanders hinstellen.
 
+### Laser R1 und Holzshop
+
+Neben Druckern gibt es einen Laser: den **Bambu Lab R1** (600 €) aus der PC-App **Holzshop**. Er kommt als Karton und steht auf dem Druckertisch wie ein Drucker. Statt Filament bearbeitet er **Holzplatten** (300 × 200 mm), die es ebenfalls im Holzshop gibt: Pappel (4 €), Birke (6 €) und Walnuss (9 €). Gekaufte Platten liegen auf der **Holzpalette** an der Rückwand des Abstellraums, bis zu 30 Stück.
+
+1. **Platte holen:** Im Abstellraum auf den Stapel der gewünschten Holzart klicken – du hast die Platte in der Hand (`Q` legt sie zurück).
+2. **Einlegen:** Auf den R1 klicken. Liegt schon eine Platte drin, tauschst du sie.
+3. **Lasern:** Am PC im **Druckermenü** wählst du, was der Laser machen soll:
+   - **Holzschild mit Gravur:** Du tippst einen **eigenen Text** ein (bis 24 Zeichen), der mit Rahmen eingraviert wird.
+   - **Holzbild mit Logo:** Ein Motiv – Stern, Herz, Katze oder Zahnrad – wird groß eingraviert.
+   - **Ausgeschnittene Holzfiguren:** Das Motiv wird **6-mal ausgeschnitten** – eine Platte gibt 6 Figuren.
+   
+   Eine Vorschau zeigt die Platte genau so, wie sie wird. Dann **Lasern starten**.
+4. **Zuschauen:** Durch das orange Laserschutzfenster siehst du den blauen Strahl. Wie bei einem echten Laser fährt der Kopf erst alle **Außenkonturen** ab, dann die **Innenkonturen** (Innenkante des Rahmens, Löcher in Buchstaben) und füllt beim Gravieren zuletzt die Flächen Zeile für Zeile – nur dort, wo eingebrannt wird. Dazwischen fährt er mit ausgeschaltetem Strahl schnell hinüber. Beim Schneiden kommen erst alle Außenumrisse, dann die Löcher.
+5. **Entnehmen:** Fertige Teile per Klick auf den R1 oder im Druckermenü entnehmen – das machen auch die Azubis.
+
+Ab **Level 4** bestellen Kunden auch gelaserte Holzteile (🔥) – Schilder, Holzbilder oder ganze Sätze ausgeschnittener Figuren, in einer bestimmten Holzart oder egal welcher. Der Laser hat keine Pannen und keine Düse.
+
 ### Kater Düsentrieb
 
 Der Hallenkater streunt herum, macht Nickerchen und springt gern auf den Druckertisch. Fertige Teile, die zu lange auf dem Drucker liegen, schubst er dabei auch mal auf den Boden – dann einfach aufheben. Streicheln mit Linksklick.
@@ -199,6 +216,7 @@ src/
     economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
     orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern
     two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse
+    laser.js          Laser R1: Holzplatte im Gerät, Laseraufträge (Text, Logo, Ausschneiden)
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
     upgrades.js       Ausbau: Drucktische, Regalebenen
@@ -211,9 +229,10 @@ src/
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
-    storage-room.js   Abstellraum mit Regal und Lieferzone
+    laser.js          Laser R1: Holzplatte mit Gravur bzw. Schnittlinien, Laserkopf und Strahl
+    storage-room.js   Abstellraum mit Regal, Holzpalette und Lieferzone
     office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
-    carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen oder eine Düse
+    carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder eine Holzplatte
     cat.js            Kater Düsentrieb
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
     workers.js        Azubis als Figuren: Laufwege durch Halle, Lager und Büro, Arbeiten, Spule tragen, Sitzen, Zocken
@@ -224,6 +243,8 @@ src/
   models/           Reine 3D-Modelle, ohne Spiellogik
     printer-model.js, printer-parts.js   Drucker
     nozzle-changer.js Düsenwechsler des H2C: Wechselkopf, Düsenhalter, LED-Leiste
+    laser-model.js    Laser R1: Gehäuse mit Laserschutzfenster, Wabenbett, Laserkopf
+    laser-art.js      Was der Laser auf die Platte bringt: Motive, Text, Gravurzeilen, Schnittbahn
     printer-box.js    Lieferkarton
     print-shapes.js   Formen der Druckvorlagen
     spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend, durchscheinend)
@@ -233,7 +254,7 @@ src/
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
-    shop.js           PC-Desktop mit Apps, Taskleiste und Mauszeiger
+    shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger
     desktop.js        Bildschirm und App-Symbole
     printer-menu.js · orders-menu.js · upgrades-menu.js · staff-menu.js   Apps Druckermenü, Aufträge, Ausbau, Personal
     printer-cam.js    App Drucker-Cam

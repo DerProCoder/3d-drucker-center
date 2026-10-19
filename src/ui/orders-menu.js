@@ -27,6 +27,7 @@ export function createOrdersMenu(orders, economy) {
       const f = filamentById(order.filamentId);
       return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)}`;
     }
+    if (t.laser) return `${order.material}, Holzart egal`;
     if (order.material) return `${order.material}, Farbe egal`;
     return t.materials.join(' / ');
   }
@@ -49,6 +50,7 @@ export function createOrdersMenu(orders, economy) {
       order.special ? '<span class="tag special">🤪 Sonderwunsch</span>' : '',
       isTwoColor(t) ? '<span class="tag two-color">🎨 Zweifarbig</span>' : '',
       isMultiColor(t) ? `<span class="tag two-color">🌈 ${t.colors} Farben</span>` : '',
+      t.laser ? '<span class="tag laser">🔥 Laser R1</span>' : '',
     ].join('');
     // Zweifarbig: mit Dual-Nozzle deutlich schneller als mit einer Düse und AMS. Mehrfarbig geht nur mit
     // so vielen AMS-Fächern wie Farben, also auf dem H2C mit Düsenwechsler.
@@ -67,7 +69,9 @@ export function createOrdersMenu(orders, economy) {
         ${order.note ? `<p class="order-note">„${order.note}“</p>` : ''}
         <dl class="specs">
           <dt>Gewünscht</dt><dd>${wantText(order, t)}</dd>
-          <dt>Pro Teil</dt><dd>${t.grams} g · ${time}</dd>
+          ${t.laser
+            ? `<dt>Pro Holzplatte</dt><dd>${t.pieces > 1 ? `${t.pieces} Stück · ` : ''}${formatMinutes(t.minutes)} mit dem Laser R1</dd>`
+            : `<dt>Pro Teil</dt><dd>${t.grams} g · ${time}</dd>`}
           <dt>Fertig im Lager</dt><dd>${Math.min(have, order.quantity)} / ${order.quantity}</dd>
         </dl>
         <div class="status ${urgent ? 'urgent' : 'idle'}" data-deadline>${deadlineText(order)}</div>

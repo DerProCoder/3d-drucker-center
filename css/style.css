@@ -499,6 +499,17 @@ canvas { display: block; }
   background: radial-gradient(circle, #555 0 22%, var(--c) 24% 90%, #444 92%);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
 }
+/* Holzplatte im Holzshop: Fläche in Holzfarbe mit angedeuteter Maserung */
+.wood-swatch {
+  flex: none;
+  width: 48px;
+  height: 32px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(175deg, rgba(90, 55, 25, 0.18) 0 2px, transparent 2px 7px),
+    var(--c);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
 
 .product-image {
   display: block;
@@ -597,13 +608,24 @@ canvas { display: block; }
   opacity: 0.95;
 }
 
-.field select {
+.field select,
+.field input.laser-text {
   padding: 7px 8px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 5px;
   background: #1f2228;
   color: #eee;
   font: inherit;
+}
+/* Laser R1: Vorschau der Holzplatte mit Gravur bzw. Schnittlinien */
+.laser-preview {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  aspect-ratio: 3 / 2;
+  margin: 2px 0 4px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .speeds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
@@ -672,6 +694,7 @@ canvas { display: block; }
 .color-options button:hover { background: #46494f; }
 .color-options button.chosen { border-color: #3bd16f; background: #1d7a3c; color: #fff; }
 .tag.two-color { background: linear-gradient(90deg, #2f6fd6, #d62f2f); color: #fff; }
+.tag.laser { background: linear-gradient(90deg, #ff8a1a, #b8692f); color: #fff; }
 
 .actions { justify-content: flex-end; }
 .secondary, .danger {

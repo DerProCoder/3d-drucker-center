@@ -9,6 +9,7 @@ import {
   isMultiColor, isTwoColor,
   multiColorProblem, multiColorSlots, partColors, waitingFilament,
 } from './two-color.js';
+import { createLaserJob, isLaser, laserProblem } from './laser.js';
 
 
 // Start klein: 150 €, ein A1 mini auf dem ersten Tisch und eine Rolle PLA schon eingelegt (siehe giveStarterKit)
@@ -26,6 +27,7 @@ export const NOZZLE_LIFE_HOURS = 48; // so viele Druckstunden (bei 100 %) hält 
 export const NOZZLE_WORN = 0.75;   // ab diesem Verschleiß steigt das Fehldruckrisiko
 export const WASTE_BIN_GRAMS = 100; // so viel Spülabfall passt in den Mülleimer (eine Düse mit AMS)
 export const WASTE_EMPTY_AT = 70;   // ab so viel Gramm leeren Azubis den Eimer bzw. kann man ihn am Drucker leeren
+export const WOOD_STOCK_MAX = 30;   // so viele Holzplatten passen auf die Palette im Abstellraum
 export const PLATE_GAP = 5;        // mm Abstand zwischen Teilen auf der Druckplatte
 export const MAX_PER_PLATE = 16;   // mehr Teile auf einmal lässt das Spiel nicht zu
 const BATCH_TIME_SHARE = 0.9;      // jedes weitere Teil braucht 90 % der Zeit (Aufheizen, Kalibrieren nur einmal)
@@ -88,6 +90,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   clogged / nozzlePokes: verstopfte Düse und wie oft schon gestochert wurde
 //   nozzleWear: Verschleiß der Düse 0…1 – bei 1 ist sie hinüber und muss getauscht werden
 //   waste: Gramm Spülabfall im Mülleimer (nur eine Düse mit AMS), bei WASTE_BIN_GRAMS ist er voll
+//   sheet: eingelegte Holzplatte { woodId } (nur Laser, siehe core/laser.js) oder null
 //   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
 //          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament' | 'waste', failure?: Schlüssel aus FAILURES,
 //          zweifarbig zusätzlich filamentId2, slot2 und missingFilament (auf welche Spule der Drucker wartet),
@@ -112,6 +115,7 @@ export class Economy {
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
     this.shelf = [];                 // Spulen im Regal
+    this.woodStock = {};             // Holzplatten im Abstellraum: Holz-ID → Anzahl
     this.finishedParts = new Map();
     this.looseParts = [];
     this.accessories = new Set();    // gekauftes Zubehör (IDs aus ACCESSORIES)
@@ -264,7 +268,7 @@ export class Economy {
       id: this.nextPrinterId++, model, location: 'storage', slot: null,
       spools: Array(model.spoolSlots).fill(null), activeSlot: 0, accentSlot: null, multiSlots: null, speedId: 'standard', job: null,
       ledColor: model.ledStrip ? LED_COLORS[0].id : null,
-      clogged: false, nozzlePokes: 0, nozzleWear: 0, waste: 0, storageSpot: this.freeStorageSpot(),
+      clogged: false, nozzlePokes: 0, nozzleWear: 0, waste: 0, sheet: null, storageSpot: this.freeStorageSpot(),
     };
     this.printers.push(printer);
     this.notify();
@@ -281,6 +285,69 @@ export class Economy {
   buyFilament(filament) {
     if (!this.withdraw(filament.price)) return false;
     this.storeSpool({ filamentId: filament.id, grams: SPOOL_GRAMS, moisture: 0 });
+    this.notify();
+    return true;
+  }
+
+  // ---------- Holz und Laser ----------
+
+  woodCount(woodId) {
+    return this.woodStock[woodId] ?? 0;
+  }
+
+  get woodSheets() {
+    return Object.values(this.woodStock).reduce((a, b) => a + b, 0);
+  }
+
+  // Holzplatten landen als Stapel im Abstellraum
+  buyWood(wood) {
+    if (this.woodSheets >= WOOD_STOCK_MAX || !this.withdraw(wood.price)) return false;
+    this.woodStock[wood.id] = this.woodCount(wood.id) + 1;
+    this.notify();
+    return true;
+  }
+
+  // Eine Platte vom Stapel nehmen (in die Hand) – gibt { woodId } oder null zurück
+  takeWoodSheet(woodId) {
+    if (!this.woodCount(woodId)) return null;
+    this.woodStock[woodId]--;
+    this.notify();
+    return { woodId };
+  }
+
+  returnWoodSheet(sheet) {
+    if (!sheet) return;
+    this.woodStock[sheet.woodId] = this.woodCount(sheet.woodId) + 1;
+    this.notify();
+  }
+
+  // Platte in den Laser legen. Gibt die verdrängte Platte zurück (oder null). Nicht, solange er lasert.
+  insertSheet(printerId, sheet) {
+    const p = this.printerById(printerId);
+    if (!isLaser(p) || this.isBusy(p)) return sheet;
+    const previous = p.sheet;
+    p.sheet = { woodId: sheet.woodId };
+    this.notify();
+    return previous;
+  }
+
+  removeSheet(printerId) {
+    const p = this.printerById(printerId);
+    if (!isLaser(p) || this.isBusy(p) || !p.sheet) return null;
+    const sheet = p.sheet;
+    p.sheet = null;
+    this.notify();
+    return sheet;
+  }
+
+  // Laserauftrag starten. options: { text, motif } (siehe core/laser.js)
+  startLaser(printerId, template, options = {}) {
+    const p = this.printerById(printerId);
+    if (!isLaser(p) || laserProblem(p, template, options)) return false;
+    p.job = createLaserJob(p, template, options);
+    p.sheet = null; // die Platte ist jetzt das Werkstück
+    const printing = this.printers.filter((x) => x.job?.status === 'printing').length;
+    this.emit('print-started', { printer: p, template, printing });
     this.notify();
     return true;
   }
@@ -466,6 +533,7 @@ export class Economy {
 
   // Grund, warum der Druck nicht starten kann, oder null
   printProblem(printer, template, count = 1) {
+    if (isLaser(printer)) return laserProblem(printer, template);
     if (printer.location !== 'table') return 'Drucker ist nicht aufgestellt';
     if (this.isBusy(printer)) return 'Druckt gerade';
     if (printer.job?.status === 'done') return 'Erst das fertige Teil entnehmen';
@@ -557,7 +625,7 @@ export class Economy {
 
   startPrint(printerId, template, count = 1) {
     const p = this.printerById(printerId);
-    if (this.printProblem(p, template, count)) return false;
+    if (isLaser(p) || this.printProblem(p, template, count)) return false; // Laser: startLaser
     const spool = this.activeSpool(p);
     p.job = {
       templateId: template.id, count, filamentId: spool.filamentId, slot: p.activeSlot,
@@ -607,8 +675,9 @@ export class Economy {
   collectPart(printerId) {
     const p = this.printerById(printerId);
     if (p.job?.status !== 'done') return;
-    this.addPart(p.job.templateId, partColors(p.job), p.job.count ?? 1);
-    this.emit('part-collected', { printer: p, templateId: p.job.templateId, count: p.job.count ?? 1 });
+    const count = p.job.pieces ?? p.job.count ?? 1; // Laser: eine Platte gibt mehrere Teile
+    this.addPart(p.job.templateId, partColors(p.job), count);
+    this.emit('part-collected', { printer: p, templateId: p.job.templateId, count });
     p.job = null;
     this.notify();
   }
@@ -658,6 +727,18 @@ export class Economy {
       const count = job.count ?? 1;
       const minutes = this.jobMinutes(p, template, count);
       let step = Math.min((gameMinutes * speedById(p.speedId).percent / 100) / minutes, 1 - job.progress);
+
+      // Laser: kein Filament, keine Düse, keine Pannen – nur die Zeit läuft
+      if (isLaser(p)) {
+        job.progress += step;
+        if (job.progress >= 1 - 1e-9) {
+          job.progress = 1;
+          job.status = 'done';
+          this.emit('print-done', { printer: p, template, count: job.pieces, speedId: p.speedId, laser: true });
+          changed = true;
+        }
+        continue;
+      }
 
       // Filament verbrauchen, bei zwei- und mehrfarbigen Drucken aus mehreren Fächern. Ist eine Spule leer, füllt
       // das AMS aus einem Fach mit gleicher Sorte nach, sonst wartet der Drucker auf eine neue Spule.
@@ -987,7 +1068,7 @@ export class Economy {
   // Der Kater wirft ein fertiges Teil vom Druckbett (bei mehreren nur eins). x/z: wo es auf dem Boden landet.
   knockPartOff(printerId, x, z) {
     const p = this.printerById(printerId);
-    if (p?.job?.status !== 'done') return false;
+    if (p?.job?.status !== 'done' || isLaser(p)) return false; // in den geschlossenen Laser kommt der Kater nicht
     this.looseParts.push({
       id: this.nextLooseId++, templateId: p.job.templateId, filamentId: p.job.filamentId,
       filamentId2: p.job.filamentId2 ?? null, x, z, rotY: this.random() * Math.PI * 2,

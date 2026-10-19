@@ -27,7 +27,8 @@ export function deleteSave() {
   storage()?.removeItem(KEY);
 }
 
-// carried: { spools, nozzles } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“
+// carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
+// eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
 export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
@@ -80,9 +81,11 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
         nozzlePokes: p.nozzlePokes,
         nozzleWear: p.nozzleWear ?? 0,
         waste: p.waste ?? 0,
+        sheet: p.sheet ? { ...p.sheet } : null,
         job: p.job ? { ...p.job } : null,
       })),
       shelf,
+      woodStock: woodStockWith(economy.woodStock, carried.sheet),
       finishedParts: [...economy.finishedParts],
       looseParts: economy.looseParts.map((l) => ({ ...l })),
       accessories: [...economy.accessories],
@@ -166,6 +169,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     .filter((p) => p.model); // Modelle, die es nicht mehr gibt, fallen weg
   for (const p of economy.printers) delete p.modelId;
   economy.shelf = e.shelf ?? [];
+  economy.woodStock = { ...(e.woodStock ?? {}) };
   economy.finishedParts = new Map(e.finishedParts);
   economy.looseParts = e.looseParts ?? [];
   economy.accessories = new Set(e.accessories ?? []);
@@ -239,4 +243,11 @@ export function startAutosave(game, onSaved, getCarried = () => []) {
   setInterval(save, AUTOSAVE_SECONDS * 1000);
   window.addEventListener('beforeunload', save);
   return { save, disable: () => { enabled = false; } };
+}
+
+// Holzlager zum Speichern, mit der Platte, die gerade jemand in der Hand hat
+function woodStockWith(stock, sheet) {
+  const result = { ...stock };
+  if (sheet) result[sheet.woodId] = (result[sheet.woodId] ?? 0) + 1;
+  return result;
 }

@@ -1,11 +1,14 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
-// „Filament-Shop“ (mit Zubehör) und „Drucker-Shop“ zum Einkaufen, „Aufträge“ und „Druckermenü“ zum Steuern,
+// „Filament-Shop“ (mit Zubehör), „Drucker-Shop“ und „Holzshop“ (Laser R1 und Holzplatten) zum Einkaufen,
+// „Aufträge“ und „Druckermenü“ zum Steuern,
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
-  ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SPARE_PARTS, filamentLabel, formatBuildVolume, speedModesFor,
+  ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
+  speedModesFor,
 } from '../core/catalog.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
+import { WOOD_STOCK_MAX } from '../core/economy.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
@@ -26,6 +29,7 @@ const speedRange = (model) => {
 const APPS = [
   { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
+  { id: 'wood', name: 'Holzshop', icon: 'wood', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
@@ -183,7 +187,7 @@ export function createShop(economy, {
   function renderPrinters() {
     printerImages ??= renderPrinterPreviews(PRINTERS);
     const slots = freePrinterSlots();
-    const cards = PRINTERS.map((p) => {
+    const cards = PRINTERS.filter((p) => !p.kind).map((p) => { // der Laser steht im Holzshop
       let blocked = null;
       if (slots <= 0) blocked = 'Kein Platz mehr';
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
@@ -243,6 +247,59 @@ export function createShop(economy, {
         <div class="grid">${furniture}</div></section>`;
   }
 
+  // Holzshop: der Laser R1 (kommt als Karton wie ein Drucker) und Holzplatten (landen auf der Palette im Abstellraum)
+  function renderWood() {
+    printerImages ??= renderPrinterPreviews(PRINTERS);
+    const slots = freePrinterSlots();
+    const lasers = PRINTERS.filter((p) => p.kind === 'laser').map((p) => {
+      let blocked = null;
+      if (slots <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
+      return `
+        <div class="card printer">
+          ${printerImages.has(p.id) ? `<img class="product-image" src="${printerImages.get(p.id)}" alt="${p.name}">` : ''}
+          <div class="card-head">
+            <span class="badge" style="--c:${p.accent}">${p.tier}</span>
+            <div class="card-title">${p.name}</div>
+          </div>
+          <dl class="specs">
+            <dt>Kann</dt><dd>Text eingravieren, Logos gravieren, Figuren ausschneiden</dd>
+            <dt>Werkstück</dt><dd>Holzplatte ${SHEET_MM.x} × ${SHEET_MM.y} mm</dd>
+            <dt>Laser</dt><dd>${p.laserWatts} W Diodenlaser, Sichtfenster mit Laserschutzglas</dd>
+            ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – gestochen scharfes Bild in der Drucker-Cam</dd>' : ''}
+            <dt>Strom beim Lasern</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
+          </dl>
+          <div class="card-foot">
+            <span class="stock">Im Besitz: ${economy.printersOfModel(p.id)}</span>
+            <span class="price">${euro.format(p.price)}</span>
+            ${buyButton(`laser:${p.id}`, blocked)}
+          </div>
+        </div>`;
+    }).join('');
+    const full = economy.woodSheets >= WOOD_STOCK_MAX;
+    const woods = WOODS.map((w) => `
+      <div class="card">
+        <div class="card-head">
+          <span class="wood-swatch" style="--c:${w.hex}"></span>
+          <div>
+            <div class="card-title">${w.name}</div>
+            <div class="card-sub">Platte ${SHEET_MM.x} × ${SHEET_MM.y} mm · gelaserte Stellen werden <span class="dot" style="--c:${w.burn}"></span> dunkel</div>
+          </div>
+        </div>
+        <div class="card-foot">
+          <span class="stock">Auf der Palette: ${economy.woodCount(w.id)}</span>
+          <span class="price">${euro.format(w.price)}</span>
+          ${buyButton(`wood:${w.id}`, full ? 'Palette voll' : economy.canAfford(w.price) ? null : 'Zu wenig Geld')}
+        </div>
+      </div>`).join('');
+    return `
+      <p class="slots">Platte im Abstellraum von der Palette nehmen, in den R1 legen und am PC im Druckermenü lasern ·
+        Freie Plätze auf dem Druckertisch: <strong>${slots}</strong></p>
+      <section><h3>Laser <span class="hint">Steht auf dem Druckertisch wie ein Drucker</span></h3><div class="grid">${lasers}</div></section>
+      <section><h3>Holzplatten <span class="hint">Lieferung auf die Palette im Abstellraum · ${economy.woodSheets} / ${WOOD_STOCK_MAX} Platten</span></h3>
+        <div class="grid">${woods}</div></section>`;
+  }
+
   function renderAchievements() {
     const cards = ACHIEVEMENTS.map((a) => {
       const done = achievements.unlocked.has(a.id);
@@ -281,10 +338,15 @@ export function createShop(economy, {
     balanceEl.textContent = !info.live ? '' : economy.unlimited ? '∞ €' : euro.format(economy.money);
     const scroll = contentEl.scrollTop;
     const renderers = {
-      filaments: renderFilaments, printers: renderPrinters, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
+      filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
       cam: cam.render, dev: renderDev,
     };
+    // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
+    const typing = document.activeElement?.closest?.('[data-keep-focus]');
+    const focus = typing && contentEl.contains(typing)
+      ? { key: typing.dataset.keepFocus, start: typing.selectionStart, end: typing.selectionEnd }
+      : null;
     // Wirft eine App beim Zeichnen, nicht den Inhalt der vorher offenen App stehen lassen
     try {
       contentEl.innerHTML = renderers[app]();
@@ -295,6 +357,11 @@ export function createShop(economy, {
     }
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     contentEl.scrollTop = scroll;
+    const input = focus && contentEl.querySelector(`[data-keep-focus="${focus.key}"]`);
+    if (input) {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(focus.start, focus.end);
+    }
   }
 
   // Entwicklermenü: unendlich Geld, Geld dazu, Lieferungen sofort
@@ -381,6 +448,7 @@ export function createShop(economy, {
   });
   contentEl.addEventListener('input', (e) => {
     if (app === 'notes') notes.handleInput(e);
+    if (app === 'control') printerMenu.handleInput(e);
   });
 
   let liveTicks = 0;
@@ -399,7 +467,7 @@ export function createShop(economy, {
 
   contentEl.addEventListener('click', (e) => {
     if (app === 'control') {
-      printerMenu.handleClick(e);
+      if (printerMenu.handleClick(e)) render(); // Auswahl im Menü, die den Spielstand nicht ändert
       return;
     }
     if (app === 'dev') {
@@ -443,9 +511,12 @@ export function createShop(economy, {
     } else if (app === 'filaments') {
       const f = FILAMENTS.find((x) => x.id === id);
       if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${filamentLabel(f)} – liegt im Lagerregal`);
-    } else if (app === 'printers') {
-      const p = PRINTERS.find((x) => x.id === id);
+    } else if (id.startsWith('laser:') || app === 'printers') {
+      const p = PRINTERS.find((x) => x.id === id.replace('laser:', ''));
       if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Bestellt: ${p.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
+    } else if (id.startsWith('wood:')) {
+      const w = WOODS.find((x) => `wood:${x.id}` === id);
+      if (economy.buyWood(w)) toast(`Gekauft: ${w.name} – liegt auf der Palette im Abstellraum`);
     }
   });
 

@@ -2,7 +2,7 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, filamentColorName, filamentLabel, ledColorById, templateById, speedById } from '../core/catalog.js';
+import { FAILURES, filamentById, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
@@ -13,6 +13,8 @@ import { createFurnitureModel, createNozzle, furnitureSize } from '../models/fur
 import { enableShadows } from './util.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
 import { isPurging, updatePurge } from './purge.js';
+import { animateLaser, syncLaserWorkpiece } from './laser.js';
+import { isLaser, laserJobLabel } from '../core/laser.js';
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 
 export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
@@ -186,6 +188,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const supports = (spool) => printer.model.materials.includes(filamentById(spool.filamentId).material);
 
     if (carry.printer || carry.furniture) return null;
+    if (isLaser(printer)) return laserAction(printer);
     if (job?.status === 'failed') {
       const failure = FAILURES[job.failure];
       return { text: `Linksklick: Fehldruck wegräumen (${failure.name})`, run: () => economy.clearFailedPrint(printer.id) };
@@ -260,6 +263,39 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         if (taken) carry.addSpool(taken);
       },
     };
+  }
+
+  // Laser R1: fertige Teile entnehmen, Holzplatte einlegen (gegen die eingelegte tauschen) oder herausnehmen
+  function laserAction(printer) {
+    const name = printer.model.name;
+    const job = printer.job;
+    if (job?.status === 'done') {
+      const what = job.pieces > 1 ? `${job.pieces} fertige Teile` : 'fertiges Teil';
+      return { text: `Linksklick: ${what} entnehmen (${laserJobLabel(job)})`, run: () => economy.collectPart(printer.id) };
+    }
+    if (economy.isBusy(printer)) return { text: `${name} lasert ${Math.floor(job.progress * 100)} % – Steuerung am PC` };
+    if (carry.nozzle || carry.hasSpools) return { text: `${name} ist ein Laser – er braucht Holzplatten, keine Spulen oder Düsen` };
+    if (carry.sheet) {
+      const wood = woodById(carry.sheet.woodId);
+      const swap = printer.sheet ? ` (${woodById(printer.sheet.woodId).name} nehmen)` : '';
+      return {
+        text: `Linksklick: ${wood.name} einlegen${swap}`,
+        run: () => {
+          const previous = economy.insertSheet(printer.id, carry.releaseSheet());
+          if (previous) carry.holdSheet(previous);
+        },
+      };
+    }
+    if (printer.sheet) {
+      return {
+        text: `Linksklick: ${woodById(printer.sheet.woodId).name} herausnehmen · lasern am PC im Druckermenü`,
+        run: () => {
+          const sheet = economy.removeSheet(printer.id);
+          if (sheet) carry.holdSheet(sheet);
+        },
+      };
+    }
+    return { text: `${name} – Holzplatte aus dem Abstellraum holen und einlegen` };
   }
 
   function printerInteraction(printer) {
@@ -527,7 +563,8 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
           built.set(printer.id, model);
         }
         updateSpools(model, printer);
-        updatePart(model, printer);
+        if (isLaser(printer)) syncLaserWorkpiece(model, printer);
+        else updatePart(model, printer);
         updateBadge(model, printer);
       } else if (model) {
         group.remove(model);
@@ -550,6 +587,13 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       const job = printer.job;
       const part = model.userData.partMesh;
       const rig = model.userData.printRig;
+
+      // Laser R1: eigener Ablauf (world/laser.js) statt Düse, Schichten und Farbwechsel
+      if (isLaser(printer)) {
+        measureHeadSpeed(model, animateLaser(model, printer), dt);
+        bobBadge(model, printer);
+        continue;
+      }
 
       // Lüfter am Druckkopf: drehen beim Drucken hoch (schneller bei höherer Stufe), danach laufen sie aus
       const fanTarget = job?.status === 'printing' ? 40 * (speedById(printer.speedId).percent / 100) : 0;
@@ -623,12 +667,15 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         part.scale.y = detached ? Math.max(0.15, job.progress) : 1;
         part.userData.clip.constant = job.status === 'done' || detached ? 1e6 : worldPos.y + state.layerY + 0.0004;
       }
-      // Statussymbol wippt leicht, damit es auffällt
-      if (model.userData.badge) {
-        model.userData.badge.position.y = printerSize(printer.model).y + 0.14 + Math.sin(time * 3) * 0.015;
-      }
+      bobBadge(model, printer);
       updatePrinterTubes(model); // Schlauch und Kabel biegen sich mit, ihr Anfang bleibt am Gerät
     }
+  }
+
+  // Statussymbol wippt leicht, damit es auffällt
+  function bobBadge(model, printer) {
+    if (!model.userData.badge) return;
+    model.userData.badge.position.y = printerSize(printer.model).y + 0.14 + Math.sin(time * 3) * 0.015;
   }
 
   // Wie schnell die Düse gerade über das Bett fährt (m/s, leicht geglättet) – fürs Surren der Motoren.

@@ -239,6 +239,34 @@ function iconBuild(ctx, x, y, s) {
   ctx.fillRect(x + s * 0.33, y + s * 0.62, s * 0.34, s * 0.1);
 }
 
+// Holzshop: Holzplatte mit Maserung und eingebranntem Stern, von oben trifft ein Laserstrahl
+function iconWood(ctx, x, y, s) {
+  ctx.fillStyle = '#d9b27a';
+  ctx.fillRect(x + s * 0.08, y + s * 0.38, s * 0.84, s * 0.54);
+  ctx.strokeStyle = 'rgba(120, 75, 30, 0.45)';
+  ctx.lineWidth = s * 0.025;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + s * 0.1, y + s * (0.46 + i * 0.12));
+    ctx.quadraticCurveTo(x + s * 0.5, y + s * (0.42 + i * 0.12), x + s * 0.9, y + s * (0.47 + i * 0.12));
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#5a3a1e';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? s * 0.07 : s * 0.16;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const px = x + s * 0.5 + Math.cos(a) * r;
+    const py = y + s * 0.66 + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.fill();
+  ctx.fillStyle = '#ff8a1a';
+  ctx.fillRect(x + s * 0.3, y + s * 0.04, s * 0.4, s * 0.16); // Laserkopf
+  ctx.fillStyle = '#7fb4ff';
+  ctx.fillRect(x + s * 0.48, y + s * 0.2, s * 0.04, s * 0.3); // Strahl
+}
+
 // Personal: Kopf mit grüner Kappe und Schultern
 function iconStaff(ctx, x, y, s) {
   ctx.fillStyle = '#00ae42';
@@ -281,6 +309,7 @@ const ICONS = {
   trophy: iconTrophy,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
+  wood: iconWood,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)
