@@ -21,11 +21,13 @@ export const workerGender = (worker) => (WOMEN.has(worker.name) ? 'w' : 'm');
 //   refill – passende Spule aus dem Lager holen und in den wartenden Drucker legen
 //   collect – fertiges Teil entnehmen          pick   – heruntergefallenes Teil vom Boden aufheben
 //   empty  – Mülleimer mit Spülabfall leeren (ab WASTE_EMPTY_AT; ist er voll und der Drucker wartet, ganz vorne)
-export const WORK_SECONDS = { clear: 3, poke: 1, restart: 1.5, collect: 1.5, pick: 1, take: 1.5, load: 2, empty: 2.5 };
+//   pack   – fertigen Auftrag verpacken und ins Abholregal am Empfang legen (core/reception.js)
+export const WORK_SECONDS = { clear: 3, poke: 1, restart: 1.5, collect: 1.5, pick: 1, take: 1.5, load: 2, empty: 2.5, pack: 2.5 };
 
 export class Staff {
   constructor(economy) {
     this.economy = economy;
+    this.reception = null; // Empfang (core/reception.js) – setzt main.js, dann packen Azubis fertige Aufträge ein
     this.workers = []; // { id, name }
     this.nextId = 1;
     this.retries = new Map(); // Drucker-ID → { templateId, count }: Fehldruck weggeräumt, Neustart steht noch aus
@@ -85,6 +87,7 @@ export class Staff {
         .filter((p) => e.shelf.some((s) => s.filamentId === waitingFilament(p.job)))
         .map((p) => ({ type: 'refill', printerId: p.id, filamentId: waitingFilament(p.job) })),
       ...e.looseParts.map((l) => ({ type: 'pick', looseId: l.id })),
+      ...(this.reception?.freeSlot() >= 0 ? this.reception.readyToPack.map((o) => ({ type: 'pack', orderId: o.id })) : []),
       ...onTable.filter((p) => (p.waste ?? 0) >= WASTE_EMPTY_AT).map((p) => ({ type: 'empty', printerId: p.id })),
     ];
     return candidates.find(free) ?? null;
@@ -94,6 +97,10 @@ export class Staff {
   stillNeeded(task) {
     const e = this.economy;
     if (task.type === 'pick') return e.looseParts.some((l) => l.id === task.looseId);
+    if (task.type === 'pack') {
+      const order = this.reception?.orders.orderById(task.orderId);
+      return !!order && !this.reception.packProblem(order);
+    }
     const p = e.printerById(task.printerId);
     if (p?.location !== 'table') return false;
     if (task.type === 'clear') return p.job?.status === 'failed';
@@ -164,6 +171,7 @@ export class Staff {
       case 'restart': this.tryRestart(task.printerId, worker); return true;
       case 'collect': e.collectPart(task.printerId); return true;
       case 'pick': e.pickUpLoosePart(task.looseId); return true;
+      case 'pack': this.reception?.pack(task.orderId); return true;
       case 'empty': e.emptyWasteBin(task.printerId); return true;
       case 'poke': return e.pokeNozzle(task.printerId);
       case 'refill': {
@@ -191,7 +199,7 @@ export class Staff {
   }
 }
 
-export const taskKey = (task) => `${task.type}|${task.printerId ?? task.looseId}`;
+export const taskKey = (task) => `${task.type}|${task.printerId ?? task.looseId ?? task.orderId}`;
 
 // Kurzer Text, was der Mitarbeiter gerade tut (für Hinweis und PC-App)
 export function taskText(task, economy, phase) {
@@ -204,6 +212,7 @@ export function taskText(task, economy, phase) {
     case 'poke': return `sticht die Düse frei${where}`;
     case 'collect': return `nimmt ein fertiges Teil ab${where}`;
     case 'pick': return 'hebt ein Teil vom Boden auf';
+    case 'pack': return 'bringt einen fertigen Auftrag ins Abholregal';
     case 'empty': return `leert den Mülleimer${where}`;
     case 'refill': return phase === 'to-shelf' ? 'holt Filament aus dem Lager' : `legt Filament ein${where}`;
     default: return '';

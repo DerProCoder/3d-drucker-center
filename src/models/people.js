@@ -108,10 +108,17 @@ export class Person {
     this.current = next;
   }
 
+  // Größe ändern (z. B. 0,8 für ein Kind), Sitzhöhe bleibt richtig
+  setScale(s) {
+    this.object.scale.setScalar(s);
+    this.sitDown(this.seat);
+  }
+
   // Hinsetzen: seatHeight = Oberkante der Sitzfläche. null = aufstehen.
   sitDown(seatHeight) {
     this.seat = seatHeight;
-    this.body.position.y = seatHeight === null ? 0 : seatHeight + 0.08 - this.hipHeight;
+    const s = this.object.scale.y;
+    this.body.position.y = seatHeight === null ? 0 : (seatHeight + 0.08) / s - this.hipHeight;
   }
 
   // Zeitschritt: Animation abspielen, danach Sitz- und Armhaltung über die Knochen setzen

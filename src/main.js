@@ -9,6 +9,7 @@ import { Orders, REGULAR_STARS } from './core/orders.js';
 import { Progress } from './core/progress.js';
 import { Upgrades } from './core/upgrades.js';
 import { Staff } from './core/staff.js';
+import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
 import { createHall } from './world/hall.js';
@@ -29,6 +30,8 @@ import { createOffice } from './world/office.js';
 import { createEntrance } from './world/entrance.js';
 import { createOutdoor } from './world/outdoor.js';
 import { createPedestrians } from './world/pedestrians.js';
+import { createReceptionDesk } from './world/reception.js';
+import { createCustomers } from './world/customers.js';
 import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
@@ -52,6 +55,8 @@ const achievements = new Achievements();
 const upgrades = new Upgrades(economy);
 const gameClock = new GameClock();
 const staff = new Staff(economy);
+const reception = new Reception(orders);
+staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff };
 const saveFound = hasSave();
 if (saveFound) {
@@ -163,6 +168,7 @@ economy.onEvent = (type, d) => {
 orders.onEvent = (type, d) => {
   const { order } = d;
   if (type === 'delivered') {
+    hud.notify(`💶 ${order.customer} hat abgeholt und bezahlt: +${order.reward.toLocaleString('de-DE')} €`, 'good');
     sound.play('cash');
     achievements.add('deliveries');
     if (order.rush) achievements.add('rushDeliveries');
@@ -172,7 +178,15 @@ orders.onEvent = (type, d) => {
     hud.notify(`⌛ Auftrag von ${order.customer} verfallen – Kunde verärgert (−1 Stern)`, 'bad');
     sound.play('error');
   } else if (type === 'new-order') {
-    hud.notify(`📋 Neuer Auftrag von ${order.customer}${order.rush ? ' – EILT!' : ''}`, 'info');
+    hud.notify(`🚶 ${order.customer} kommt mit einem Auftrag zum Empfang${order.rush ? ' – EILT!' : ''}`, 'info');
+  } else if (type === 'accepted') {
+    hud.notify(`📋 Auftrag von ${order.customer} angenommen`, 'good');
+    sound.play('pop');
+  } else if (type === 'packed') {
+    hud.notify(`📦 Auftrag für ${order.customer} liegt im Abholregal – der Kunde kommt gleich`, 'good');
+    sound.play('pop');
+  } else if (type === 'customer-left') {
+    hud.notify(`🚪 ${order.customer} hat am Empfang zu lange gewartet und ist wieder gegangen`, 'bad');
   }
 };
 
@@ -219,6 +233,21 @@ const outdoor = createOutdoor({ collision, scene });
 scene.add(outdoor.group, outdoor.sky);
 const pedestrians = createPedestrians();
 outdoor.group.add(pedestrians.group); // nur sichtbar, wenn man nach draußen schauen kann
+
+// Empfang: Kunden geben Aufträge am Tresen ab und holen sie am Abholregal wieder ab
+const customers = createCustomers({
+  reception,
+  orders,
+  onEvent: (type, d) => {
+    if (type === 'arrived') {
+      hud.notify(`🛎️ ${d.customer} wartet am Empfang – am Tresen annehmen`, 'info');
+      sound.play('pop');
+    }
+  },
+});
+scene.add(customers.group);
+const receptionDesk = createReceptionDesk({ reception, orders, customers, collision });
+scene.add(receptionDesk.group);
 
 const TABLE_HEIGHT = 0.8;
 const TOP_THICKNESS = 0.05;
@@ -480,7 +509,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, entrance.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
+  targets: [room, entrance.group, receptionDesk.group, customers.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -599,9 +628,11 @@ renderer.setAnimationLoop(() => {
   throwing.update(dt);
   workers.update(dt);
   office.update(dt, workers.gaming());
-  entrance.update(dt, [camera.position]);
+  entrance.update(dt, [camera.position, ...customers.positions()]);
   outdoor.update(dt, camera);
   pedestrians.update(dt, camera.position, outdoor.group.visible);
+  customers.update(dt, outdoor.group.visible);
+  receptionDesk.update();
   hall.update(dt);
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
   economy.advanceDeliveries(dt);

@@ -1,15 +1,19 @@
 // Mitarbeiter als Figuren in der Halle: holen sich Aufgaben aus core/staff.js, laufen über den Gang links neben den
 // Drucktischen (und durch die Tür ins Lager), arbeiten am Ziel und tragen dabei sichtbar Spulen. Ohne Arbeit gehen sie
-// ins Büro (world/office.js) und werkeln an der Werkbank oder zocken auf der Couch. Bewegung über Delta-Zeit.
+// ins Büro (world/office.js) und werkeln an der Werkbank oder zocken auf der Couch. Fertige Aufträge bringen sie als
+// Paket ins Abholregal am Empfang (world/reception.js). Bewegung über Delta-Zeit.
 // Aussehen und Animationen kommen aus models/people.js (echte Menschenfiguren, je nach Name Mann oder Frau).
 import * as THREE from 'three';
 import { ROOM_SIZE, STORAGE_DOOR } from './room.js';
 import { slotX, slotZ } from './workshop.js';
 import { OFFICE_PATH, OFFICE_SPOTS, inOffice } from './office.js';
+import { ENTRANCE_PATH, inEntrance } from './entrance.js';
+import { RECEPTION_SPOTS } from './reception.js';
 import { WAGE_PER_HOUR, WORK_SECONDS, taskKey, taskText, workerGender } from '../core/staff.js';
 import { filamentById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createController } from '../models/office-furniture.js';
+import { createParcel } from '../models/reception-furniture.js';
 import { createPerson, peopleFor } from '../models/people.js';
 
 const WALK_SPEED = [1.3, 1.6];        // m/s – jeder Azubi hat sein eigenes Tempo
@@ -31,27 +35,35 @@ const inStorage = (p) => p.z > HALL_EDGE_Z;
 // Vom Quergang vor den Tischen durch die Bürotür
 const OFFICE_LANE = [{ x: OFFICE_PATH.hall.x, z: FRONT_Z }, OFFICE_PATH.hall, OFFICE_PATH.inside];
 
-// Weg als Liste von Punkten: in der Halle erst in den Gang, den Gang entlang und dann quer zum Ziel,
-// ins Lager über die Tür. Zum Büro und zurück geht es über den rechten Gang und den Quergang vor den Tischen,
-// im Büro über den Bürogang.
+// Wo man von einem Raum aus die Halle betritt (Tür von Lager, Büro bzw. Eingang), in der Halle selbst der Punkt
+const portal = (p) => (inStorage(p) ? DOOR_IN : inOffice(p) ? OFFICE_LANE[0] : inEntrance(p) ? ENTRANCE_PATH.hall : p);
+
+// Weg als Liste von Punkten: in der Halle über den Gang links neben den Drucktischen, ins Lager über die Tür.
+// Zum Büro geht es über den rechten Gang und den Quergang vor den Tischen, im Büro über den Bürogang.
+// Zwischen Eingang und Büro direkt über den Quergang vor den Tischen.
 function route(from, to) {
   const officeAisle = (p) => ({ x: OFFICE_PATH.aisleX, z: p.z });
   if (inStorage(from) && inStorage(to)) return [to];
+  if (inEntrance(from) && inEntrance(to)) return [to];
   if (inOffice(from) && inOffice(to)) return [officeAisle(from), officeAisle(to), to];
-  const aisleX = inOffice(from) || inOffice(to) ? EAST_AISLE_X : AISLE_X;
   const points = [];
-  let start = from;
-  if (inStorage(from)) {
-    points.push(DOOR_OUT, DOOR_IN);
-    start = DOOR_IN;
-  } else if (inOffice(from)) {
-    points.push(officeAisle(from), ...[...OFFICE_LANE].reverse());
-    start = OFFICE_LANE[0];
+  // Raus aus dem Raum, in dem man gerade ist
+  if (inStorage(from)) points.push(DOOR_OUT, DOOR_IN);
+  else if (inOffice(from)) points.push(officeAisle(from), ...[...OFFICE_LANE].reverse());
+  else if (inEntrance(from)) points.push(ENTRANCE_PATH.inside, ENTRANCE_PATH.hall);
+  const start = portal(from);
+  const end = portal(to);
+  // Durch die Halle
+  if ((inOffice(from) && inEntrance(to)) || (inEntrance(from) && inOffice(to))) {
+    points.push({ x: start.x, z: FRONT_Z }, { x: end.x, z: FRONT_Z }, end);
+  } else {
+    const aisleX = inOffice(from) || inOffice(to) ? EAST_AISLE_X : AISLE_X;
+    points.push({ x: aisleX, z: start.z }, { x: aisleX, z: end.z }, end);
   }
-  const hallTarget = inStorage(to) ? DOOR_IN : inOffice(to) ? OFFICE_LANE[0] : to;
-  points.push({ x: aisleX, z: start.z }, { x: aisleX, z: hallTarget.z }, hallTarget);
+  // Hinein in den Zielraum
   if (inStorage(to)) points.push(DOOR_OUT, to);
-  if (inOffice(to)) points.push(...OFFICE_LANE.slice(1), officeAisle(to), to);
+  else if (inOffice(to)) points.push(...OFFICE_LANE.slice(1), officeAisle(to), to);
+  else if (inEntrance(to)) points.push(ENTRANCE_PATH.inside, to);
   return points;
 }
 
@@ -122,6 +134,7 @@ export function createWorkers({ economy, staff }) {
 
   // Ziel für eine Aufgabe: vor dem Drucker bzw. neben dem Teil auf dem Boden
   function targetOf(task) {
+    if (task.type === 'pack') return RECEPTION_SPOTS.shelf;
     if (task.type === 'pick') {
       const part = economy.looseParts.find((l) => l.id === task.looseId);
       return part ? { x: part.x, z: part.z + 0.35 } : null;
@@ -142,7 +155,7 @@ export function createWorkers({ economy, staff }) {
     const mesh = createHolder(worker);
     mesh.position.set(DOOR_IN.x, 0, DOOR_IN.z); // kommt durch die Lagertür herein
     const r = {
-      worker, mesh, person: null, path: [], task: null, phase: 'idle', timer: 0, look: 0, carried: null, spoolMesh: null,
+      worker, mesh, person: null, path: [], task: null, phase: 'idle', timer: 0, look: 0, carried: null, spoolMesh: null, parcel: null,
       seat: freeSeat(), spot: null, nextIdle: Math.random() < 0.5 ? 'desk' : 'couch', heading: 0,
       speed: WALK_SPEED[0] + Math.random() * (WALK_SPEED[1] - WALK_SPEED[0]),
     };
@@ -197,6 +210,18 @@ export function createWorkers({ economy, staff }) {
   function finishTask(r) {
     r.task = null;
     r.phase = 'idle';
+    dropParcel(r);
+  }
+
+  function holdParcel(r, task) {
+    const order = staff.reception?.orders.orderById(task.orderId);
+    r.parcel = createParcel(order?.customer ?? 'Auftrag', '', { w: 0.34, h: 0.22, d: 0.26 });
+    r.mesh.add(r.parcel);
+  }
+
+  function dropParcel(r) {
+    if (r.parcel) r.mesh.remove(r.parcel);
+    r.parcel = null;
   }
 
   // Ins Büro an die Werkbank oder auf die Couch – abwechselnd
@@ -232,7 +257,7 @@ export function createWorkers({ economy, staff }) {
     }
     r.phase = r.phase === 'to-shelf' ? 'take' : 'work';
     r.timer = r.phase === 'take' ? WORK_SECONDS.take : WORK_SECONDS[r.task.type === 'refill' ? 'load' : r.task.type];
-    r.heading = r.task.type === 'pick' ? Math.PI : r.phase === 'take' ? -Math.PI / 2 : Math.PI;
+    r.heading = r.task.type === 'pick' ? Math.PI : r.phase === 'take' ? -Math.PI / 2 : r.task.type === 'pack' ? 0 : Math.PI;
   }
 
   function workDone(r) {
@@ -262,6 +287,7 @@ export function createWorkers({ economy, staff }) {
   function startTask(r, task) {
     if (seated(r)) standUp(r);
     r.task = task;
+    if (task.type === 'pack') holdParcel(r, task); // Teile verpackt in der Hand zum Regal tragen
     if (task.type === 'refill') {
       r.phase = 'to-shelf';
       walkTo(r, SHELF_SPOT);
@@ -278,7 +304,8 @@ export function createWorkers({ economy, staff }) {
     if (!person) return;
     const sitting = seated(r);
     person.sitDown(sitting ? r.spot.y : null);
-    person.arms = r.phase === 'couch' ? 'controller' : r.carried && !(r.phase === 'work') ? 'carry' : null;
+    const holding = (r.carried || r.parcel) && r.phase !== 'work';
+    person.arms = r.phase === 'couch' ? 'controller' : holding ? 'carry' : null;
     if (moving) person.play('Walk', r.speed / WALK_CLIP_SPEED);
     else if (r.phase === 'work' || r.phase === 'take') person.play('Interact');
     else if (r.phase === 'desk') person.play('Interact', 0.55); // in Ruhe am Übungsdrucker tüfteln
@@ -294,6 +321,10 @@ export function createWorkers({ economy, staff }) {
     if (r.spoolMesh) {
       person.handsCenter(hands);
       r.spoolMesh.position.set(0, hands.y + 0.02, hands.z + 0.06);
+    }
+    if (r.parcel) {
+      person.handsCenter(hands);
+      r.parcel.position.set(0, hands.y - 0.1, hands.z + 0.04);
     }
   }
 
