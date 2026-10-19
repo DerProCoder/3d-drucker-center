@@ -230,12 +230,74 @@ const BUILDERS = {
   gears, vase, dragon, 'tool-holder': toolHolder,
 };
 
-// ---------- Öffentlich ----------
+// ---------- Schichten schneiden (wie ein Slicer) ----------
+
+const LAYERS = 60;       // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
+const KEY = 1e5;         // Schnittpunkte auf 0,01 mm runden, damit Nachbardreiecke zusammenfinden
+
+// Schnitt durch die Geometrie auf Höhe y: Liste von Konturen, jede eine Punktliste [{ x, z }] in Metern
+function sliceContours(geometry, y) {
+  const pos = geometry.attributes.position;
+  const index = geometry.index;
+  const triCount = (index ? index.count : pos.count) / 3;
+  const vy = [0, 0, 0];
+  const ends = new Map(); // Punkt-Schlüssel → Segmente, die dort enden
+  const segments = [];
+  const keyOf = (p) => `${Math.round(p.x * KEY)},${Math.round(p.z * KEY)}`;
+  for (let t = 0; t < triCount; t++) {
+    const ids = [0, 1, 2].map((k) => (index ? index.getX(t * 3 + k) : t * 3 + k));
+    for (let k = 0; k < 3; k++) vy[k] = pos.getY(ids[k]);
+    const cut = [];
+    for (let k = 0; k < 3; k++) {
+      const a = ids[k];
+      const b = ids[(k + 1) % 3];
+      const ya = vy[k];
+      const yb = vy[(k + 1) % 3];
+      if ((ya < y) === (yb < y)) continue;
+      const f = (y - ya) / (yb - ya);
+      cut.push({ x: pos.getX(a) + (pos.getX(b) - pos.getX(a)) * f, z: pos.getZ(a) + (pos.getZ(b) - pos.getZ(a)) * f });
+    }
+    if (cut.length !== 2) continue;
+    const seg = { a: cut[0], b: cut[1], ka: keyOf(cut[0]), kb: keyOf(cut[1]), used: false };
+    if (seg.ka === seg.kb) continue;
+    segments.push(seg);
+    for (const key of [seg.ka, seg.kb]) {
+      if (!ends.has(key)) ends.set(key, []);
+      ends.get(key).push(seg);
+    }
+  }
+  // Segmente zu Linienzügen verketten
+  const contours = [];
+  for (const start of segments) {
+    if (start.used) continue;
+    start.used = true;
+    const points = [start.a, start.b];
+    let key = start.kb;
+    for (;;) {
+      const next = ends.get(key)?.find((s) => !s.used);
+      if (!next) break;
+      next.used = true;
+      const forward = next.ka === key;
+      points.push(forward ? next.b : next.a);
+      key = forward ? next.kb : next.ka;
+    }
+    if (points.length > 2) contours.push(points);
+  }
+  return contours;
+}
+
+// Konturen einer Schicht für die Vorlage, Schicht wird aus der relativen Höhe hFrac bestimmt
+function layerContours(shape, hFrac) {
+  const layer = Math.min(LAYERS - 1, Math.max(0, Math.floor(hFrac * LAYERS)));
+  if (!shape.layers[layer]) {
+    shape.layers[layer] = sliceContours(shape.geometry, ((layer + 0.5) / LAYERS) * shape.height);
+  }
+  return { layer, contours: shape.layers[layer] };
+}
 
 const cache = new Map();
 
-// Liefert { geometry, height, outline(hFrac) } für eine Vorlage, in Metern und auf die Vorlagengröße eingepasst.
-// outline gibt den Umriss der Schicht auf relativer Höhe hFrac zurück: { type: 'circle', r } oder { type: 'rect', hx, hz }.
+// Liefert { geometry, height, layers } für eine Vorlage, in Metern und auf die Vorlagengröße eingepasst.
 export function getPrintShape(template) {
   if (cache.has(template.id)) return cache.get(template.id);
 
@@ -249,43 +311,84 @@ export function getPrintShape(template) {
   geometry.scale(scale, scale, scale); // gleichmäßig, Normalen bleiben gültig
   geometry.computeBoundingBox();
 
-  const box = geometry.boundingBox;
-  const height = box.max.y;
-  const rect = { type: 'rect', hx: (box.max.x - box.min.x) / 2, hz: (box.max.z - box.min.z) / 2 };
-  let outline = () => rect;
-  if (template.id === 'vase') {
-    outline = (hFrac) => {
-      const y = hFrac * 220;
-      const p = VASE_PROFILE.reduce((a, b) => (Math.abs(b.y - y) < Math.abs(a.y - y) ? b : a));
-      return { type: 'circle', r: p.x * scale };
-    };
-  } else if (template.id === 'gears') {
-    outline = () => ({ type: 'circle', r: rect.hz });
-  }
-
-  const shape = { geometry, height, outline };
+  const shape = { geometry, height: geometry.boundingBox.max.y, layers: [] };
   cache.set(template.id, shape);
   return shape;
 }
 
-// Punkt auf dem Umriss bei Parameter t ∈ [0, 1) – so fährt die Düse die Schicht ab
-export function outlinePoint(outline, t) {
-  if (outline.type === 'circle') {
-    const a = t * Math.PI * 2;
-    return { x: Math.cos(a) * outline.r, z: Math.sin(a) * outline.r };
-  }
-  const { hx, hz } = outline;
-  const perimeter = 4 * (hx + hz);
-  let d = t * perimeter;
-  if (d < 2 * hx) return { x: -hx + d, z: -hz };
-  d -= 2 * hx;
-  if (d < 2 * hz) return { x: hx, z: -hz + d };
-  d -= 2 * hz;
-  if (d < 2 * hx) return { x: hx - d, z: hz };
-  d -= 2 * hx;
-  return { x: -hx, z: hz - d };
+// Bahn der Düse für eine ganze Druckplatte: Funktion hFrac → Bahn. Die Düse fährt in jeder Schicht die echten
+// Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks.
+// offsets: Mittelpunkte der Teile [{ x, z }] in Metern · rotated: Teile um 90° gedreht (wie die Meshes)
+export function plateOutline(shape, offsets, rotated = false) {
+  const paths = new Map();
+  return (hFrac) => {
+    const { layer, contours } = layerContours(shape, hFrac);
+    if (!paths.has(layer)) {
+      const loops = [];
+      for (const o of offsets) {
+        for (const c of contours) {
+          // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
+          loops.push(c.map((p) => (rotated ? { x: o.x + p.z, z: o.z - p.x } : { x: o.x + p.x, z: o.z + p.z })));
+        }
+      }
+      paths.set(layer, buildPath(orderLoops(loops)));
+    }
+    return paths.get(layer);
+  };
 }
 
-export function outlineLength(outline) {
-  return outline.type === 'circle' ? Math.PI * 2 * outline.r : 4 * (outline.hx + outline.hz);
+// Konturen so ordnen, dass die Düse immer zur nächstgelegenen fährt; jede Kontur beginnt am nächsten Punkt
+function orderLoops(loops) {
+  const result = [];
+  let at = { x: 0, z: 0 };
+  const left = [...loops];
+  while (left.length) {
+    let best = 0;
+    let bestPoint = 0;
+    let bestDist = Infinity;
+    left.forEach((loop, i) => {
+      loop.forEach((p, j) => {
+        const dist = (p.x - at.x) ** 2 + (p.z - at.z) ** 2;
+        if (dist < bestDist) [best, bestPoint, bestDist] = [i, j, dist];
+      });
+    });
+    const loop = left.splice(best, 1)[0];
+    const closed = loop.length > 2 && Math.hypot(loop[0].x - loop.at(-1).x, loop[0].z - loop.at(-1).z) < 0.0005;
+    const ring = closed ? loop.slice(0, -1) : loop;
+    const start = Math.min(bestPoint, ring.length - 1);
+    const ordered = closed ? [...ring.slice(start), ...ring.slice(0, start + 1)] : ring;
+    result.push(...ordered);
+    at = ordered.at(-1);
+  }
+  return result;
+}
+
+// Linienzug mit aufsummierten Längen, damit sich Punkte entlang der Bahn schnell finden lassen
+function buildPath(points) {
+  if (points.length < 2) points = [{ x: 0, z: 0 }, { x: 0.001, z: 0 }];
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    lengths.push(lengths[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z));
+  }
+  return { points, lengths, total: lengths.at(-1) };
+}
+
+// Punkt auf der Bahn bei Parameter t ∈ [0, 1) – so fährt die Düse die Schicht ab
+export function outlinePoint(path, t) {
+  const d = t * path.total;
+  const { points, lengths } = path;
+  let lo = 0;
+  let hi = lengths.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (lengths[mid] <= d) lo = mid;
+    else hi = mid;
+  }
+  const span = lengths[hi] - lengths[lo] || 1;
+  const f = Math.min(1, Math.max(0, (d - lengths[lo]) / span));
+  return { x: points[lo].x + (points[hi].x - points[lo].x) * f, z: points[lo].z + (points[hi].z - points[lo].z) * f };
+}
+
+export function outlineLength(path) {
+  return path.total;
 }

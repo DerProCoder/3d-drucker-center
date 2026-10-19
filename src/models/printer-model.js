@@ -317,6 +317,13 @@ const CUBE_VARIANTS = {
     color: 0x2a2b2f, darkAms: true, sideWindow: true, camera: true, dualHead: true,
     railDrop: 0.06, // Mechanik tiefer, damit Lüfter und Logo am Kopf unter der hohen Frontleiste sichtbar sind
   },
+  // H2D: deutlich größer, Seitenfenster so groß wie die Tür, Glasdach mit Rahmen (AMS nach hinten gerückt,
+  // damit man von oben hineinsieht), sehr großes Touch-Display, Kamera und Dual-Nozzle-Kopf
+  h2d: {
+    title: 'H2D', w: 0.492, d: 0.514, h: 0.585, enclosed: true, screen: [0.17, 0.096], buttons: false, fascia: 0.11,
+    color: 0x2a2b2f, darkAms: true, sideWindow: 'large', topWindow: true, camera: true, dualHead: true,
+    plate: 0.325, railDrop: 0.135,
+  },
 };
 
 function buildBambuCube(g, variant) {
@@ -350,9 +357,10 @@ function buildBambuCube(g, variant) {
     for (const sx of [-1, 1]) {
       const wx = sx * (w / 2 - 0.011);
       if (variant.sideWindow && sx === 1) {
-        // Rechte Wand mit Fenster: Rahmen aus vier Teilen um eine Glasscheibe
-        const winH = 0.17;
-        const winD = 0.22;
+        // Rechte Wand mit Fenster: Rahmen aus vier Teilen um eine Glasscheibe ('large': fast so groß wie die Tür)
+        const large = variant.sideWindow === 'large';
+        const winH = large ? h - baseTop - bandH - 0.04 : 0.17;
+        const winD = large ? d - 0.08 : 0.22;
         const winY = baseTop + (h - baseTop - bandH) / 2;
         const bottom = winY - winH / 2 - FOOT;
         const top = h - (winY + winH / 2);
@@ -391,6 +399,19 @@ function buildBambuCube(g, variant) {
     g.add(lid);
     const lidFrit = box(w - 0.05, 0.001, 0.012, frit, 0, h - 0.0015, -d / 2 + 0.031);
     g.add(lidFrit);
+    if (variant.topWindow) {
+      // Großes Dachfenster: Rahmen ringsum und schwarzer Siebdruckrand, damit man es als Fenster erkennt
+      const lidD = d - 0.074;
+      for (const sx of [-1, 1]) g.add(rbox(0.016, 0.006, lidD, 0.003, body, sx * (w / 2 - 0.03), h - 0.003, 0));
+      g.add(rbox(w - 0.044, 0.006, 0.014, 0.003, body, 0, h - 0.003, d / 2 - 0.044));
+      for (const [fw, fd, fx, fz] of [
+        [w - 0.08, 0.01, 0, d / 2 - 0.056], [0.01, lidD - 0.03, -(w / 2 - 0.043), 0], [0.01, lidD - 0.03, w / 2 - 0.043, 0],
+      ]) {
+        const strip = box(fw, 0.001, fd, frit, fx, h - 0.0015, fz);
+        strip.userData.noShadow = true;
+        g.add(strip);
+      }
+    }
 
     // Glastür: fast die ganze Front, schwarzer Rand innen, Griffmulde rechts, kleine Scharniere links
     const doorW = w - 0.026;
@@ -505,15 +526,18 @@ function buildBambuCube(g, variant) {
   const nozzleGap = 0.12;
   const plateTop = nozzleY - nozzleGap;
   const bedAxis = new THREE.Group();
-  const plate = createBuildPlate(0.256, m);
+  const plateSize = variant.plate ?? 0.256;
+  const plate = createBuildPlate(plateSize, m);
   plate.position.set(0, plateTop - plate.userData.topY, 0);
   bedAxis.add(plate);
-  bedAxis.add(box(0.29, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, -0.16)); // Träger hinten
-  for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, 0.3, frame, sx * 0.13, plateTop - plate.userData.topY - 0.008, -0.02));
+  const bedX = plateSize / 2 + 0.002; // Seitenträger und Spindeln an den Plattenkanten
+  const backZ = -plateSize / 2 - 0.042;
+  bedAxis.add(box(plateSize + 0.034, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, backZ + 0.01)); // Träger hinten
+  for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, plateSize + 0.044, frame, sx * bedX, plateTop - plate.userData.topY - 0.008, -0.02));
   g.add(bedAxis);
   for (const sx of [-1, 0, 1]) { // drei Gewindespindeln hinten, damit der Blick durch die Tür frei bleibt
     const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, railY - baseTop - 0.03, 10), m.steel);
-    screw.position.set(sx * 0.13, baseTop + (railY - baseTop - 0.03) / 2, -0.17);
+    screw.position.set(sx * bedX, baseTop + (railY - baseTop - 0.03) / 2, backZ);
     g.add(screw);
   }
   const lowestPlate = baseTop + 0.012;
@@ -539,7 +563,8 @@ function buildBambuCube(g, variant) {
 
   // AMS auf dem Dach, Schlauch hinten heraus und von oben zum Kopf, Kabelkette innen
   const ams = createAMS(m, { dark: !!variant.darkAms });
-  ams.position.set(0, h, -0.01);
+  // Mit Dachfenster sitzt das AMS hinten, damit vorne der Blick durchs Glas frei bleibt
+  ams.position.set(0, h, variant.topWindow ? -d / 2 + 0.165 : -0.01);
   g.add(ams);
   g.userData.spoolSlots = ams.userData.slots.map((p) => ({ position: p.clone().add(ams.position), axis: 'x' }));
   const outlet = ams.userData.outlet.clone().add(ams.position);
@@ -561,6 +586,7 @@ const BUILDERS = {
   p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
   p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
   x2d: (g) => buildBambuCube(g, CUBE_VARIANTS.x2d),
+  h2d: (g) => buildBambuCube(g, CUBE_VARIANTS.h2d),
 };
 
 export function createPrinterModel(model) {

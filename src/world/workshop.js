@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { FAILURES, filamentById, filamentLabel, templateById, speedById } from '../core/catalog.js';
 import { NOZZLE_POKES, plateLayout, spoolLabel } from '../core/economy.js';
-import { getPrintShape, outlinePoint, outlineLength } from '../models/print-shapes.js';
+import { getPrintShape, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { createSpool } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
@@ -282,11 +282,12 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       hx = Math.max(hx, Math.abs(pos.x) * 0.001);
       hz = Math.max(hz, Math.abs(pos.y) * 0.001);
     }
-    // Mehrere Teile: die Düse fährt das ganze Feld ab statt nur den Umriss eines Teils
+    // Die Düse fährt in jeder Schicht die echten Umrisse aller Teile nacheinander ab
     const w = (layout.rotated ? template.size.y : template.size.x) * 0.0005;
     const d = (layout.rotated ? template.size.x : template.size.y) * 0.0005;
-    const field = { type: 'rect', hx: hx + w, hz: hz + d };
-    part.userData = { shape, clip, pathT: 0, outline: count > 1 ? () => field : null, spread: Math.max(field.hx, field.hz) };
+    const offsets = layout.positions.map((pos) => ({ x: pos.x * 0.001, z: pos.y * 0.001 }));
+    const outline = plateOutline(shape, offsets, layout.rotated);
+    part.userData = { shape, clip, pathT: 0, outline, spread: Math.max(hx + w, hz + d) };
     rig.partParent.add(part);
     model.userData.partMesh = part;
 
@@ -544,7 +545,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
           state.partHeight = state.layerY;
         } else {
           state.mode = 'printing'; // auch pausiert: Achsen bleiben an der Stelle stehen
-          const outline = part.userData.outline?.() ?? shape.outline(job.progress);
+          const outline = part.userData.outline(job.progress);
           if (job.status === 'printing') {
             // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe
             const speed = 0.06 * (speedById(printer.speedId).percent / 100);

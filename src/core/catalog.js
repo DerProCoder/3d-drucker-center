@@ -89,6 +89,12 @@ export const PRINTERS = [
     build: { x: 256, y: 256, z: 260 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.0, enclosed: true,
     spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'x2d', accent: '#ff7a1a',
   },
+  {
+    // H2D: großer Bauraum, zwei Düsen und KI-Kamera wie der X2D, rundum Fenster und ein großes Display
+    id: 'h2d', name: 'Bambu Lab H2D', tier: 'Flaggschiff', price: 1400,
+    build: { x: 325, y: 325, z: 325 }, materials: ['PLA', 'PETG', 'ABS', 'TPU'], powerPerHour: 1.2, enclosed: true,
+    spoolSlots: 4, nozzles: 2, aiCamera: true, style: 'h2d', accent: '#e8c547',
+  },
 ];
 
 export const formatBuildVolume = ({ x, y, z }) => `${x} × ${y} × ${z} mm`;
