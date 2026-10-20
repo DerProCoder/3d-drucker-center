@@ -1,11 +1,13 @@
-// 3D-Modelle der Einrichtung am Druckertisch: Filament-Regal (8 Spulen auf zwei Böden) und Ersatzteilregal
-// (Sortimentskasten mit Ersatzdüsen). Dazu die Ersatzdüse selbst, z. B. für die Hand.
+// 3D-Modelle der Einrichtung: Filament-Regal (8 Spulen auf zwei Böden) und Ersatzteilregal (Sortimentskasten mit
+// Ersatzdüsen) am Druckertisch, Ausstellungsregal an der Wand. Dazu die Ersatzdüse selbst, z. B. für die Hand.
 // Ursprung: Mitte der Unterseite, Vorderseite zeigt nach +z (zum Spieler).
 import * as THREE from 'three';
 import { mergeStatic } from './merge-static.js';
 
 const RACK = { w: 0.5, d: 0.3, h: 0.56, levels: [0.03, 0.29], perLevel: 4 };
 const PARTS = { w: 0.42, d: 0.26, h: 0.34, cols: 4, rows: 3 };
+// Ausstellungsregal: vier Ebenen (Sockel und drei Böden) mit je drei Fächern, dunkle Rückwand (davor leuchten Glow-Teile)
+const DISPLAY = { w: 1.6, d: 0.36, h: 1.9, levels: [0.1, 0.55, 1.0, 1.45], perLevel: 3, board: 0.025, side: 0.03 };
 
 let mats = null;
 function materials() {
@@ -16,6 +18,8 @@ function materials() {
     bin: new THREE.MeshStandardMaterial({ color: 0xe0702a, roughness: 0.6 }),
     brass: new THREE.MeshStandardMaterial({ color: 0xc9a043, roughness: 0.3, metalness: 0.9 }),
     label: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 }),
+    oak: new THREE.MeshStandardMaterial({ color: 0x9a6f45, roughness: 0.7 }),
+    backPanel: new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.9 }),
   };
   return mats;
 }
@@ -89,7 +93,30 @@ function createPartsRack() {
   return g;
 }
 
-const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPartsRack };
+// Ausstellungsregal: Eichen-Korpus mit Sockel, Deckplatte, drei Böden und dunkler Rückwand.
+// userData.partSpots: Mitte der Standfläche jedes Fachs (das Teil steht mit der Unterseite darauf),
+// userData.cell: wie groß ein Teil höchstens sein darf (größere werden verkleinert).
+function createDisplayShelf() {
+  const m = materials();
+  const g = new THREE.Group();
+  const { w, d, h, levels, perLevel, board, side } = DISPLAY;
+  const innerW = w - side * 2;
+  for (const sx of [-1, 1]) g.add(box(side, h, d, m.oak, sx * (w / 2 - side / 2), h / 2, 0));
+  g.add(box(w, board, d, m.oak, 0, h - board / 2, 0));                          // Deckplatte
+  g.add(box(innerW, 0.1, d - 0.02, m.oak, 0, 0.05, 0.01));                      // Sockel
+  g.add(box(innerW, h - 0.1 - board, 0.012, m.backPanel, 0, 0.1 + (h - 0.1 - board) / 2, -d / 2 + 0.006));
+  for (const y of levels.slice(1)) g.add(box(innerW, board, d - 0.012, m.oak, 0, y - board / 2, 0.006)); // unten steht man auf dem Sockel
+  const spots = [];
+  const cellW = innerW / perLevel;
+  for (const y of levels) {
+    for (let i = 0; i < perLevel; i++) spots.push(new THREE.Vector3(-innerW / 2 + cellW * (i + 0.5), y, 0.01));
+  }
+  g.userData.partSpots = spots;
+  g.userData.cell = { w: cellW - 0.04, d: d - 0.06, h: levels[1] - levels[0] - board - 0.03 };
+  return g;
+}
+
+const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPartsRack, 'display-shelf': createDisplayShelf };
 
 export function createFurnitureModel(type) {
   const g = BUILDERS[type.id]();

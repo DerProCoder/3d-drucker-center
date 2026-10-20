@@ -3,11 +3,13 @@
 // game: { economy, orders, progress, achievements, upgrades, clock }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
+import { DISPLAY_SPOTS } from './display-shelf.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
-const VERSION = 5;
+// 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
+const VERSION = 6;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -39,11 +41,12 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: f.location === 'table' || f.location === 'shipping' ? f.location : 'storage',
-    slot: f.location === 'table' ? f.slot : null,
+    location: ['table', 'wall', 'shipping'].includes(f.location) ? f.location : 'storage',
+    slot: f.location === 'table' || f.location === 'wall' ? f.slot : null,
     storageSpot: f.location === 'storage' ? f.storageSpot : null,
     arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
+    parts: f.parts ? f.parts.map((p) => (p ? { templateId: p.templateId, filamentIds: [...p.filamentIds] } : null)) : null,
     nozzles: f.nozzles,
   }));
   const partsRack = furniture.find((f) => f.typeId === 'parts-rack');
@@ -160,6 +163,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     for (const order of data.orders?.open ?? []) order.stage ??= 'open';
     data.version = 5;
   }
+  if (data?.version === 5) data.version = 6; // Version 5 kennt noch keine Ausstellungsregale – nichts umzuwandeln
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -199,17 +203,22 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   economy.furniture = (e.furniture ?? [])
     .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) }))
     .filter((f) => f.type);
+  for (const f of economy.furniture) {
+    if (f.type.id === 'display-shelf') f.parts ??= Array(f.type.capacity).fill(null);
+  }
   economy.nextFurnitureId = e.nextFurnitureId ?? 1;
   // Regale ohne gültigen oder mit doppeltem Regalplatz (ältere Zwischenstände) zurück in den Abstellraum
   const usedRackSlots = new Set();
   for (const f of economy.furniture) {
-    if (f.location !== 'table') continue;
-    if (f.slot >= upgrades.rackSlots || usedRackSlots.has(f.slot)) {
+    if (f.location !== 'table' && f.location !== 'wall') continue;
+    const maxSlots = f.location === 'wall' ? DISPLAY_SPOTS : upgrades.rackSlots;
+    const key = `${f.location}:${f.slot}`;
+    if (f.slot >= maxSlots || usedRackSlots.has(key)) {
       f.location = 'storage';
       f.slot = null;
       f.storageSpot = economy.freeStorageSpot();
     } else {
-      usedRackSlots.add(f.slot);
+      usedRackSlots.add(key);
     }
   }
 

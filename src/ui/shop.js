@@ -5,8 +5,9 @@
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
-  printerSpecRows, speedModesFor,
+  isWallFurniture, printerSpecRows, speedModesFor,
 } from '../core/catalog.js';
+import { DISPLAY_SPOTS, freeDisplaySpots } from '../core/display-shelf.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { WOOD_STOCK_MAX } from '../core/economy.js';
 import { renderPrinterPreviews } from './printer-preview.js';
@@ -183,6 +184,8 @@ export function createShop(economy, {
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
+  // Regalplätze zwischen den Druckern – Ausstellungsregale stehen an der Wand und zählen nicht mit
+  const freeRackSlots = () => upgrades.rackSlots - economy.furniture.filter((f) => !isWallFurniture(f.type)).length;
   const openSpecs = new Set(); // aufgeklappte „Technische Daten“, bleiben beim Neuzeichnen offen
 
   // Datenblatt des echten Geräts zum Aufklappen
@@ -231,19 +234,22 @@ export function createShop(economy, {
           </div>
         </div>`;
     }).join('');
-    const rackSlots = upgrades.rackSlots - economy.furniture.length;
+    const rackSlots = freeRackSlots();
+    const wallSpots = freeDisplaySpots(economy);
+    const icons = { 'filament-rack': '🗄️', 'parts-rack': '🧰', 'display-shelf': '🏆' };
     const furniture = FURNITURE.map((f) => {
+      const wall = isWallFurniture(f);
       let blocked = null;
-      if (rackSlots <= 0) blocked = 'Kein Platz mehr';
+      if ((wall ? wallSpots : rackSlots) <= 0) blocked = 'Kein Platz mehr';
       else if (!economy.canAfford(f.price)) blocked = 'Zu wenig Geld';
       const owned = economy.furniture.filter((x) => x.type.id === f.id).length;
       return `
         <div class="card">
           <div class="card-head">
-            <span class="accessory-icon">${f.id === 'filament-rack' ? '🗄️' : '🧰'}</span>
+            <span class="accessory-icon">${icons[f.id] ?? '🧰'}</span>
             <div>
               <div class="card-title">${f.name}</div>
-              <div class="card-sub">${f.hint} · steht zwischen zwei Druckern</div>
+              <div class="card-sub">${f.hint} · ${wall ? `steht an der Südwand der Halle (${wallSpots} von ${DISPLAY_SPOTS} Plätzen frei)` : 'steht zwischen zwei Druckern'}</div>
             </div>
           </div>
           <div class="card-foot">
@@ -522,7 +528,8 @@ export function createShop(economy, {
     if (!id) return;
     if (id.startsWith('furniture:')) {
       const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
-      if (upgrades.rackSlots - economy.furniture.length > 0 && economy.buyFurniture(f)) toast(`Bestellt: ${f.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
+      const space = isWallFurniture(f) ? freeDisplaySpots(economy) : freeRackSlots();
+      if (space > 0 && economy.buyFurniture(f)) toast(`Bestellt: ${f.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
     } else if (id.startsWith('spare:')) {
       const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
       if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);

@@ -72,16 +72,37 @@ function getShared() {
   return shared;
 }
 
+// Glow-Filament leuchtet bei Licht nur leicht nach, im Dunkeln (Hallenlicht aus, siehe world/hall-lights.js) so
+// hell, dass der Bloom-Effekt es glühen lässt. Die Stärke gilt für alle Glow-Materialien gemeinsam (setGlowDark).
+const GLOW_INTENSITY = { lit: 0.75, dark: 3 };
+let glowIntensity = GLOW_INTENSITY.lit;
+
 // Materialwerte je Sorte (filament.finish aus core/catalog.js): Matte schluckt Licht, Silk+ glänzt metallisch,
-// Glow leuchtet leicht nach, Translucent lässt Licht durch. roughness: Wert für normales Filament.
+// Glow leuchtet nach, Translucent lässt Licht durch. roughness: Wert für normales Filament.
 export function finishProps(filament, roughness) {
   switch (filament.finish) {
     case 'matte': return { roughness: 0.92 };
     case 'silk': return { roughness: 0.2, metalness: 0.55 };
-    case 'glow': return { roughness, emissive: filament.hex, emissiveIntensity: 0.75 };
+    case 'glow': return { roughness, emissive: filament.hex, emissiveIntensity: glowIntensity, userData: { glow: true } };
     case 'translucent': return { roughness: 0.15, transparent: true, opacity: 0.7 };
     default: return { roughness };
   }
+}
+
+// Alle Glow-Materialien unter root (und die zwischengespeicherten Spulen-Materialien) hell oder dunkel leuchten lassen.
+// Neue Materialien übernehmen die aktuelle Stärke über finishProps.
+export function setGlowDark(dark, root) {
+  const value = dark ? GLOW_INTENSITY.dark : GLOW_INTENSITY.lit;
+  if (value === glowIntensity) return;
+  glowIntensity = value;
+  const apply = (material) => {
+    if (material?.userData.glow) material.emissiveIntensity = value;
+  };
+  for (const mats of shared?.filamentMats.values() ?? []) mats.forEach(apply);
+  root.traverse((o) => {
+    if (Array.isArray(o.material)) o.material.forEach(apply);
+    else apply(o.material);
+  });
 }
 
 // Materialien für den Wickelkörper: [Mantel mit Rillen, Deckflächen]

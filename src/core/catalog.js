@@ -488,9 +488,15 @@ export const FURNITURE = [
     id: 'parts-rack', name: 'Ersatzteilregal', price: 39, capacity: 12,
     hint: 'Sortimentskasten für bis zu 12 Ersatzdüsen',
   },
+  {
+    // placement 'wall': steht nicht zwischen den Druckern, sondern auf einem Platz an der Südwand (siehe display-shelf.js)
+    id: 'display-shelf', name: 'Ausstellungsregal', price: 79, capacity: 12, placement: 'wall',
+    hint: 'Zeigt bis zu 12 fertige Teile – mit Licht aus leuchten Glow-Drucke',
+  },
 ];
 
 export const furnitureById = (id) => FURNITURE.find((f) => f.id === id);
+export const isWallFurniture = (type) => type.placement === 'wall';
 
 // Ersatzteile: werden direkt ins Ersatzteilregal geliefert
 export const SPARE_PARTS = [

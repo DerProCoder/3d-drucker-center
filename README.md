@@ -69,7 +69,7 @@ Beim ersten Start fragt das Spiel: **Über welches Gerät spielst du?** – **PC
 | Q | Alles in der Hand zurück ins Lager legen |
 | M | Ton an/aus |
 | F3 | Leistungsanzeige: Bilder pro Sekunde, Bildzeit, Draw Calls, Auflösung |
-| Esc | Pause / PC verlassen |
+| Esc | Pause / PC verlassen (danach einmal klicken, um weiterzuspielen) |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
@@ -156,6 +156,12 @@ Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Dr
 - **Filament-Regal** (8 Spulen): Spulen in der Hand aufs Regal klicken legt sie ab, auf eine Spule zielen nimmt genau diese. So hast du die nächsten Farben direkt neben den Druckern.
 - **Ersatzteilregal** (12 Ersatzdüsen): Gekaufte Ersatzdüsen landen hier. Klick nimmt eine Düse in die Hand.
 - Ein **leeres** Regal kannst du wieder aufheben und woanders hinstellen.
+
+### Ausstellungsregal und Licht aus
+
+- **Ausstellungsregal** (79 €, ebenfalls unter **Einrichtung**): Es kommt als Karton in den Abstellraum. Trägst du es in die Halle, zeigen grüne Vorschauen die **4 Plätze an der Südwand** (rechts neben der Lagertür). Klick auf eine Vorschau stellt es auf.
+- **Ausstellen:** Ziel auf ein freies Fach. Der Hinweis zeigt, welches deiner fertigen Teile hineinkommt, das **Mausrad** wählt ein anderes, Klick stellt es hin. Klick auf ein ausgestelltes Teil nimmt es zurück zu deinen fertigen Teilen. 12 Fächer auf 4 Ebenen; große Teile wie die Vase werden etwas verkleinert. Ein leeres Regal hebst du am Sockel oder an der Deckplatte wieder auf.
+- **Licht aus:** Neben der Lagertür hängt ein **Lichtschalter**. Klick schaltet die Deckenleuchten der Halle aus – dann leuchten Drucke und Spulen aus **PLA Glow** im Dunkeln. Ein kleines oranges Licht am Schalter zeigt ihn im Dunkeln. Lager, Büro und Empfang bleiben hell.
 
 ### Laser R1 und Holzshop
 
@@ -261,10 +267,13 @@ src/
     upgrades.js       Ausbau: Drucktische, Regalebenen
     staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
+    display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
     room.js           Halle mit Boden, Wänden, Fenstern, Licht
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
+    hall-lights.js    Lichtschalter der Halle: Deckenleuchten aus, Raum dunkel, Glow-Filament leuchtet
+    display-wall.js   Ausstellungsregale an der Südwand: Aufstellen, Teile ausstellen (Mausrad wählt), zurücknehmen
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
@@ -293,8 +302,8 @@ src/
     laser-art.js      Was der Laser auf die Platte bringt: Motive, Text, Gravurzeilen, Schnittbahn
     printer-box.js    Lieferkarton
     print-shapes.js   Formen der Druckvorlagen
-    spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend, durchscheinend), ganze Regale als Instanzen
-    furniture.js      Regale am Drucktisch und Ersatzdüse
+    spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend – im Dunkeln heller –, durchscheinend), ganze Regale als Instanzen
+    furniture.js      Regale am Drucktisch, Ausstellungsregal und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
     merge-static.js   Unbewegliche Einzelteile pro Material zu einem Mesh verschmelzen (weniger Draw Calls)

@@ -2,7 +2,7 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
+import { FAILURES, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
@@ -43,13 +43,13 @@ function partMaterial(filament, clip = null) {
 
 // Material(ien) für ein gedrucktes Teil: zwei- und mehrfarbige Formen haben eine Geometrie-Gruppe pro Farbe.
 // colors: alle Farben [Grundfarbe, …] (siehe partColors)
-function partMaterials(template, colors, clip = null) {
+export function partMaterials(template, colors, clip = null) {
   if (colorCount(template) < 2 || colors.length < 2) return partMaterial(filamentById(colors[0]), clip);
   return colors.map((id) => partMaterial(filamentById(id), clip));
 }
 
 // „PLA Schwarz“, zweifarbig „PLA Schwarz + Matte Weiß“, mehrfarbig „PLA in 8 Farben“
-function colorsLabel(colors) {
+export function colorsLabel(colors) {
   const label = filamentLabel(filamentById(colors[0]));
   if (colors.length > 2) return `${filamentById(colors[0]).material} in ${colors.length} Farben`;
   return colors.length === 2 ? `${label} + ${filamentColorName(filamentById(colors[1]))}` : label;
@@ -134,7 +134,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         used: (i) => economy.tableSlotUsed(i),
       };
     }
-    if (carry.furniture) {
+    if (carry.furniture && !isWallFurniture(carry.furniture.type)) { // Ausstellungsregale gehören an die Wand
       return {
         name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), perTable: RACKS_PER_TABLE, x: rackX, z: rackZ,
         used: (i) => economy.rackSlotUsed(i),

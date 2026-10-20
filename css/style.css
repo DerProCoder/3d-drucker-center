@@ -760,6 +760,20 @@ canvas { display: block; }
 }
 #start-overlay.hidden { display: none; }
 
+/* Nach dem PC: nur ein Hinweis mitten im Bild, Klick irgendwohin spielt weiter */
+.title-resume { display: none; }
+#start-overlay.resume { background: rgba(5, 7, 12, 0.2); backdrop-filter: none; cursor: pointer; }
+#start-overlay.resume .title-bg,
+#start-overlay.resume .title-card { display: none; }
+#start-overlay.resume .title-resume {
+  display: block;
+  padding: 12px 22px;
+  background: rgba(12, 15, 22, 0.75);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  font-weight: 600;
+}
+
 /* Langsam wandernde Farbschleier hinter der Karte */
 .title-bg {
   position: absolute;

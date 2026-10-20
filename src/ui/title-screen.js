@@ -60,6 +60,7 @@ export function createTitleScreen({ overlay, hasSave, quality, gpu, device, sugg
       <div class="title-keys" data-main data-keys></div>
       <div class="title-save" data-save-note>${hasSave ? '💾 Spielstand gefunden – dein Fortschritt wird automatisch gespeichert' : '💾 Dein Fortschritt wird automatisch gespeichert'}</div>
     </div>
+    <div class="title-resume">🖱️ Klicken, um weiterzuspielen</div>
   `;
 
   const kicker = overlay.querySelector('[data-kicker]');
@@ -80,7 +81,7 @@ export function createTitleScreen({ overlay, hasSave, quality, gpu, device, sugg
       device = chosen;
       showDevice();
       onDevice(chosen);
-    } else if (e.target.closest('[data-play]')) onPlay();
+    } else if (overlay.classList.contains('resume') || e.target.closest('[data-play]')) onPlay();
     else if (e.target.closest('[data-new]')) {
       if (confirm('Wirklich ein neues Spiel starten? Dein bisheriger Spielstand wird gelöscht.')) onNewGame();
     } else {
@@ -94,10 +95,18 @@ export function createTitleScreen({ overlay, hasSave, quality, gpu, device, sugg
     show(paused) {
       kicker.textContent = paused ? 'Pause' : '';
       playButton.textContent = paused ? '▶ Weiterspielen' : startLabel;
-      overlay.classList.remove('hidden');
+      overlay.classList.remove('hidden', 'resume');
     },
+    // Nach dem PC: statt des Pausenmenüs nur ein Hinweis, ein Klick irgendwohin spielt weiter. Der Browser fängt
+    // die Maus nach Esc nicht von selbst wieder ein, dafür braucht es einen Klick.
+    showResume() {
+      overlay.classList.remove('hidden');
+      overlay.classList.add('resume');
+    },
+    isResume: () => !overlay.classList.contains('hidden') && overlay.classList.contains('resume'),
     hide() {
       overlay.classList.add('hidden');
+      overlay.classList.remove('resume');
     },
     // Pleite: nur noch ein neues Spiel ist möglich
     showGameOver(stats) {

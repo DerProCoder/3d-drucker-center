@@ -23,6 +23,8 @@ import { createDesktopScreen } from './ui/desktop.js';
 import { createShop } from './ui/shop.js';
 import { createStorageRoom } from './world/storage-room.js';
 import { createWorkshop } from './world/workshop.js';
+import { createDisplayWall } from './world/display-wall.js';
+import { createHallLights } from './world/hall-lights.js';
 import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
@@ -50,6 +52,8 @@ const SNEAK_EYE_HEIGHT = 1.2;  // m – geduckt, solange C gedrückt ist
 const SNEAK_SPEED = 0.4;       // Anteil der Laufgeschwindigkeit beim Schleichen
 const CROUCH_RATE = 8;         // wie schnell man in die Hocke geht bzw. aufsteht (1/s)
 const PLAYER_RADIUS = 0.3;     // m, Abstand des Körpers zu Hindernissen
+const MAX_STEP = 0.1;          // m pro Kollisionsschritt – deutlich unter PLAYER_RADIUS, sonst läuft man durch Wände
+const MAX_MOVE_DT = 1 / 30;    // s – länger dauernde Bilder (Ruckler) bewegen die Figur nicht weiter als das
 const INTERACT_DISTANCE = 2.5; // m
 
 const collision = new CollisionWorld();
@@ -377,6 +381,9 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
+// Ausstellungsregale an der Südwand
+const displayWall = createDisplayWall({ economy, carry, collision });
+scene.add(displayWall.group);
 const storage = createStorageRoom({ economy, carry, collision, upgrades });
 scene.add(storage.group);
 
@@ -448,6 +455,14 @@ economy.subscribe(() => {
 
 // FPV-Steuerung: am PC Maus (Pointer Lock) und Tastatur, auf dem Tablet Touch (ui/touch-controls.js)
 const controls = new PointerLockControls(camera, document.body);
+// Chrome meldet bei gesperrter Maus ab und zu einzelne riesige Mausbewegungen – der Blick würde schlagartig
+// herumspringen. Solche Ausreißer verwerfen, bevor PointerLockControls sie sieht (Capture-Phase am window).
+const MAX_MOUSE_STEP = 400; // px pro Ereignis – echte Bewegungen liegen weit darunter
+window.addEventListener('mousemove', (e) => {
+  if (controls.isLocked && (Math.abs(e.movementX) > MAX_MOUSE_STEP || Math.abs(e.movementY) > MAX_MOUSE_STEP)) {
+    e.stopImmediatePropagation();
+  }
+}, true);
 let device = loadDevice(); // 'pc' | 'tablet' | null – wird beim ersten Start gefragt
 const isTablet = () => device === 'tablet';
 const touch = createTouchControls({
@@ -545,7 +560,7 @@ const shop = createShop(economy, {
   freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage - carry.spools.length,
   onClose: () => {
     if (gameOver) return; // Pleite: Maus nicht wieder einfangen
-    title.show(true); // falls das erneute Sperren der Maus scheitert
+    title.showResume(); // PC: nach Esc klappt das erneute Sperren der Maus nicht – dann weiter per Klick
     startPlaying();
   },
 });
@@ -568,7 +583,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
+  targets: [room, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
 
 interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
@@ -586,11 +601,14 @@ function liftAimedPrinter() {
 
 // Mausrad: welche Spule aus der Hand als Nächstes eingelegt wird
 document.addEventListener('wheel', (e) => {
-  if (controls.isLocked) carry.cycle(Math.sign(e.deltaY));
+  // Zielt man auf ein Ausstellungsregal, wählt das Rad das nächste Teil, sonst die Spule in der Hand
+  if (controls.isLocked && !displayWall.cycle(Math.sign(e.deltaY), interaction.current?.owner)) carry.cycle(Math.sign(e.deltaY));
 });
 
 window.addEventListener('keydown', (e) => {
+  // Esc im PC: zurück ins Spiel · nochmal Esc auf dem Hinweis „Klicken, um weiterzuspielen“: Pausenmenü
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
+  else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
   if (e.code === 'KeyE' && !e.repeat && controls.isLocked) liftAimedPrinter();
@@ -619,20 +637,36 @@ function updateMovement(dt) {
 
   const len = Math.max(1, Math.hypot(forward, right)); // Joystick: halb gezogen = halbes Tempo
   const speed = WALK_SPEED * (sneaking ? SNEAK_SPEED : 1);
-  controls.moveForward((forward / len) * speed * dt);
-  controls.moveRight((right / len) * speed * dt);
-
-  collision.resolve(camera.position, PLAYER_RADIUS);
+  // Nach einem Ruckler die verlorene Zeit nicht auf einmal nachlaufen – sonst springt die Figur ein Stück weiter
+  const moveDt = Math.min(dt, MAX_MOVE_DT);
+  // In kleinen Schritten laufen und nach jedem Schritt die Kollision auflösen: in einem großen Schritt landete der
+  // Mittelpunkt mitten in einer dünnen Wand oder Tür und wurde auf der anderen Seite wieder herausgeschoben.
+  const steps = Math.ceil((speed * moveDt) / MAX_STEP);
+  for (let i = 0; i < steps; i++) {
+    controls.moveForward((forward / len) * speed * (moveDt / steps));
+    controls.moveRight((right / len) * speed * (moveDt / steps));
+    collision.resolve(camera.position, PLAYER_RADIUS);
+  }
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
+// Lichtschalter neben der Lagertür – erst nach setupGraphics, das die Helligkeiten je Grafikstufe einstellt
+const hallLights = createHallLights({ room, scene });
+scene.add(hallLights.group);
+interaction.targets.push(hallLights.group);
 // Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
+// Die Lampenschatten der Anbauten sind statisch. Ein ausgeblendeter Raum fehlt in der Schattenkarte, deshalb beim
+// Einblenden neu zeichnen – aber nur, wenn sich seitdem etwas geändert hat. Bei jedem Umschauen zu zeichnen
+// (jede Lampe zeichnet dafür die Szene sechsmal) ließ das Bild beim Kurvenlaufen ruckeln.
+const staleShadows = new Set();
 const culling = createRoomCulling(camera, {
   hall: [room, hall.group, workshop.group, computerDesk],
   storage: [storage.group],
   office: [office.group],
   entrance: [entrance.group, receptionDesk.group],
-}, () => graphics.refreshStaticShadows());
+}, (name) => {
+  if (staleShadows.delete(name)) graphics.refreshStaticShadows();
+});
 
 // Shader vorab im Hintergrund übersetzen. Sonst übersetzt three.js sie erst, wenn ein Objekt zum ersten Mal
 // ins Bild kommt – unter Windows (ANGLE → Direct3D) dauert das spürbar, das Spiel steht so lange und
@@ -647,7 +681,10 @@ function precompileShaders() {
   }, 50);
 }
 economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
-economy.subscribe(() => graphics.refreshStaticShadows()); // z. B. neue Kartons im Lager
+economy.subscribe(() => { // z. B. neue Kartons im Lager
+  graphics.refreshStaticShadows();
+  for (const name of ['hall', 'storage', 'office', 'entrance']) staleShadows.add(name);
+});
 onPersonLoaded(precompileShaders);    // Figuren (Azubis, Kunden, Passanten) kommen nach und nach dazu
 
 window.addEventListener('resize', () => {
@@ -691,49 +728,81 @@ for (const [name, object] of Object.entries({
 })) object.name ||= name;
 const perf = createPerfOverlay({ renderer, scene });
 const frameClock = new THREE.Clock();
+// Wirft ein Teil der Spielschleife, plant three.js kein nächstes Bild mehr ein – das Spiel stünde für immer still
+// und ließe sich nur mit F5 retten. Deshalb läuft jeder Teil für sich abgesichert: Fehler landen (jeder einmal) in
+// der Konsole, alles andere läuft weiter.
+const reportedErrors = new Set();
+function safely(name, run) {
+  try {
+    run();
+  } catch (err) {
+    const key = `${name}: ${err?.stack ?? err}`;
+    if (reportedErrors.has(key)) return;
+    reportedErrors.add(key);
+    console.error(`Fehler in der Spielschleife (${name}):`, err);
+    hud.notify('⚠️ Interner Fehler – Details in der Browser-Konsole (F12)', 'info');
+  }
+}
+
+// Verliert der Browser die Grafikkarte (Treiber-Reset, v. a. bei integrierten GPUs), bleibt das Bild stehen –
+// three.js baut alles neu auf, sobald sie wieder da ist. Damit man das vom Einfrieren unterscheiden kann: melden.
+renderer.domElement.addEventListener('webglcontextlost', () => {
+  console.error('WebGL-Kontext verloren – die Grafikkarte wurde vom Browser zurückgesetzt');
+  hud.notify('⚠️ Grafikkarte wurde zurückgesetzt – kurz warten, sonst F5', 'info');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => console.info('WebGL-Kontext wieder da'));
+
 renderer.setAnimationLoop(() => {
   perf.begin();
   const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
   const paused = !playing() && !shop.isOpen();
   if (!gameOver && !paused) {
-    const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
-    economy.advanceTime(gameMinutes);
-    economy.advancePrints(gameMinutes);
-    orders.advance(gameMinutes);
-    gameClock.advance(gameMinutes);
-    checkBankrupt();
-  }
-  workshop.animate(dt);
-  cat.update(dt);
-  throwing.update(dt);
-  workers.update(dt);
-  office.update(dt, workers.gaming());
-  entrance.update(dt, [camera.position, ...customers.positions()]);
-  culling.update();
-  outdoor.update(dt, camera, culling.outdoorVisible());
-  pedestrians.update(dt, camera.position, outdoor.group.visible);
-  customers.update(dt, outdoor.group.visible);
-  receptionist.update(dt, outdoor.group.visible);
-  receptionDesk.update();
-  hall.update(dt);
-  // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
-  economy.advanceDeliveries(dt);
-  upgrades.advance(dt);
-  hud.update();
-  printerSounds(dt);
-  updateMovement(dt);
-  interaction.update(playing());
-  if (touch.active) {
-    touch.update({
-      take: carry.isEmpty && !!interaction.current?.owner.userData.printer,
-      throw: !!carry.printer,
-      return: !carry.isEmpty,
-      cycle: carry.spools.length > 1,
+    safely('Spielzeit', () => {
+      const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
+      economy.advanceTime(gameMinutes);
+      economy.advancePrints(gameMinutes);
+      orders.advance(gameMinutes);
+      gameClock.advance(gameMinutes);
+      checkBankrupt();
     });
   }
-  crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
-  graphics.render(dt);
-  printerCam.update(dt);
+  safely('Drucker', () => workshop.animate(dt));
+  safely('Ausstellungsregal', () => displayWall.update());
+  safely('Licht', () => hallLights.update(dt, camera.position));
+  safely('Kater', () => cat.update(dt));
+  safely('Werfen', () => throwing.update(dt));
+  safely('Azubis', () => workers.update(dt));
+  safely('Büro', () => office.update(dt, workers.gaming()));
+  safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions()]));
+  safely('Räume', () => culling.update());
+  safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
+  safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));
+  safely('Kunden', () => customers.update(dt, outdoor.group.visible));
+  safely('Empfangskraft', () => receptionist.update(dt, outdoor.group.visible));
+  safely('Empfang', () => receptionDesk.update());
+  safely('Halle', () => hall.update(dt));
+  // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
+  safely('Lieferungen', () => {
+    economy.advanceDeliveries(dt);
+    upgrades.advance(dt);
+  });
+  safely('HUD', () => hud.update());
+  safely('Geräusche', () => printerSounds(dt));
+  safely('Bewegung', () => updateMovement(dt));
+  safely('Zielen', () => {
+    interaction.update(playing());
+    if (touch.active) {
+      touch.update({
+        take: carry.isEmpty && !!interaction.current?.owner.userData.printer,
+        throw: !!carry.printer,
+        return: !carry.isEmpty,
+        cycle: carry.spools.length > 1,
+      });
+    }
+    crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
+  });
+  safely('Zeichnen', () => graphics.render(dt));
+  safely('Drucker-Cam', () => printerCam.update(dt));
   perf.end(dt);
 });
