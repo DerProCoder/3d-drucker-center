@@ -9,6 +9,7 @@ import {
 import { createPlant } from '../models/office-furniture.js';
 import { ENTRANCE } from './entrance.js';
 import { canvasTexture } from './room.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 
@@ -171,6 +172,8 @@ export function createReceptionDesk({ reception, orders, customers, collision })
   function update() {
     for (const [id, parcel] of parcelByOrder) parcel.visible = !customers.carrying.has(id);
   }
+
+  mergeStatic(group); // Stühle, Pflanzen, Schilder pro Material zusammenfassen (Tresen, Regal, Pakete bleiben eigenständig)
 
   return { group, update };
 }

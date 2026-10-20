@@ -2,6 +2,7 @@
 // (Sortimentskasten mit Ersatzdüsen). Dazu die Ersatzdüse selbst, z. B. für die Hand.
 // Ursprung: Mitte der Unterseite, Vorderseite zeigt nach +z (zum Spieler).
 import * as THREE from 'three';
+import { mergeStatic } from './merge-static.js';
 
 const RACK = { w: 0.5, d: 0.3, h: 0.56, levels: [0.03, 0.29], perLevel: 4 };
 const PARTS = { w: 0.42, d: 0.26, h: 0.34, cols: 4, rows: 3 };
@@ -96,7 +97,7 @@ export function createFurnitureModel(type) {
     o.castShadow = true;
     o.receiveShadow = true;
   });
-  return g;
+  return mergeStatic(g); // Bretter, Streben und Schütten: ein Mesh pro Material
 }
 
 const sizeCache = new Map();

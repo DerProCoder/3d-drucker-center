@@ -37,12 +37,31 @@ export function gpuInfo(renderer) {
 // Höchstens so viele Pixel pro Bild (Megapixel) je Grafikstufe. Auf großen oder sehr breiten Monitoren
 // (z. B. 5120 × 1440) rechnet das Spiel intern mit weniger Pixeln und skaliert hoch – sonst kommt besonders eine
 // integrierte Grafik nicht hinterher, Bilder stauen sich und Eingaben kommen erst Sekunden später an.
-const PIXEL_BUDGET = { hoch: 8e6, mittel: 4e6, niedrig: 2e6 };
+// hoch ≈ 2560 × 1440, mittel ≈ 1920 × 1080, niedrig ≈ 1440 × 810
+const PIXEL_BUDGET = { hoch: 3.7e6, mittel: 2.1e6, niedrig: 1.2e6 };
 const MAX_PIXEL_RATIO = { hoch: 2, mittel: 1.5, niedrig: 1 };
 
-export function fitPixelRatio(renderer, quality, width, height) {
+// Sonnenschatten je Stufe: Größe der Schattenkarte, Kantenlänge des Bereichs um die Spielfigur (m), wie oft die
+// Karte pro Sekunde neu gezeichnet wird (0 = jedes Bild) und ob die Deckenlampen der Anbauten Schatten werfen.
+const SHADOWS = {
+  hoch: { mapSize: 2048, area: 40, rate: 0, lampShadows: true },
+  mittel: { mapSize: 2048, area: 32, rate: 30, lampShadows: false },
+  niedrig: { mapSize: 1024, area: 24, rate: 10, lampShadows: false },
+};
+// Kantenglättung (MSAA) im Puffer der Nachbearbeitung; „niedrig“ glättet direkt beim Zeichnen (siehe antialias)
+const MSAA_SAMPLES = { hoch: 4, mittel: 2 };
+export const antialias = (quality) => quality === 'niedrig';
+
+// Automatische Auflösung: Liegt die Bildzeit über eine Sekunde gemittelt über SLOW_FRAME_MS, rechnet das Spiel
+// mit weniger Pixeln (bis SCALE_MIN), bei genug Luft wieder mit mehr.
+const SLOW_FRAME_MS = 1000 / 45;
+const FAST_FRAME_MS = 1000 / 57;
+const SCALE_MIN = 0.6;
+const SCALE_STEP = 0.1;
+
+function pixelRatioFor(quality, width, height, scale = 1) {
   const budget = Math.sqrt(PIXEL_BUDGET[quality] / (width * height));
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO[quality], budget));
+  return Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO[quality], budget) * scale;
 }
 
 export function saveQuality(quality) {
@@ -126,23 +145,71 @@ function animateDust(dust, dt, time) {
   pos.needsUpdate = true;
 }
 
+// Sonnenschatten folgen der Spielfigur: Statt Halle, Anbauten und Garten auf einmal deckt die Schattenkarte nur
+// den Bereich um den Spieler ab – schärfer und mit weniger Objekten, die hineingezeichnet werden müssen.
+// Der Mittelpunkt rastet auf ganze Texel ein, sonst flimmern die Schattenkanten beim Laufen.
+function followSun(sun, area, mapSize) {
+  const offset = sun.position.clone().sub(sun.target.position).setLength(60); // weit weg, damit nichts abgeschnitten wird
+  const dir = offset.clone().normalize();
+  const right = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+  const up = dir.clone().cross(right);
+  const texel = area / mapSize;
+  const cam = sun.shadow.camera;
+  cam.left = cam.bottom = -area / 2;
+  cam.right = cam.top = area / 2;
+  cam.near = 1;
+  cam.far = 120;
+  cam.updateProjectionMatrix();
+  const snapped = new THREE.Vector3();
+  return (position) => {
+    const a = Math.round(position.dot(right) / texel) * texel;
+    const b = Math.round(position.dot(up) / texel) * texel;
+    snapped.copy(right).multiplyScalar(a).addScaledVector(up, b).addScaledVector(dir, position.dot(dir));
+    sun.target.position.copy(snapped);
+    sun.target.updateMatrixWorld();
+    sun.position.copy(snapped).add(offset);
+    sun.updateMatrixWorld();
+  };
+}
+
 export function setupGraphics(renderer, scene, camera, quality) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.95;
-  // Niedrig: harte Schatten mit kleinerer Schattenkarte, die nur 10× pro Sekunde neu berechnet wird, und ohne
-  // die Deckenspots (jedes Licht kostet in jedem Pixel Rechenzeit) – dafür ist das Himmelslicht heller.
+  // Niedrig: harte Schatten und ohne die Deckenspots (jedes Licht kostet in jedem Pixel Rechenzeit) – dafür ist
+  // das Himmelslicht heller.
   const low = quality === 'niedrig';
-  fitPixelRatio(renderer, quality, window.innerWidth, window.innerHeight);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const shadows = SHADOWS[quality];
+  let scale = 1; // automatische Auflösung (1 = volles Pixelbudget)
+  let width = window.innerWidth;
+  let height = window.innerHeight;
+  renderer.setPixelRatio(pixelRatioFor(quality, width, height));
+  renderer.setSize(width, height);
   renderer.shadowMap.type = low ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-  if (low) {
-    renderer.shadowMap.autoUpdate = false;
-    renderer.shadowMap.needsUpdate = true;
-    scene.traverse((o) => {
-      if (o.isLight && o.castShadow) o.shadow.mapSize.set(1024, 1024);
-      if (o.isSpotLight) o.visible = false;
-      if (o.isHemisphereLight) o.intensity += 0.9;
-    });
+  // Wann die Schattenkarten neu gezeichnet werden, entscheidet render() (Takt je Stufe)
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
+
+  let sun = null;
+  const lamps = [];
+  scene.traverse((o) => {
+    if (o.isDirectionalLight && o.castShadow) sun = o;
+    if (o.isPointLight) lamps.push(o);
+    if (low && o.isSpotLight) o.visible = false;
+    if (low && o.isHemisphereLight) o.intensity += 0.9;
+  });
+  // Deckenlampen in Lager, Büro und Empfang: Schatten nur auf „hoch“ und nur einmal gezeichnet (die Räume
+  // bewegen sich nicht) – sonst zeichnet jede Lampe die Szene in jedem Bild sechsmal zusätzlich
+  for (const lamp of lamps) {
+    lamp.castShadow = shadows.lampShadows;
+    lamp.shadow.mapSize.set(512, 512);
+    lamp.shadow.autoUpdate = false;
+    lamp.shadow.needsUpdate = true;
+  }
+  let moveSun = null;
+  if (sun) {
+    sun.shadow.mapSize.set(shadows.mapSize, shadows.mapSize);
+    moveSun = followSun(sun, shadows.area, shadows.mapSize);
+    moveSun(camera.position);
   }
 
   // Umgebung für Spiegelungen auf Metall, Lack und dem Boden
@@ -156,13 +223,23 @@ export function setupGraphics(renderer, scene, camera, quality) {
 
   let composer = null;
   let vignette = null;
-  if (quality !== 'niedrig') {
+  let gtao = null;
+  if (!low) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 4 });
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: MSAA_SAMPLES[quality] });
+    if (quality === 'hoch') target.depthTexture = new THREE.DepthTexture(size.x, size.y);
     composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
     if (quality === 'hoch') {
-      const gtao = new GTAOPass(scene, camera, size.x, size.y);
+      gtao = new GTAOPass(scene, camera, size.x, size.y);
+      // Tiefe aus dem Hauptbild nehmen (die Normalen rekonstruiert GTAO daraus), statt die ganze Szene ein zweites
+      // Mal für Normalen und Tiefe zu zeichnen. In welchem der beiden Puffer das Hauptbild landet, wechselt von
+      // Bild zu Bild – render() setzt die Tiefe deshalb jedes Mal neu.
+      gtao.setGBuffer(composer.readBuffer.depthTexture);
+      // In halber Auflösung rechnen – das weiche Ergebnis wird beim Überblenden hochskaliert
+      const setGtaoSize = gtao.setSize.bind(gtao);
+      gtao.setSize = (w, h) => setGtaoSize(Math.ceil(w / 2), Math.ceil(h / 2));
+      gtao.setSize(size.x, size.y);
       gtao.updateGtaoMaterial({ radius: 0.35, distanceFallOff: 1, thickness: 1, scale: 1 });
       gtao.blendIntensity = 0.85;
       composer.addPass(gtao);
@@ -174,28 +251,68 @@ export function setupGraphics(renderer, scene, camera, quality) {
     composer.addPass(new OutputPass());
   }
 
+  function applySize() {
+    renderer.setPixelRatio(pixelRatioFor(quality, width, height, scale));
+    renderer.setSize(width, height);
+    composer?.setPixelRatio(renderer.getPixelRatio());
+    composer?.setSize(width, height); // passt auch alle Passes an
+  }
+
+  // Automatische Auflösung: Bildzeit über eine Sekunde mitteln, dann höchstens einen Schritt anpassen
+  let sampleMs = 0;
+  let sampleFrames = 0;
+  let lastFrame = performance.now();
+  function adaptResolution() {
+    const now = performance.now();
+    const ms = now - lastFrame;
+    lastFrame = now;
+    if (ms > 250 || document.hidden) return; // Pause, Ladeschluckauf, Tab im Hintergrund zählen nicht
+    sampleMs += ms;
+    sampleFrames++;
+    if (sampleMs < 1000) return;
+    const avg = sampleMs / sampleFrames;
+    sampleMs = 0;
+    sampleFrames = 0;
+    let next = scale;
+    if (avg > SLOW_FRAME_MS) next = Math.max(SCALE_MIN, scale - SCALE_STEP);
+    else if (avg < FAST_FRAME_MS) next = Math.min(1, scale + SCALE_STEP / 2);
+    if (Math.abs(next - scale) < 0.01) return;
+    scale = next;
+    applySize();
+  }
+
   let time = 0;
   let shadowTimer = 0;
   return {
     render(dt) {
       time += dt;
       animateDust(dust, dt, time);
-      if (low && (shadowTimer += dt) >= 0.1) {
+      adaptResolution();
+      shadowTimer += dt;
+      if (!shadows.rate || shadowTimer >= 1 / shadows.rate) {
         shadowTimer = 0;
+        moveSun?.(camera.position);
         renderer.shadowMap.needsUpdate = true;
       }
       if (!composer) {
         renderer.render(scene, camera);
         return;
       }
+      if (gtao) {
+        gtao.gtaoMaterial.uniforms.tDepth.value = composer.readBuffer.depthTexture;
+        gtao.pdMaterial.uniforms.tDepth.value = composer.readBuffer.depthTexture;
+      }
       vignette.uniforms.time.value = time % 100;
       composer.render(dt);
     },
     setSize(w, h) {
-      fitPixelRatio(renderer, quality, w, h);
-      renderer.setSize(w, h);
-      composer?.setPixelRatio(renderer.getPixelRatio());
-      composer?.setSize(w, h); // passt auch alle Passes an
+      width = w;
+      height = h;
+      applySize();
+    },
+    // Lampenschatten neu zeichnen, wenn sich in den Räumen etwas geändert hat (z. B. Kartons im Lager)
+    refreshStaticShadows() {
+      for (const lamp of lamps) if (lamp.castShadow) lamp.shadow.needsUpdate = true;
     },
   };
 }

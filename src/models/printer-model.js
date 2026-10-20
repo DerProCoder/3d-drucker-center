@@ -15,6 +15,7 @@ import {
 } from './printer-parts.js';
 import { createChangerToolhead, createLedStrip, createNozzleRack } from './nozzle-changer.js';
 import { buildLaserR1 } from './laser-model.js';
+import { mergeStatic } from './merge-static.js';
 
 // Lüftungsschlitze an beiden Seiten eines Sockels (Mitte bei x, Seitenflächen bei x ± w/2)
 function addSideVents(g, m, x, w, y, z, count, length) {
@@ -151,6 +152,7 @@ function buildA1Mini(g) {
   const zAxis = new THREE.Group(); // alles, was mit der Schichthöhe hoch- und runterfährt
   zAxis.add(head);
   g.add(zAxis);
+  g.userData.moving = [zAxis]; // fährt mit der Schichthöhe – nicht mit dem Gehäuse verschmelzen
   g.userData.printRig = {
     partParent: bedAxis, // gedruckte Teile liegen auf dem Bett und fahren mit
     head,
@@ -266,6 +268,7 @@ function buildA1(g, variant) {
   const zAxis = new THREE.Group();
   zAxis.add(head);
   g.add(zAxis);
+  g.userData.moving = [zAxis]; // fährt mit der Schichthöhe – nicht mit dem Gehäuse verschmelzen
   g.userData.printRig = {
     partParent: bedAxis, // gedruckte Teile liegen auf dem Bett und fahren mit
     head,
@@ -641,6 +644,7 @@ function buildBambuCube(g, variant) {
   }
   for (const sx of [-1, 1]) gantry.add(rbox(0.03, 0.04, 0.045, 0.005, frame, sx * railX, railY, -0.012)); // Gleitschuhe
   g.add(gantry);
+  g.userData.moving = [gantry]; // fährt vor und zurück – nicht mit dem Gehäuse verschmelzen
 
   // Druckbett auf Z-Träger, fährt nach unten; drei Gewindespindeln (zwei vorne an den Seiten, eine hinten mittig)
   const nozzleY = headY - head.userData.nozzleBelowCenter;
@@ -780,6 +784,7 @@ const BUILDERS = {
 export function createPrinterModel(model) {
   const group = new THREE.Group();
   BUILDERS[model.style](group, model);
+  mergeStatic(group); // Hunderte Einzelteile → wenige Meshes pro Material (bewegliche Achsen bleiben eigenständig)
   updatePrinterTubes(group); // Schläuche in Ruheposition biegen
   group.userData.model = model;
   return group;

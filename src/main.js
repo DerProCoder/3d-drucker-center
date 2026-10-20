@@ -32,12 +32,15 @@ import { createOutdoor } from './world/outdoor.js';
 import { createPedestrians } from './world/pedestrians.js';
 import { createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
+import { createRoomCulling } from './world/room-culling.js';
 import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
+import { createPerfOverlay } from './ui/perf-overlay.js';
 import { enableShadows } from './world/util.js';
-import { setupGraphics, loadQuality, saveQuality, gpuInfo } from './world/graphics.js';
+import { mergeStatic } from './models/merge-static.js';
+import { setupGraphics, loadQuality, saveQuality, gpuInfo, antialias } from './world/graphics.js';
 
 const WALK_SPEED = 4;          // m/s
 const EYE_HEIGHT = 1.7;        // m
@@ -190,8 +193,9 @@ orders.onEvent = (type, d) => {
   }
 };
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Mit Nachbearbeitung glättet deren Puffer die Kanten – dann wäre Kantenglättung am Bildschirm doppelt
+const quality = loadQuality();
+const renderer = new THREE.WebGLRenderer({ antialias: antialias(quality) });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.localClippingEnabled = true; // Druckteile werden per Schnittebene Schicht für Schicht sichtbar
@@ -211,13 +215,9 @@ const sun = new THREE.DirectionalLight(0xfff4e0, 0.8);
 sun.position.set(5, 10, 4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-// Schattenbereich deckt Halle, Anbauten und den Garten vor dem Eingang ab
+// Der Schattenbereich folgt der Spielfigur (world/graphics.js)
 sun.target.position.set(-7, 0, 0);
 scene.add(sun.target);
-sun.shadow.camera.left = -25;
-sun.shadow.camera.right = 25;
-sun.shadow.camera.top = 25;
-sun.shadow.camera.bottom = -25;
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
@@ -441,7 +441,6 @@ economy.subscribe(() => {
 // FPV-Steuerung
 const controls = new PointerLockControls(camera, document.body);
 const overlay = document.getElementById('start-overlay');
-const quality = loadQuality();
 const title = createTitleScreen({
   overlay,
   hasSave: saveFound,
@@ -500,6 +499,7 @@ const pcInteraction = {
   },
 };
 for (const part of [monitor, pc, keyboard, mouse]) part.userData.interaction = pcInteraction;
+mergeStatic(computerDesk); // erst nach dem Setzen der Interaktion: Bildschirm, PC, Tastatur und Maus bleiben anklickbar
 
 const hintEl = document.getElementById('interact-hint');
 const crosshair = document.getElementById('crosshair');
@@ -561,6 +561,13 @@ function updateMovement(dt) {
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
+// Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
+const culling = createRoomCulling(camera, {
+  hall: [room, hall.group, workshop.group, computerDesk],
+  storage: [storage.group],
+  office: [office.group],
+  entrance: [entrance.group, receptionDesk.group],
+}, () => graphics.refreshStaticShadows());
 
 // Shader vorab im Hintergrund übersetzen. Sonst übersetzt three.js sie erst, wenn ein Objekt zum ersten Mal
 // ins Bild kommt – unter Windows (ANGLE → Direct3D) dauert das spürbar, das Spiel steht so lange und
@@ -575,6 +582,7 @@ function precompileShaders() {
   }, 50);
 }
 economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
+economy.subscribe(() => graphics.refreshStaticShadows()); // z. B. neue Kartons im Lager
 onPersonLoaded(precompileShaders);    // Figuren (Azubis, Kunden, Passanten) kommen nach und nach dazu
 
 window.addEventListener('resize', () => {
@@ -610,8 +618,16 @@ function checkBankrupt() {
   title.showGameOver({ day: gameClock.day, ...achievements.stats });
 }
 
+// Namen der Szenenbereiche für die Aufschlüsselung der Draw Calls in der Leistungsanzeige
+for (const [name, object] of Object.entries({
+  room, entrance: entrance.group, outdoor: outdoor.group, customers: customers.group, reception: receptionDesk.group,
+  hall: hall.group, computerDesk, workshop: workshop.group, storage: storage.group, cat: cat.group,
+  office: office.group, workers: workers.group,
+})) object.name ||= name;
+const perf = createPerfOverlay({ renderer, scene });
 const frameClock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
+  perf.begin();
   const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
   const paused = !controls.isLocked && !shop.isOpen();
@@ -629,7 +645,8 @@ renderer.setAnimationLoop(() => {
   workers.update(dt);
   office.update(dt, workers.gaming());
   entrance.update(dt, [camera.position, ...customers.positions()]);
-  outdoor.update(dt, camera);
+  culling.update();
+  outdoor.update(dt, camera, culling.outdoorVisible());
   pedestrians.update(dt, camera.position, outdoor.group.visible);
   customers.update(dt, outdoor.group.visible);
   receptionDesk.update();
@@ -644,4 +661,5 @@ renderer.setAnimationLoop(() => {
   crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
   graphics.render(dt);
   printerCam.update(dt);
+  perf.end(dt);
 });

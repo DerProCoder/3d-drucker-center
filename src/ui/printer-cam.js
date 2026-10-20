@@ -13,7 +13,9 @@ const FPS = 10;
 export function createPrinterCam({ renderer, scene, economy, workshop }) {
   const target = new THREE.WebGLRenderTarget(W, H);
   target.texture.colorSpace = THREE.SRGBColorSpace;
-  const camera = new THREE.PerspectiveCamera(72, W / H, 0.005, 30); // Weitwinkel wie die echte Gerätekamera
+  // Weitwinkel wie die echte Gerätekamera. Sie sieht nur ins Gerät und auf die Nachbarn – weiter weg muss nichts
+  // gezeichnet werden.
+  const camera = new THREE.PerspectiveCamera(72, W / H, 0.005, 4);
   const pixels = new Uint8Array(W * H * 4);
   const lookAt = new THREE.Vector3();
   let canvas = null;
@@ -21,6 +23,7 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
   let image = null;
   let printerId = null;
   let sinceFrame = 0;
+  let reading = false; // Bild wird gerade von der Grafikkarte geholt
 
   // Gewählter Drucker, falls er noch auf dem Tisch steht, sonst der erste aufgestellte
   function currentPrinter() {
@@ -102,21 +105,30 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
     model.localToWorld(lookAt.copy(mount.target));
     camera.lookAt(lookAt);
 
+    // Die Schatten aus dem Hauptbild weiterverwenden, statt sie für die Kamera neu zu zeichnen
+    const shadowUpdate = renderer.shadowMap.needsUpdate;
+    renderer.shadowMap.needsUpdate = false;
     renderer.setRenderTarget(target);
     renderer.render(scene, camera);
-    renderer.readRenderTargetPixels(target, 0, 0, W, H, pixels);
     renderer.setRenderTarget(null);
-    // WebGL liefert die Zeilen von unten nach oben
-    for (let y = 0; y < H; y++) {
-      image.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
-    }
-    ctx.putImageData(image, 0, 0);
-    if (!p.model.aiCamera) { // einfache Kamera: leicht unscharf
-      ctx.filter = 'blur(0.8px)';
-      ctx.drawImage(canvas, 0, 0);
-      ctx.filter = 'none';
-    }
-    overlay(p);
+    renderer.shadowMap.needsUpdate = shadowUpdate;
+    // Asynchron auslesen: Das Spiel wartet nicht, bis die Grafikkarte das Bild fertig hat
+    reading = true;
+    renderer.readRenderTargetPixelsAsync(target, 0, 0, W, H, pixels).then(() => {
+      reading = false;
+      if (!canvas?.isConnected) return;
+      // WebGL liefert die Zeilen von unten nach oben
+      for (let y = 0; y < H; y++) {
+        image.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+      }
+      ctx.putImageData(image, 0, 0);
+      if (!p.model.aiCamera) { // einfache Kamera: leicht unscharf
+        ctx.filter = 'blur(0.8px)';
+        ctx.drawImage(canvas, 0, 0);
+        ctx.filter = 'none';
+      }
+      overlay(p);
+    }, () => { reading = false; });
   }
 
   return {
@@ -149,7 +161,7 @@ export function createPrinterCam({ renderer, scene, economy, workshop }) {
     update(dt) {
       if (!canvas?.isConnected || !canvas.offsetParent) return;
       sinceFrame += dt;
-      if (sinceFrame < 1 / FPS) return;
+      if (sinceFrame < 1 / FPS || reading) return;
       sinceFrame = 0;
       renderFrame();
     },

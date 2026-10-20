@@ -62,6 +62,7 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 | F | Getragenen Drucker oder Druckerkarton werfen |
 | Q | Alles in der Hand zurück ins Lager legen |
 | M | Ton an/aus |
+| F3 | Leistungsanzeige: Bilder pro Sekunde, Bildzeit, Draw Calls, Auflösung |
 | Esc | Pause / PC verlassen |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
@@ -198,7 +199,7 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 - **Erfolge:** Die App **Erfolge** am PC zeigt freigeschaltete Erfolge (erstes Benchy, erste Spaghetti, Katzenmensch …) und Statistiken.
 - **Ton:** Drucker surren je nach Tempo ihres Druckkopfs – tief beim langsamen Drucken, höher bei schnellen Stufen, Leerfahrten und Düsenwechseln –, piepen bei fertig oder Fehler, der Kater miaut und schnurrt. `M` schaltet den Ton aus.
 - **Level:** Jeder gelieferte Auftrag bringt XP (1 XP pro Euro). Mit jedem Level gibt es einen neuen Titel – vom *Bastler* bis zur *Legende des Filaments* –, 10 % mehr Lohn pro Auftrag und nach und nach mehr Aufträge gleichzeitig.
-- **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung), **Mittel** und **Niedrig** wählen. „Niedrig“ rechnet mit voller statt doppelter Pixeldichte und einfacheren Schatten – für schwächere Rechner.
+- **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung und Schatten der Deckenlampen), **Mittel** und **Niedrig** wählen. „Niedrig“ rechnet mit weniger Pixeln, ohne Nachbearbeitung und mit einfacheren Schatten – für Laptops und schwächere Rechner. Schafft der Rechner keine flüssigen 45 Bilder pro Sekunde, senkt das Spiel die Auflösung von selbst ein Stück (und hebt sie wieder, wenn Luft ist). `F3` zeigt, wie schnell es gerade läuft.
 - **Alte Spielstände** werden übernommen. Fertige Teile von früher bekommen dabei Weiß als Farbe, weil die Farbe damals nicht gespeichert wurde.
 
 ## Probleme?
@@ -210,7 +211,7 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 | „Port bereits belegt“ | Anderen Port nehmen: `.\serve.ps1 -Port 8090` und dann `http://localhost:8090` öffnen. |
 | Maus lässt sich nicht einfangen | Einmal ins Bild klicken. Nach `Esc` lässt der Browser die Maus manchmal erst nach einem weiteren Klick wieder einfangen. |
 | Spielstand ist nach Neuladen weg | Gespeichert wird im Browser (localStorage). Im privaten Fenster oder nach dem Löschen der Browserdaten ist er weg. |
-| Spiel ruckelt | Im Titelbildschirm die Grafik auf **Mittel** oder **Niedrig** stellen. |
+| Spiel ruckelt | Im Titelbildschirm die Grafik auf **Mittel** oder **Niedrig** stellen. Mit `F3` sieht man Bilder pro Sekunde und Draw Calls. |
 | Starkes Ruckeln, Bewegung kommt Sekunden später | Der Browser rendert vermutlich ohne Grafikkarte (der Titelbildschirm warnt dann rot). In den Browser-Einstellungen unter System **„Grafikbeschleunigung verwenden, wenn verfügbar“** einschalten und den Browser neu starten. Prüfen lässt es sich unter `chrome://gpu` bzw. `edge://gpu` (WebGL: „Hardware accelerated“). Bei Laptops mit zwei Grafikkarten in Windows unter Einstellungen → System → Anzeige → Grafik den Browser auf **Hohe Leistung** stellen. |
 
 ## Projektaufbau
@@ -255,8 +256,9 @@ src/
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
     workers.js        Azubis als Figuren: Laufwege durch Halle, Lager und Büro, Arbeiten, Spule tragen, Sitzen, Zocken
     interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
+    room-culling.js   Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
     collision.js      Kollision der Spielfigur
-    graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub
+    graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub, Schatten, automatische Auflösung
     util.js           Kleine 3D-Helfer (Schatten)
   models/           Reine 3D-Modelle, ohne Spiellogik
     printer-model.js, printer-parts.js   Drucker
@@ -265,10 +267,11 @@ src/
     laser-art.js      Was der Laser auf die Platte bringt: Motive, Text, Gravurzeilen, Schnittbahn
     printer-box.js    Lieferkarton
     print-shapes.js   Formen der Druckvorlagen
-    spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend, durchscheinend)
+    spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend, durchscheinend), ganze Regale als Instanzen
     furniture.js      Regale am Drucktisch und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
+    merge-static.js   Unbewegliche Einzelteile pro Material zu einem Mesh verschmelzen (weniger Draw Calls)
     people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
     reception-furniture.js  Tresen, Wartestuhl, Abholregal, Paket mit Etikett
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
@@ -281,6 +284,7 @@ src/
     printer-cam.js    App Drucker-Cam
     printer-preview.js  Produktbilder der Drucker für den Shop
     pc-apps.js        Notizen und Rechner
+    perf-overlay.js   Leistungsanzeige (F3); mit ?perf in der Adresse offen und mit Ausgabe in der Konsole
   audio/
     sound.js          Geräusche per WebAudio (ohne Audiodateien)
 ```

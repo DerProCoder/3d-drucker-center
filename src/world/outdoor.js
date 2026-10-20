@@ -10,6 +10,7 @@ import {
   createBench, createBlobs, createCar, createGardenLight, createHouse, createMailbox, createSky, createStreetLamp, createTrees,
 } from '../models/outdoor-props.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 const T = WALL_THICKNESS;
 const HALF = ROOM_SIZE / 2 + T;   // Außenkante der Halle
@@ -390,6 +391,8 @@ export function createOutdoor({ collision, scene }) {
 
   enableShadows(group);
   ground.castShadow = false;
+  // Häuser, Zäune, Laternen, Wege … pro Material und Raster-Feld zu je einem Mesh zusammenfassen
+  mergeStatic(group, { cell: 12 });
 
   // Autos auf beiden Fahrspuren
   const carColors = [0xc8102e, 0x1f4e9c, 0xe8e8e8, 0x2b2d30, 0x8a9198, 0x2e6b3a];
@@ -402,10 +405,10 @@ export function createOutdoor({ collision, scene }) {
     return car;
   });
 
-  // camera: Himmel folgt ihr; drinnen (weit weg vom Eingang) bleibt die Außenwelt unsichtbar
-  function update(dt, camera) {
+  // camera: Himmel folgt ihr · outsideVisible: ob man die Außenwelt gerade sehen kann (world/room-culling.js) –
+  // sonst bleibt sie unsichtbar
+  function update(dt, camera, outsideVisible) {
     sky.position.copy(camera.position);
-    const outsideVisible = camera.position.x < 0;
     group.visible = outsideVisible;
     sky.visible = outsideVisible;
     for (const car of cars) {

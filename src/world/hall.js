@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { TABLE_ROWS_Z } from './workshop.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 const TABLE_W = 5.6;
 const TABLE_D = 0.8;
@@ -62,7 +63,7 @@ export function createHall({ createTable, collision, upgrades }) {
     const table = createTable(TABLE_W, TABLE_D);
     table.position.z = z;
     enableShadows(table);
-    return table;
+    return mergeStatic(table); // Platte und Beine als ein Mesh
   });
   const placed = new Set(); // Tische, die schon in der Halle stehen (inkl. Kollision)
   const rising = [];        // { table, t } – frisch aufgestellte Tische fahren hoch

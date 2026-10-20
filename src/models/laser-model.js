@@ -122,6 +122,7 @@ export function buildLaserR1(g, m) {
   head.add(lens);
   gantry.add(head);
   g.add(gantry);
+  g.userData.moving = [gantry]; // fährt vor und zurück – nicht mit dem Gehäuse verschmelzen
 
   // Laserstrahl und Lichtpunkt: leuchten heller als Weiß, damit der Bloom-Effekt sie strahlen lässt
   const sheetTop = BED_TOP + 0.003;
