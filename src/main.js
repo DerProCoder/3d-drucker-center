@@ -663,42 +663,72 @@ for (const [name, object] of Object.entries({
 })) object.name ||= name;
 const perf = createPerfOverlay({ renderer, scene });
 const frameClock = new THREE.Clock();
+// Wirft ein Teil der Spielschleife, plant three.js kein nächstes Bild mehr ein – das Spiel stünde für immer still
+// und ließe sich nur mit F5 retten. Deshalb läuft jeder Teil für sich abgesichert: Fehler landen (jeder einmal) in
+// der Konsole, alles andere läuft weiter.
+const reportedErrors = new Set();
+function safely(name, run) {
+  try {
+    run();
+  } catch (err) {
+    const key = `${name}: ${err?.stack ?? err}`;
+    if (reportedErrors.has(key)) return;
+    reportedErrors.add(key);
+    console.error(`Fehler in der Spielschleife (${name}):`, err);
+    hud.notify('⚠️ Interner Fehler – Details in der Browser-Konsole (F12)', 'info');
+  }
+}
+
+// Verliert der Browser die Grafikkarte (Treiber-Reset, v. a. bei integrierten GPUs), bleibt das Bild stehen –
+// three.js baut alles neu auf, sobald sie wieder da ist. Damit man das vom Einfrieren unterscheiden kann: melden.
+renderer.domElement.addEventListener('webglcontextlost', () => {
+  console.error('WebGL-Kontext verloren – die Grafikkarte wurde vom Browser zurückgesetzt');
+  hud.notify('⚠️ Grafikkarte wurde zurückgesetzt – kurz warten, sonst F5', 'info');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => console.info('WebGL-Kontext wieder da'));
+
 renderer.setAnimationLoop(() => {
   perf.begin();
   const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
   const paused = !controls.isLocked && !shop.isOpen();
   if (!gameOver && !paused) {
-    const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
-    economy.advanceTime(gameMinutes);
-    economy.advancePrints(gameMinutes);
-    orders.advance(gameMinutes);
-    gameClock.advance(gameMinutes);
-    checkBankrupt();
+    safely('Spielzeit', () => {
+      const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
+      economy.advanceTime(gameMinutes);
+      economy.advancePrints(gameMinutes);
+      orders.advance(gameMinutes);
+      gameClock.advance(gameMinutes);
+      checkBankrupt();
+    });
   }
-  workshop.animate(dt);
-  displayWall.update();
-  hallLights.update(dt, camera.position);
-  cat.update(dt);
-  throwing.update(dt);
-  workers.update(dt);
-  office.update(dt, workers.gaming());
-  entrance.update(dt, [camera.position, ...customers.positions()]);
-  culling.update();
-  outdoor.update(dt, camera, culling.outdoorVisible());
-  pedestrians.update(dt, camera.position, outdoor.group.visible);
-  customers.update(dt, outdoor.group.visible);
-  receptionDesk.update();
-  hall.update(dt);
+  safely('Drucker', () => workshop.animate(dt));
+  safely('Ausstellungsregal', () => displayWall.update());
+  safely('Licht', () => hallLights.update(dt, camera.position));
+  safely('Kater', () => cat.update(dt));
+  safely('Werfen', () => throwing.update(dt));
+  safely('Azubis', () => workers.update(dt));
+  safely('Büro', () => office.update(dt, workers.gaming()));
+  safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions()]));
+  safely('Räume', () => culling.update());
+  safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
+  safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));
+  safely('Kunden', () => customers.update(dt, outdoor.group.visible));
+  safely('Empfang', () => receptionDesk.update());
+  safely('Halle', () => hall.update(dt));
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
-  economy.advanceDeliveries(dt);
-  upgrades.advance(dt);
-  hud.update();
-  printerSounds(dt);
-  updateMovement(dt);
-  interaction.update(controls.isLocked);
-  crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
-  graphics.render(dt);
-  printerCam.update(dt);
+  safely('Lieferungen', () => {
+    economy.advanceDeliveries(dt);
+    upgrades.advance(dt);
+  });
+  safely('HUD', () => hud.update());
+  safely('Geräusche', () => printerSounds(dt));
+  safely('Bewegung', () => updateMovement(dt));
+  safely('Zielen', () => {
+    interaction.update(controls.isLocked);
+    crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
+  });
+  safely('Zeichnen', () => graphics.render(dt));
+  safely('Drucker-Cam', () => printerCam.update(dt));
   perf.end(dt);
 });
