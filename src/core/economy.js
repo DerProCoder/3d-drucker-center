@@ -901,6 +901,7 @@ export class Economy {
       id: this.nextFurnitureId++, type, location: 'storage', slot: null, storageSpot: this.freeStorageSpot(),
       spools: type.id === 'filament-rack' ? Array(type.capacity).fill(null) : null,
       parts: type.id === 'display-shelf' ? Array(type.capacity).fill(null) : null,
+      sheets: type.id === 'wood-rack' ? Array(type.capacity).fill(null) : null,
       nozzles: 0,
     };
     this.ship(item);
@@ -939,7 +940,7 @@ export class Economy {
   }
 
   isFurnitureEmpty(f) {
-    return !f.nozzles && !(f.spools ?? []).some(Boolean) && !(f.parts ?? []).some(Boolean);
+    return !f.nozzles && !(f.spools ?? []).some(Boolean) && !(f.parts ?? []).some(Boolean) && !(f.sheets ?? []).some(Boolean);
   }
 
   // Leeres Regal wieder vom Tisch nehmen (z. B. um den Platz für einen Drucker frei zu machen)
@@ -969,6 +970,25 @@ export class Economy {
     f.spools[index] = null;
     this.notify();
     return spool;
+  }
+
+  // Holzplatte ({ woodId }) ins erste freie Fach des Holzregals stellen. Gibt zurück, ob Platz war.
+  putSheetInRack(rackId, sheet) {
+    const f = this.furnitureById(rackId);
+    const free = f?.sheets?.indexOf(null) ?? -1;
+    if (free === -1 || !sheet) return false;
+    f.sheets[free] = { woodId: sheet.woodId };
+    this.notify();
+    return true;
+  }
+
+  takeSheetFromRack(rackId, index) {
+    const f = this.furnitureById(rackId);
+    const sheet = f?.sheets?.[index];
+    if (!sheet) return null;
+    f.sheets[index] = null;
+    this.notify();
+    return sheet;
   }
 
   // Aufgestellte Ersatzteilregale und wie viele Düsen noch hineinpassen

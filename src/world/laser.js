@@ -9,8 +9,10 @@ import { cutPlan, drawEngraving, drawGrain, engravePlan, orderLoops } from '../m
 
 const PX_PER_MM = 2;        // Auflösung der Plattentextur
 const SHEET_THICKNESS = 0.003;
-const TRAVEL_WEIGHT = 0.25; // Leerfahrten kosten nur ein Viertel der Zeit gleich langer Füllzeilen
-const OUTLINE_SPEED = 0.15; // Konturen (außenrum) fährt der Laser mit 15 % der Füllgeschwindigkeit – langsam und sauber
+// Geschwindigkeiten als Anteil der Höchstgeschwindigkeit des Lasers
+const TRAVEL_SPEED = 1;     // Leerfahrten mit ausgeschaltetem Strahl: volle Geschwindigkeit
+const FILL_SPEED = 0.35;    // Füllung Zeile für Zeile: 35 %
+const OUTLINE_SPEED = 0.15; // Konturen (außenrum): 15 % – langsam und sauber
 const OUTLINE_MM = 0.8;     // Strichbreite der Gravurkonturen
 const KERF_MM = 1.6;        // Schnittbreite
 
@@ -80,14 +82,14 @@ function engraveMask(ectx, cols, rows) {
 }
 
 // Fahrplan → Liste von Strecken { kind: 'line' | 'fill' | 'travel', a, b, len, weight, width?, h? } in mm.
-// weight: Zeit pro mm im Verhältnis zur Füllung (Konturen langsam, Leerfahrten schnell)
+// weight: Zeit pro mm (1 / Geschwindigkeit) – Konturen am langsamsten, Leerfahrten am schnellsten
 // Reihenfolge: Außenkonturen, Innenkonturen, Füllzeilen; dazwischen Leerfahrten.
 function buildMoves({ outer, inner, spans }, lineWidth) {
   const moves = [];
   let at = [0, 0];
   const go = (kind, b, extra = {}) => {
     const len = Math.hypot(b[0] - at[0], b[1] - at[1]);
-    const weight = kind === 'travel' ? TRAVEL_WEIGHT : kind === 'line' ? 1 / OUTLINE_SPEED : 1;
+    const weight = 1 / (kind === 'travel' ? TRAVEL_SPEED : kind === 'line' ? OUTLINE_SPEED : FILL_SPEED);
     if (len > 1e-6) moves.push({ kind, a: at, b, len, weight, ...extra });
     at = b;
   };

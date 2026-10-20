@@ -6,7 +6,7 @@ import { SHEET_MM, WOODS, filamentById } from '../core/catalog.js';
 import { WET, spoolLabel } from '../core/economy.js';
 import { createSpool, createSpoolBatch } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
-import { MAX_SPOOLS } from './carry.js';
+import { MAX_SHEETS, MAX_SPOOLS } from './carry.js';
 import { furnitureSize } from '../models/furniture.js';
 import { SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import {
@@ -322,7 +322,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const pallet = createPallet();
   pallet.position.set(WOOD_PALLET.x, 0, WOOD_PALLET.z);
   pallet.userData.interaction = {
-    hint: () => (carry.sheet ? 'Linksklick: Holzplatte zurück auf den Stapel legen' : 'Holzpalette – Platten gibt es im Holzshop am PC'),
+    hint: () => (carry.sheet ? `Linksklick: ${carry.sheets.length === 1 ? 'Holzplatte' : 'alle Holzplatten'} zurück auf den Stapel legen` : 'Holzpalette – Platten gibt es im Holzshop am PC'),
     action: () => { if (carry.sheet) carry.returnToStorage(); },
   };
   group.add(pallet);
@@ -399,7 +399,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
       hint: () => {
         if (carry.printer || carry.furniture) return 'Hände voll – erst den Karton abstellen (Q)';
         if (carry.nozzle) return 'Hände voll – erst die Ersatzdüse zurücklegen (Q)';
-        if (carry.sheet) return 'Hände voll – erst die Holzplatte zurücklegen (Q)';
+        if (carry.sheet) return 'Hände voll – erst die Holzplatten zurücklegen (Q)';
         if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
         const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
         const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
@@ -417,17 +417,14 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   function woodInteraction(wood) {
     return {
       hint: () => {
-        if (carry.sheet) return 'Linksklick: Holzplatte zurück auf den Stapel legen';
-        if (!carry.isEmpty) return 'Hände voll – Q legt alles zurück ins Lager';
+        if (carry.sheet && !carry.canTakeSheet) return `Hände voll – höchstens ${MAX_SHEETS} Holzplatten (Q legt alle zurück)`;
+        if (!carry.canTakeSheet) return 'Hände voll – Q legt alles zurück ins Lager';
         const count = economy.woodCount(wood.id);
-        return count ? `Linksklick: ${wood.name} nehmen (${count} da)` : `${wood.name} – leer, Nachschub im Holzshop`;
+        const inHand = carry.sheets.length ? ` · danach ${carry.sheets.length + 1}/${MAX_SHEETS} in der Hand` : '';
+        return count ? `Linksklick: ${wood.name} nehmen (${count} da)${inHand}` : `${wood.name} – leer, Nachschub im Holzshop`;
       },
       action: () => {
-        if (carry.sheet) {
-          carry.returnToStorage();
-          return;
-        }
-        if (!carry.isEmpty) return;
+        if (!carry.canTakeSheet) return;
         const sheet = economy.takeWoodSheet(wood.id);
         if (sheet) carry.holdSheet(sheet);
       },

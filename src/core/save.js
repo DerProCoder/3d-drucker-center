@@ -47,6 +47,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
     parts: f.parts ? f.parts.map((p) => (p ? { templateId: p.templateId, filamentIds: [...p.filamentIds] } : null)) : null,
+    sheets: f.sheets ? f.sheets.map((s) => (s ? { ...s } : null)) : null,
     nozzles: f.nozzles,
   }));
   const partsRack = furniture.find((f) => f.typeId === 'parts-rack');
@@ -88,7 +89,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
         job: p.job ? { ...p.job } : null,
       })),
       shelf,
-      woodStock: woodStockWith(economy.woodStock, carried.sheet),
+      woodStock: woodStockWith(economy.woodStock, carried.sheets ?? []),
       finishedParts: [...economy.finishedParts],
       looseParts: economy.looseParts.map((l) => ({ ...l })),
       accessories: [...economy.accessories],
@@ -262,9 +263,9 @@ export function startAutosave(game, onSaved, getCarried = () => []) {
   return { save, disable: () => { enabled = false; } };
 }
 
-// Holzlager zum Speichern, mit der Platte, die gerade jemand in der Hand hat
-function woodStockWith(stock, sheet) {
+// Holzlager zum Speichern, mit den Platten, die gerade jemand in der Hand hat
+function woodStockWith(stock, sheets) {
   const result = { ...stock };
-  if (sheet) result[sheet.woodId] = (result[sheet.woodId] ?? 0) + 1;
+  for (const sheet of sheets) result[sheet.woodId] = (result[sheet.woodId] ?? 0) + 1;
   return result;
 }

@@ -478,7 +478,7 @@ export const FAILURES = {
 };
 
 // Einrichtung für den Druckertisch: kommt als Karton in den Abstellraum und belegt aufgestellt einen Stellplatz.
-// capacity: Spulen (Filament-Regal) bzw. Ersatzteile (Ersatzteilregal)
+// capacity: Spulen (Filament-Regal), Ersatzteile (Ersatzteilregal) bzw. Holzplatten (Holzregal)
 export const FURNITURE = [
   {
     id: 'filament-rack', name: 'Filament-Regal', price: 49, capacity: 8,
@@ -487,6 +487,10 @@ export const FURNITURE = [
   {
     id: 'parts-rack', name: 'Ersatzteilregal', price: 39, capacity: 12,
     hint: 'Sortimentskasten für bis zu 12 Ersatzdüsen',
+  },
+  {
+    id: 'wood-rack', name: 'Holzregal', price: 45, capacity: 10,
+    hint: 'Hält 10 Holzplatten stehend griffbereit neben dem Laser',
   },
   {
     // placement 'wall': steht nicht zwischen den Druckern, sondern auf einem Platz an der Südwand (siehe display-shelf.js)

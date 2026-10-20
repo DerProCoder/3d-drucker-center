@@ -89,7 +89,7 @@ achievements.onUnlock = (a) => {
 const autosave = startAutosave(game, hud.showSaved, () => ({
   spools: [...carry.spools, ...workers.carriedSpools()],
   nozzles: carry.nozzle ? 1 : 0,
-  sheet: carry.sheet,
+  sheets: carry.sheets,
 }));
 
 // Spielereignisse → Meldungen, Geräusche und Erfolge
@@ -473,7 +473,8 @@ const touch = createTouchControls({
     if (id === 'take') liftAimedPrinter();
     else if (id === 'throw') throwing.throwCarried();
     else if (id === 'return') carry.returnToStorage();
-    else if (id === 'cycle') carry.cycle(1);
+    // wie das Mausrad: am Ausstellungsregal das nächste Teil, sonst die nächste Spule in der Hand
+    else if (id === 'cycle' && !displayWall.cycle(1, interaction.current?.owner)) carry.cycle(1);
   },
   onPause: () => stopPlaying(),
 });
@@ -797,7 +798,7 @@ renderer.setAnimationLoop(() => {
         take: carry.isEmpty && !!interaction.current?.owner.userData.printer,
         throw: !!carry.printer,
         return: !carry.isEmpty,
-        cycle: carry.spools.length > 1,
+        cycle: carry.spools.length > 1 || displayWall.cycle(0, interaction.current?.owner), // 0: nur prüfen
       });
     }
     crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));

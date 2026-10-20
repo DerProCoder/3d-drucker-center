@@ -236,7 +236,7 @@ export function createShop(economy, {
     }).join('');
     const rackSlots = freeRackSlots();
     const wallSpots = freeDisplaySpots(economy);
-    const icons = { 'filament-rack': '🗄️', 'parts-rack': '🧰', 'display-shelf': '🏆' };
+    const icons = { 'filament-rack': '🗄️', 'parts-rack': '🧰', 'wood-rack': '🪵', 'display-shelf': '🏆' };
     const furniture = FURNITURE.map((f) => {
       const wall = isWallFurniture(f);
       let blocked = null;

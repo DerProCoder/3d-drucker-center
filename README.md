@@ -83,7 +83,7 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 | ✋ Aufheben | Den Drucker im Fadenkreuz vom Tisch hochheben (erscheint nur, wenn du auf einen zielst) |
 | 🤾 Werfen | Getragenen Drucker oder Karton werfen (erscheint nur, wenn du einen trägst) |
 | ↩ Ins Lager | Alles in der Hand zurück ins Lager legen |
-| 🔄 Spule | Bei mehreren Spulen in der Hand: nächste wählen |
+| 🔄 Spule | Bei mehreren Spulen in der Hand: nächste wählen · am Ausstellungsregal: anderes Teil wählen |
 | 🧎 Schleichen | Schleichen an/aus |
 | ⏸ (oben in der Mitte) | Pause |
 
@@ -151,10 +151,11 @@ Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Dr
 
 ### Regale am Druckertisch
 
-Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Drucker als Karton in den Abstellraum und werden **in die Lücken zwischen den Druckern** gestellt (3 Regalplätze pro Drucktisch) – die Druckerplätze bleiben frei.
+Im **Drucker-Shop** unter **Einrichtung** gibt es drei Regale. Sie kommen wie Drucker als Karton in den Abstellraum und werden **in die Lücken zwischen den Druckern** gestellt (3 Regalplätze pro Drucktisch) – die Druckerplätze bleiben frei.
 
 - **Filament-Regal** (8 Spulen): Spulen in der Hand aufs Regal klicken legt sie ab, auf eine Spule zielen nimmt genau diese. So hast du die nächsten Farben direkt neben den Druckern.
 - **Ersatzteilregal** (12 Ersatzdüsen): Gekaufte Ersatzdüsen landen hier. Klick nimmt eine Düse in die Hand.
+- **Holzregal** (10 Holzplatten): Ein Plattenständer, in dem die Platten hochkant stehen – praktisch direkt neben dem Laser R1. Mit einer Platte in der Hand aufs Regal klicken stellt sie hinein, ein Klick auf eine Platte nimmt genau diese.
 - Ein **leeres** Regal kannst du wieder aufheben und woanders hinstellen.
 
 ### Ausstellungsregal und Licht aus
@@ -167,15 +168,15 @@ Im **Drucker-Shop** unter **Einrichtung** gibt es zwei Regale. Sie kommen wie Dr
 
 Neben Druckern gibt es einen Laser: den **Bambu Lab R1** (600 €) aus der PC-App **Holzshop**. Er kommt als Karton und steht auf dem Druckertisch wie ein Drucker. Statt Filament bearbeitet er **Holzplatten** (300 × 200 mm), die es ebenfalls im Holzshop gibt: Pappel (4 €), Birke (6 €) und Walnuss (9 €). Gekaufte Platten liegen auf der **Holzpalette** an der Rückwand des Abstellraums, bis zu 30 Stück.
 
-1. **Platte holen:** Im Abstellraum auf den Stapel der gewünschten Holzart klicken – du hast die Platte in der Hand (`Q` legt sie zurück).
-2. **Einlegen:** Auf den R1 klicken. Liegt schon eine Platte drin, tauschst du sie.
+1. **Platten holen:** Im Abstellraum auf den Stapel der gewünschten Holzart klicken – jeder Klick nimmt eine Platte, **bis zu 5** auf einmal, auch gemischt (`Q` legt alle zurück). Ein Holzregal am Druckertisch nimmt alle mit einem Klick auf.
+2. **Einlegen:** Auf den R1 klicken – die oberste Platte aus der Hand kommt hinein. Liegt schon eine Platte drin, tauschst du sie.
 3. **Lasern:** Am PC im **Druckermenü** wählst du, was der Laser machen soll:
    - **Holzschild mit Gravur:** Du tippst einen **eigenen Text** ein (bis 24 Zeichen), der mit Rahmen eingraviert wird.
    - **Holzbild mit Logo:** Ein Motiv – Stern, Herz, Katze oder Zahnrad – wird groß eingraviert.
    - **Ausgeschnittene Holzfiguren:** Das Motiv wird **6-mal ausgeschnitten** – eine Platte gibt 6 Figuren.
    
    Eine Vorschau zeigt die Platte genau so, wie sie wird. Dann **Lasern starten**.
-4. **Zuschauen:** Durch das orange Laserschutzfenster siehst du den blauen Strahl. Wie bei einem echten Laser fährt der Kopf erst alle **Außenkonturen** ab, dann die **Innenkonturen** (Innenkante des Rahmens, Löcher in Buchstaben) und füllt beim Gravieren zuletzt die Flächen Zeile für Zeile – nur dort, wo eingebrannt wird. Dazwischen fährt er mit ausgeschaltetem Strahl schnell hinüber. Beim Schneiden kommen erst alle Außenumrisse, dann die Löcher.
+4. **Zuschauen:** Durch das orange Laserschutzfenster siehst du den blauen Strahl. Wie bei einem echten Laser fährt der Kopf erst alle **Außenkonturen** ab, dann die **Innenkonturen** (Innenkante des Rahmens, Löcher in Buchstaben) und füllt beim Gravieren zuletzt die Flächen Zeile für Zeile – nur dort, wo eingebrannt wird. Dazwischen fährt er mit ausgeschaltetem Strahl schnell hinüber. Konturen fährt er mit **15 %**, die Füllung mit **35 %** und Leerfahrten mit voller Geschwindigkeit. Beim Schneiden kommen erst alle Außenumrisse, dann die Löcher.
 5. **Entnehmen:** Fertige Teile per Klick auf den R1 oder im Druckermenü entnehmen – das machen auch die Azubis.
 
 Ab **Level 4** bestellen Kunden auch gelaserte Holzteile (🔥) – Schilder, Holzbilder oder ganze Sätze ausgeschnittener Figuren, in einer bestimmten Holzart oder egal welcher. Der Laser hat keine Pannen und keine Düse.
@@ -285,7 +286,7 @@ src/
     reception.js      Einrichtung des Empfangs: Tresen, Wartestühle, Abholregal mit Paketen, Klick-Aktionen
     customers.js      Kunden als Figuren: kommen zum Tresen, warten, holen Pakete ab und zahlen
     office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
-    carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder eine Holzplatte
+    carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder bis zu 5 Holzplatten
     cat.js            Kater Düsentrieb
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
     receptionist.js   Empfangskraft hinter dem Tresen: begrüßt Kunden, nimmt Aufträge an, kassiert

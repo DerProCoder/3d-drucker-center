@@ -2,7 +2,7 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
+import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
@@ -11,6 +11,7 @@ import { animateNozzles } from '../models/printer-parts.js';
 import { createSpool, createSpoolBatch, finishProps } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
+import { MAX_SHEETS } from './carry.js';
 import { mergeStatic } from '../models/merge-static.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
 import { isPurging, updatePurge } from './purge.js';
@@ -280,14 +281,14 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       const wood = woodById(carry.sheet.woodId);
       const swap = printer.sheet ? ` (${woodById(printer.sheet.woodId).name} nehmen)` : '';
       return {
-        text: `Linksklick: ${wood.name} einlegen${swap}`,
+        text: `Linksklick: ${wood.name} einlegen${swap}${carry.sheets.length > 1 ? ` · noch ${carry.sheets.length - 1} in der Hand` : ''}`,
         run: () => {
           const previous = economy.insertSheet(printer.id, carry.releaseSheet());
           if (previous) carry.holdSheet(previous);
         },
       };
     }
-    if (printer.sheet) {
+    if (printer.sheet && carry.isEmpty) {
       return {
         text: `Linksklick: ${woodById(printer.sheet.woodId).name} herausnehmen · lasern am PC im Druckermenü`,
         run: () => {
@@ -439,7 +440,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const free = () => rack.spools.filter((s) => !s).length;
     return {
       hint: () => {
-        if (carry.printer || carry.furniture || carry.nozzle) return null;
+        if (carry.printer || carry.furniture || carry.nozzle || carry.sheet) return null;
         if (carry.hasSpools) {
           if (!free()) return 'Filament-Regal ist voll';
           const n = Math.min(free(), carry.spools.length);
@@ -485,7 +486,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
   function partsRackInteraction(rack) {
     return {
       hint: () => {
-        if (carry.printer || carry.furniture) return null;
+        if (carry.printer || carry.furniture || carry.sheet) return null;
         if (carry.nozzle) return rack.nozzles < rack.type.capacity ? 'Linksklick: Ersatzdüse zurücklegen' : 'Ersatzteilregal ist voll';
         if (carry.hasSpools) return 'Hände voll – erst die Spulen ablegen';
         if (rack.nozzles) return `Linksklick: Ersatzdüse nehmen (${rack.nozzles} im Regal)`;
@@ -503,9 +504,63 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     };
   }
 
+  // Holzregal: Platte aus der Hand hineinstellen, einzelne Platten herausnehmen, leer wieder aufheben
+  function woodRackInteraction(rack) {
+    const free = () => rack.sheets.filter((s) => !s).length;
+    return {
+      hint: () => {
+        if (carry.printer || carry.furniture || carry.nozzle) return null;
+        if (carry.hasSpools) return 'Hände voll – erst die Spulen ablegen';
+        if (carry.sheet) {
+          if (!free()) return 'Holzregal ist voll';
+          const n = Math.min(free(), carry.sheets.length);
+          const what = n === 1 ? woodById(carry.sheet.woodId).name : `${n} Platten`;
+          return `Linksklick: ${what} ins Holzregal stellen (${free()} frei)`;
+        }
+        if (economy.isFurnitureEmpty(rack)) return 'Linksklick: leeres Holzregal aufheben · Platten von der Palette im Abstellraum';
+        return `Holzregal: ${rack.type.capacity - free()}/${rack.type.capacity} Platten – auf eine Platte zielen, um sie zu nehmen`;
+      },
+      action: () => {
+        if (carry.sheet) {
+          while (carry.sheet && free()) economy.putSheetInRack(rack.id, carry.releaseSheet());
+        } else if (carry.isEmpty && economy.pickUpFurniture(rack.id)) {
+          carry.holdFurniture(rack);
+        }
+      },
+    };
+  }
+
+  function rackSheetInteraction(rack, index) {
+    const rackInteraction = woodRackInteraction(rack);
+    return {
+      hint: () => {
+        if (!carry.canTakeSheet) return rackInteraction.hint();
+        const count = carry.sheets.length ? ` (${carry.sheets.length + 1}/${MAX_SHEETS} in der Hand)` : '';
+        return `Linksklick: ${woodById(rack.sheets[index].woodId).name} nehmen${count}`;
+      },
+      action: () => {
+        if (!carry.canTakeSheet) {
+          rackInteraction.action();
+          return;
+        }
+        const sheet = economy.takeSheetFromRack(rack.id, index);
+        if (sheet) carry.holdSheet(sheet);
+      },
+    };
+  }
+
+  // Holzplatte, wie sie im Holzregal hochkant steht (Fläche zur Seite, lange Seite nach oben)
+  const sheetGeometry = new THREE.BoxGeometry(0.004, SHEET_MM.x / 1000, SHEET_MM.y / 1000);
+  const sheetMaterials = new Map(); // Holz-ID → Material
+  function sheetMaterial(woodId) {
+    if (!sheetMaterials.has(woodId)) sheetMaterials.set(woodId, new THREE.MeshStandardMaterial({ color: woodById(woodId).hex, roughness: 0.8 }));
+    return sheetMaterials.get(woodId);
+  }
+
   // Inhalt eines Regals neu aufbauen, wenn er sich geändert hat
   function updateRackContents(model, rack) {
-    const key = rack.spools ? rack.spools.map((s) => s?.filamentId ?? '-').join(',') : String(rack.nozzles);
+    const key = rack.spools ? rack.spools.map((s) => s?.filamentId ?? '-').join(',')
+      : rack.sheets ? rack.sheets.map((s) => s?.woodId ?? '-').join(',') : String(rack.nozzles);
     if (model.userData.contentKey === key) return;
     model.userData.contentKey = key;
     model.userData.contents?.removeFromParent();
@@ -518,6 +573,14 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         }
       });
       contents.add(createSpoolBatch(items));
+    } else if (rack.sheets) {
+      rack.sheets.forEach((sheet, i) => {
+        if (!sheet) return;
+        const mesh = new THREE.Mesh(sheetGeometry, sheetMaterial(sheet.woodId));
+        mesh.position.copy(model.userData.sheetSpots[i]);
+        mesh.userData.interaction = rackSheetInteraction(rack, i);
+        contents.add(mesh);
+      });
     } else {
       for (let i = 0; i < rack.nozzles; i++) {
         const nozzle = createNozzle(1.6);
@@ -526,7 +589,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       }
     }
     enableShadows(contents);
-    if (!rack.spools) mergeStatic(contents); // alle Düsen im Regal als ein Mesh
+    if (!rack.spools && !rack.sheets) mergeStatic(contents); // alle Düsen im Regal als ein Mesh
     model.add(contents);
     model.userData.contents = contents;
   }
@@ -538,7 +601,8 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         if (!model) {
           model = createFurnitureModel(rack.type);
           model.position.set(rackX(rack.slot), tableHeight, rackZ(rack.slot));
-          model.userData.interaction = rack.spools ? filamentRackInteraction(rack) : partsRackInteraction(rack);
+          model.userData.interaction = rack.spools ? filamentRackInteraction(rack)
+            : rack.sheets ? woodRackInteraction(rack) : partsRackInteraction(rack);
           group.add(model);
           racks.set(rack.id, model);
         }

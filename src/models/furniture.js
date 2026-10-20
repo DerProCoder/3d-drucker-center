@@ -1,5 +1,6 @@
-// 3D-Modelle der Einrichtung: Filament-Regal (8 Spulen auf zwei Böden) und Ersatzteilregal (Sortimentskasten mit
-// Ersatzdüsen) am Druckertisch, Ausstellungsregal an der Wand. Dazu die Ersatzdüse selbst, z. B. für die Hand.
+// 3D-Modelle der Einrichtung: Filament-Regal (8 Spulen auf zwei Böden), Ersatzteilregal (Sortimentskasten mit
+// Ersatzdüsen) und Holzregal (Plattenständer für 10 Holzplatten) am Druckertisch, Ausstellungsregal an der Wand.
+// Dazu die Ersatzdüse selbst, z. B. für die Hand.
 // Ursprung: Mitte der Unterseite, Vorderseite zeigt nach +z (zum Spieler).
 import * as THREE from 'three';
 import { mergeStatic } from './merge-static.js';
@@ -8,6 +9,8 @@ const RACK = { w: 0.5, d: 0.3, h: 0.56, levels: [0.03, 0.29], perLevel: 4 };
 const PARTS = { w: 0.42, d: 0.26, h: 0.34, cols: 4, rows: 3 };
 // Ausstellungsregal: vier Ebenen (Sockel und drei Böden) mit je drei Fächern, dunkle Rückwand (davor leuchten Glow-Teile)
 const DISPLAY = { w: 1.6, d: 0.36, h: 1.9, levels: [0.1, 0.55, 1.0, 1.45], perLevel: 3, board: 0.025, side: 0.03 };
+// Holzregal: Platten (30 × 20 cm) stehen hochkant, lange Seite nach oben, Fläche zur Seite
+const WOOD = { w: 0.48, d: 0.26, base: 0.02, slots: 10, sheetH: 0.3 };
 
 let mats = null;
 function materials() {
@@ -116,7 +119,31 @@ function createDisplayShelf() {
   return g;
 }
 
-const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPartsRack, 'display-shelf': createDisplayShelf };
+// Holzregal: Bodenbrett, zwei Seitenwangen und Trennstäbe vorne und hinten, zwischen denen die Platten hochkant
+// stehen. userData.sheetSpots: Mitte jeder Platte (Platte steht in der y-z-Ebene).
+function createWoodRack() {
+  const m = materials();
+  const g = new THREE.Group();
+  const { w, d, base, slots } = WOOD;
+  g.add(box(w, base, d, m.board, 0, base / 2, 0));
+  for (const sx of [-1, 1]) g.add(box(0.012, 0.24, d, m.steel, sx * (w / 2 - 0.006), base + 0.12, 0));
+  // Querstreben vorne unten und hinten oben halten die Platten
+  g.add(box(w, 0.02, 0.012, m.steel, 0, base + 0.05, d / 2 - 0.006));
+  g.add(box(w, 0.02, 0.012, m.steel, 0, base + 0.2, -d / 2 + 0.006));
+  const pitch = (w - 0.03) / slots;
+  for (let i = 1; i < slots; i++) {
+    const x = -w / 2 + 0.015 + pitch * i;
+    for (const sz of [-1, 1]) g.add(box(0.004, 0.12, 0.004, m.steel, x, base + 0.06, sz * (d / 2 - 0.015)));
+  }
+  const spots = [];
+  for (let i = 0; i < slots; i++) spots.push(new THREE.Vector3(-w / 2 + 0.015 + pitch * (i + 0.5), base + WOOD.sheetH / 2, 0));
+  g.userData.sheetSpots = spots;
+  return g;
+}
+
+const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPartsRack, 'wood-rack': createWoodRack,
+  'display-shelf': createDisplayShelf,
+};
 
 export function createFurnitureModel(type) {
   const g = BUILDERS[type.id]();
