@@ -23,7 +23,8 @@ export function createDisplayWall({ economy, carry, collision }) {
   let selected = 0;          // welches fertige Teil der nächste Klick ausstellt (Mausrad)
 
   const spotZ = () => HALF - WALL_GAP - furnitureSize(SHELF_TYPE).z / 2;
-  const carryingShelf = () => carry.furniture && isDisplayShelf(carry.furniture);
+  // Boolean: three.js blendet nur bei visible === false aus – null oder undefined zählen als sichtbar
+  const carryingShelf = () => !!carry.furniture && isDisplayShelf(carry.furniture);
 
   // Grüne Vorschau je Wandplatz – nur sichtbar (und anklickbar), solange man ein Ausstellungsregal trägt
   const ghosts = DISPLAY_SPOTS_X.slice(0, DISPLAY_SPOTS).map((x, slot) => {
