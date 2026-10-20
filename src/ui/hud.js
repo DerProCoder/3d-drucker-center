@@ -23,9 +23,9 @@ export function createHud(economy, orders, progress, clock) {
       <span class="hud-money-value" data-field="money"></span>
       <div class="hud-money-popups"></div>
     </div>
-    <div class="hud-row"><span class="hud-label">🕒 Uhrzeit</span><span class="hud-value" data-field="clock"></span></div>
-    <div class="hud-row"><span class="hud-label">💸 Laufende Kosten</span><span class="hud-value" data-field="costs"></span></div>
-    <div class="hud-row"><span class="hud-label">📋 Aufträge</span><span class="hud-value" data-field="orders"></span></div>
+    <div class="hud-row hud-clock"><span class="hud-label">🕒<span class="hud-label-text"> Uhrzeit</span></span><span class="hud-value" data-field="clock"></span></div>
+    <div class="hud-row hud-costs"><span class="hud-label">💸<span class="hud-label-text"> Laufende Kosten</span></span><span class="hud-value" data-field="costs"></span></div>
+    <div class="hud-row hud-orders"><span class="hud-label">📋<span class="hud-label-text"> Aufträge</span></span><span class="hud-value" data-field="orders"></span></div>
     <div class="hud-warning hidden" data-field="warning"></div>
   `;
   document.body.appendChild(hud);

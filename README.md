@@ -85,10 +85,14 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 | ↩ Ins Lager | Alles in der Hand zurück ins Lager legen |
 | 🔄 Spule | Bei mehreren Spulen in der Hand: nächste wählen · am Ausstellungsregal: anderes Teil wählen |
 | 🧎 Schleichen | Schleichen an/aus |
-| ⏸ (oben in der Mitte) | Pause |
+| ⏸ (oben rechts) | Pause |
 
 Laufen und Umschauen bzw. Antippen gehen gleichzeitig mit zwei Fingern. Das Spiel schaltet beim Start in den
 Vollbildmodus, sofern der Browser das erlaubt.
+
+Auch auf dem **Handy** spielbar, quer und hochkant: Das HUD wird dort zur schmalen Leiste (Level, Kontostand, Uhrzeit,
+Aufträge), die Knöpfe stehen als kleines Raster unten rechts, und die PC-Apps öffnen sich bildschirmfüllend. Die
+Taskleiste lässt sich waagrecht wischen, wenn nicht alle Apps hineinpassen.
 
 ## So läuft eine Runde
 
