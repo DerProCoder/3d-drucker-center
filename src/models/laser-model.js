@@ -5,6 +5,32 @@
 // Bettmitte in Metern. userData.laser: { beam, glow, sheetTop } – den Strahl schaltet world/laser.js.
 import * as THREE from 'three';
 import { addFeet, box, createLabel, createTouchscreen, rbox } from './printer-parts.js';
+import { motifPolygons } from './laser-art.js';
+
+const PIECE_MM = 3; // Plattenstärke
+
+// Fertiges Laserteil als Geometrie, aufrecht stehend (Vorderseite +z), Ursprung Mitte der Unterseite, in Metern –
+// z. B. fürs Ausstellungsregal. kind: 'cut' (ausgeschnittene Figur, als Stern) oder 'text' / 'logo' (Holzschild).
+const pieceCache = new Map();
+export function createLaserPieceGeometry(kind) {
+  if (pieceCache.has(kind)) return pieceCache.get(kind);
+  let geometry;
+  if (kind === 'cut') {
+    // Umriss in mm, y nach unten wie auf der Platte – für 3D nach oben drehen
+    const [outline] = motifPolygons('stern', 0, 0, 78);
+    const shape = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, -y)));
+    geometry = new THREE.ExtrudeGeometry(shape, { depth: PIECE_MM, bevelEnabled: false });
+  } else {
+    geometry = new THREE.BoxGeometry(200, 140, PIECE_MM); // kleines Schild bzw. Bild
+  }
+  geometry.computeBoundingBox();
+  const box3 = geometry.boundingBox;
+  geometry.translate(-(box3.min.x + box3.max.x) / 2, -box3.min.y, -(box3.min.z + box3.max.z) / 2);
+  geometry.scale(0.001, 0.001, 0.001);
+  geometry.computeBoundingBox();
+  pieceCache.set(kind, geometry);
+  return geometry;
+}
 
 const W = 0.56;        // Breite
 const D = 0.46;        // Tiefe

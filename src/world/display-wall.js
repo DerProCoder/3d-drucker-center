@@ -2,10 +2,11 @@
 // Vorschau), fertige Teile aus dem Inventar in die Fächer stellen (Mausrad wählt das Teil) und wieder herausnehmen.
 // Leere Regale lassen sich am Sockel oder an der Deckplatte wieder aufheben. Spiellogik: core/display-shelf.js
 import * as THREE from 'three';
-import { furnitureById, templateById } from '../core/catalog.js';
+import { furnitureById, isLaserTemplate, templateById } from '../core/catalog.js';
 import { DISPLAY_SPOTS, displayableParts, isDisplayShelf, putOnDisplay, takeFromDisplay, wallSlotUsed } from '../core/display-shelf.js';
 import { createFurnitureModel, furnitureSize } from '../models/furniture.js';
 import { getPrintShape } from '../models/print-shapes.js';
+import { createLaserPieceGeometry } from '../models/laser-model.js';
 import { ROOM_SIZE } from './room.js';
 import { colorsLabel, partMaterials } from './workshop.js';
 import { enableShadows } from './util.js';
@@ -96,22 +97,33 @@ export function createDisplayWall({ economy, carry, collision }) {
     const { partSpots, cell } = model.userData;
     shelf.parts.forEach((part, i) => {
       if (!part) return;
-      const template = templateById(part.templateId);
-      const { geometry } = getPrintShape(template);
-      geometry.computeBoundingBox();
-      const box = geometry.boundingBox;
-      const size = box.getSize(new THREE.Vector3());
-      // Große Teile (z. B. Vase) passen verkleinert ins Fach
-      const scale = Math.min(1, cell.w / size.x, cell.d / size.z, cell.h / size.y);
-      const mesh = new THREE.Mesh(geometry, partMaterials(template, part.filamentIds));
-      mesh.scale.setScalar(scale);
-      const center = box.getCenter(new THREE.Vector3());
-      mesh.position.set(partSpots[i].x - center.x * scale, partSpots[i].y - box.min.y * scale, partSpots[i].z - center.z * scale);
-      contents.add(mesh);
+      try {
+        contents.add(partMesh(part, partSpots[i], cell));
+      } catch (err) {
+        // Ein Teil, das sich nicht darstellen lässt, darf nicht das ganze Spiel anhalten – dann bleibt das Fach leer
+        console.warn('Ausstellungsteil konnte nicht dargestellt werden', part, err);
+      }
     });
     enableShadows(contents);
     model.add(contents);
     model.userData.contents = contents;
+  }
+
+  // Ein ausgestelltes Teil, auf die Standfläche spot gestellt. Laserteile (Holz) haben keine Druckform, sie stehen als
+  // Holzfigur bzw. Holzschild im Fach.
+  function partMesh(part, spot, cell) {
+    const template = templateById(part.templateId);
+    const geometry = isLaserTemplate(template) ? createLaserPieceGeometry(template.laser) : getPrintShape(template).geometry;
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+    const size = box.getSize(new THREE.Vector3());
+    // Große Teile (z. B. Vase) passen verkleinert ins Fach
+    const scale = Math.min(1, cell.w / size.x, cell.d / size.z, cell.h / size.y);
+    const mesh = new THREE.Mesh(geometry, partMaterials(template, part.filamentIds));
+    mesh.scale.setScalar(scale);
+    const center = box.getCenter(new THREE.Vector3());
+    mesh.position.set(spot.x - center.x * scale, spot.y - box.min.y * scale, spot.z - center.z * scale);
+    return mesh;
   }
 
   function sync() {

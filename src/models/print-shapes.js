@@ -367,10 +367,12 @@ function parrot() {
     g.translate(-4, 50, side * 15);
     return g;
   });
-  const tail = new THREE.ConeGeometry(8, 42, 12);
+  // Schwanz kommt hinten aus dem Körper und hängt schräg nach unten – die Spitze endet über Stange und Füßen,
+  // sonst müsste der Drucker schon beim Sockel die Schwanzfarbe drucken
+  const tail = new THREE.ConeGeometry(8, 40, 12);
   tail.scale(1, 1, 0.5);
-  tail.rotateZ(Math.PI - 0.35);
-  tail.translate(-16, 28, 0);
+  tail.rotateZ(Math.PI - 0.75);
+  tail.translate(-16, 45, 0);
 
   const eyes = [-1, 1].map((side) => ellipsoid(2.6, 2.6, 2.6, 13, 88, side * 9.5));
 
