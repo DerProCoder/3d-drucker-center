@@ -52,6 +52,9 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
 // upgrades: Hallen-Ausbau (upgrades.js)
 // staff: Personal (staff.js), staffStatus(id): was ein Mitarbeiter gerade tut
+// Ein/Aus-Symbol als SVG – das Zeichen ⏻ fehlt in vielen Schriften und erschien als Kästchen
+const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+
 export function createShop(economy, {
   orders, achievements, cam, upgrades, staff, staffStatus, freePrinterSlots, freeShelfSpace, onClose,
 }) {
@@ -78,7 +81,7 @@ export function createShop(economy, {
     </div>
     <div class="shop-toast"></div>
     <div class="taskbar">
-      <button class="taskbar-power" title="PC verlassen (Esc)">⏻ PC verlassen</button>
+      <button class="taskbar-power" title="PC verlassen (Esc)">${POWER_ICON}<span class="taskbar-power-text">PC verlassen</span></button>
       <div class="taskbar-apps">
         <img class="taskbar-start" src="${iconDataUrl('start', 24)}" alt="">
         ${VISIBLE_APPS.map((a) => `<button class="taskbar-app" data-open="${a.id}" title="${a.name}"><img src="${icons.get(a.id)}" alt="${a.name}"></button>`).join('')}

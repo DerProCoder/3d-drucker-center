@@ -166,6 +166,7 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
     setActive(on) {
       active = on;
       root.classList.toggle('hidden', !on);
+      document.body.classList.toggle('touch-active', on); // HUD und Meldungen machen Platz für die Knöpfe
       if (!on) {
         releaseStick();
         look = null;
