@@ -60,7 +60,7 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
     <div class="touch-stick hidden"><div class="touch-knob"></div></div>
     <button class="touch-pause" data-touch="pause" aria-label="Pause">⏸</button>
     <div class="touch-buttons">
-      ${BUTTONS.map((b) => `<button class="touch-btn hidden" data-touch="${b.id}"><span>${b.label}</span><small>${b.title}</small></button>`).join('')}
+      ${BUTTONS.map((b) => `<button class="touch-btn ${b.id === 'sneak' ? '' : 'hidden'}" data-touch="${b.id}"><span>${b.label}</span><small>${b.title}</small></button>`).join('')}
     </div>`;
   document.body.appendChild(root);
   const stickEl = root.querySelector('.touch-stick');
@@ -140,7 +140,8 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
       if (stick?.id === t.identifier) releaseStick();
       if (look?.id === t.identifier) look = null;
       if (active && e.type === 'touchend' && tap && !tap.moved && performance.now() - tap.t < TAP_MS) {
-        onTap(new THREE.Vector2((t.clientX / innerWidth) * 2 - 1, -(t.clientY / innerHeight) * 2 + 1));
+        const r = canvas.getBoundingClientRect();
+        onTap(new THREE.Vector2(((t.clientX - r.left) / r.width) * 2 - 1, -((t.clientY - r.top) / r.height) * 2 + 1));
       }
     }
   }
@@ -171,10 +172,9 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
         taps.clear();
       }
     },
-    // Welche Knöpfe gerade Sinn ergeben: { take, throw, return, cycle } – Schleichen gibt es immer
+    // Welche Knöpfe gerade Sinn ergeben: { take, throw, return, cycle } – Schleichen ist immer da
     update(state) {
       for (const id of ['take', 'throw', 'return', 'cycle']) buttons[id].classList.toggle('hidden', !state[id]);
-      buttons.sneak.classList.remove('hidden');
     },
   };
 }

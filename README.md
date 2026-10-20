@@ -51,6 +51,12 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 
 ## Steuerung
 
+Beim ersten Start fragt das Spiel: **Über welches Gerät spielst du?** – **PC** (Maus und Tastatur) oder **Tablet**
+(Touch). Die Wahl wird im Browser gespeichert; umstellen kannst du sie jederzeit im Start- bzw. Pausenbildschirm unter
+„Gerät“.
+
+### PC
+
 | Taste | Aktion |
 |---|---|
 | Maus | Umschauen |
@@ -66,6 +72,23 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 | Esc | Pause / PC verlassen |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
+
+### Tablet
+
+| Geste / Knopf | Aktion |
+|---|---|
+| Linke Bildschirmhälfte: Daumen aufsetzen und ziehen | Laufen – der Joystick erscheint dort, wo du aufsetzt; halb gezogen ist halbes Tempo |
+| Rechte Bildschirmhälfte: wischen | Umschauen |
+| Antippen | Das angetippte Objekt benutzen – wie ein Linksklick darauf: Spule nehmen, in Drucker oder AMS legen, Holzplatte nehmen, Drucker abstellen, PC öffnen … |
+| ✋ Aufheben | Den Drucker im Fadenkreuz vom Tisch hochheben (erscheint nur, wenn du auf einen zielst) |
+| 🤾 Werfen | Getragenen Drucker oder Karton werfen (erscheint nur, wenn du einen trägst) |
+| ↩ Ins Lager | Alles in der Hand zurück ins Lager legen |
+| 🔄 Spule | Bei mehreren Spulen in der Hand: nächste wählen |
+| 🧎 Schleichen | Schleichen an/aus |
+| ⏸ (oben in der Mitte) | Pause |
+
+Laufen und Umschauen bzw. Antippen gehen gleichzeitig mit zwei Fingern. Das Spiel schaltet beim Start in den
+Vollbildmodus, sofern der Browser das erlaubt.
 
 ## So läuft eine Runde
 
@@ -280,7 +303,8 @@ src/
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
-    title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
+    touch-controls.js Tablet-Steuerung: Joystick, Umschauen per Wischen, Antippen, Knöpfe; gewähltes Gerät
+    title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm, Geräteabfrage (PC oder Tablet)
     shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger
     desktop.js        Bildschirm und App-Symbole
     printer-menu.js · orders-menu.js · upgrades-menu.js · staff-menu.js   Apps Druckermenü, Aufträge, Ausbau, Personal
