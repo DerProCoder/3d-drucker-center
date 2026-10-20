@@ -3,7 +3,7 @@
 // Zu jeder Form gehört ein Umriss pro Schichthöhe, den der Druckkopf abfährt.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { infillLines, orderSegments } from './infill.js';
+import { infillSegments, infillWalls, orderSegments } from './infill.js';
 
 // ---------- Hilfen ----------
 
@@ -391,6 +391,8 @@ const BUILDERS = {
 // ---------- Schichten schneiden (wie ein Slicer) ----------
 
 const LAYERS = 120;      // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
+const WALL_STEP = 2;     // sichtbare Wabenwände: eine Lage je zwei Schichten
+const CHUNK_LAYERS = 4;  // Wabenwände werden in Abschnitten zu so vielen Schichten gebaut
 const KEY = 1e5;         // Schnittpunkte auf 0,01 mm runden, damit Nachbardreiecke zusammenfinden
 
 // Schnitt durch die Geometrie auf Höhe y: Liste von Konturen, jede eine Punktliste [{ x, z }] in Metern.
@@ -459,9 +461,28 @@ function layerContours(shape, hFrac) {
   return { layer, contours: shape.layers[layer] };
 }
 
-// Konturen der Schicht auf Höhe hFrac (0…1), z. B. für die Schnittfläche mit dem Füllmuster: { layer, contours }
-export function layerSlice(shape, hFrac) {
-  return layerContours(shape, hFrac);
+// Wabenfüllung im Inneren der Form als Wände – in Abschnitten von CHUNK_LAYERS Schichten, damit beim Druckstart
+// nicht alles auf einmal berechnet werden muss (world/workshop.js baut einen Abschnitt pro Bild, wenn der Druck
+// dort ankommt). Gibt je Farbe eine Geometrie zurück: [{ color, geometry }], an der Form zwischengespeichert.
+export const INFILL_CHUNKS = LAYERS / CHUNK_LAYERS;
+export function getInfillChunk(shape, chunk) {
+  shape.infillChunks ??= [];
+  if (shape.infillChunks[chunk]) return shape.infillChunks[chunk];
+  const colors = Math.max(1, shape.geometry.groups.length);
+  const perColor = Array.from({ length: colors }, () => []);
+  const first = chunk * CHUNK_LAYERS;
+  // Für die sichtbaren Wände reicht jede zweite Schicht (je doppelt so hoch)
+  for (let layer = first; layer < first + CHUNK_LAYERS; layer += WALL_STEP) {
+    const { contours } = layerContours(shape, (layer + WALL_STEP / 2) / LAYERS);
+    for (let color = 0; color < colors; color++) {
+      perColor[color].push(infillSegments(contours.filter((c) => c.color === color)));
+    }
+  }
+  const layerHeight = shape.height / LAYERS;
+  shape.infillChunks[chunk] = perColor
+    .map((layers, color) => ({ color, geometry: infillWalls(layers, layerHeight * WALL_STEP, first * layerHeight) }))
+    .filter((walls) => walls.geometry);
+  return shape.infillChunks[chunk];
 }
 
 const cache = new Map();
@@ -487,7 +508,7 @@ export function getPrintShape(template) {
 
 // Bahn der Düse für eine ganze Druckplatte: Funktion hFrac → Bahn. Die Düse fährt in jeder Schicht die echten
 // Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks,
-// danach das Füllgitter im Inneren (models/infill.js) – Strecke für Strecke immer zur nächstgelegenen.
+// danach die Wabenfüllung im Inneren (models/infill.js) – Kante für Kante immer zur nächstgelegenen.
 // offsets: Mittelpunkte der Teile [{ x, z }] in Metern · rotated: Teile um 90° gedreht (wie die Meshes)
 // Zweifarbig wie ein echter Slicer: erst alle Umrisse der einen Farbe, dann die der anderen – so wird pro
 // Schicht möglichst selten gewechselt. Jeder Bahnpunkt trägt seine Farbe (color).
@@ -501,8 +522,8 @@ export function plateOutline(shape, offsets, rotated = false) {
       const fills = Array.from({ length: colors }, () => []);
       // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
       const place = (o, p, color) => (rotated ? { x: o.x + p.z, z: o.z - p.x, color } : { x: o.x + p.x, z: o.z + p.z, color });
-      // Füllgitter je Farbe einmal in Formkoordinaten berechnen, dann auf jedes Teil der Platte setzen
-      const lines = Array.from({ length: colors }, (_, color) => infillLines(contours.filter((c) => c.color === color)));
+      // Waben je Farbe einmal in Formkoordinaten berechnen, dann auf jedes Teil der Platte setzen
+      const lines = Array.from({ length: colors }, (_, color) => infillSegments(contours.filter((c) => c.color === color)));
       for (const o of offsets) {
         for (const c of contours) loops[c.color].push(c.map((p) => place(o, p, c.color)));
         lines.forEach((segments, color) => {

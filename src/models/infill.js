@@ -1,33 +1,99 @@
-// Gitterfüllung (Grid-Infill) für gedruckte Teile: Innen sind die Teile nicht massiv, sondern mit einem Gitter aus
-// kleinen Quadraten gefüllt – Linien in x- und in z-Richtung. Hier steht beides, was dafür gebraucht wird:
-//   infillLines: die Füllstrecken einer Schicht für die Düsenbahn (models/print-shapes.js)
-//   capGeometry + infillTexture: die Schnittfläche oben am halbfertigen Teil, auf der man das Gitter sieht
+// Wabenfüllung (Honeycomb-Infill) für gedruckte Teile: Innen sind die Teile nicht massiv, sondern mit Sechseck-Waben
+// gefüllt – dünne Wände, Schicht für Schicht genau übereinander, wie bei einem Bienenstock. Hier steht:
+//   infillSegments: die Wabenkanten einer Schicht im Inneren der Form (für die Düsenbahn und für die Wände)
+//   orderSegments: kürzester Weg der Düse durch die Kanten
+//   infillWalls: die Wabenwände im Inneren als Geometrie (man sieht sie, solange das Teil oben offen ist)
 // Alles in Metern im Koordinatensystem der Form (x, z), wie die Konturen aus sliceContours.
 import * as THREE from 'three';
 
-export const INFILL_SPACING = 0.0025; // Abstand der Gitterlinien (2,5 mm)
-const INSET = 0.0004;                 // so weit bleibt die Füllung von den Wänden weg
-const MIN_LENGTH = 0.002;             // kürzere Stücke (z. B. in dünnen Wänden) lässt die Düse weg
+export const HEX_SIZE = 0.002;     // Kantenlänge einer Wabe (2 mm, Wabe etwa 3,5 mm breit)
+const INSET = 0.0004;              // so weit bleibt die Füllung von den Wänden weg
+const MIN_PIECE = 0.0005;          // kürzere Reststücke an der Wand lässt die Düse weg
+const THIN_WALL = 0.002;           // Stücke, die von Wand zu Wand kürzer als das sind, liegen in dünnen Wänden – weg damit
+const CELL = 0.004;                // Rastergröße für die schnelle Suche nach Konturkanten
 
-// Schnittpunkte der Geraden (axis = c) mit allen Konturen, sortiert – je zwei bilden eine Strecke im Inneren
-// (gerade-ungerade-Regel, so werden auch Löcher richtig ausgespart). axis: 'x' (Linie x = c) oder 'z'.
-function crossings(contours, axis, c) {
-  const other = axis === 'x' ? 'z' : 'x';
-  const hits = [];
+const HEX_W = Math.sqrt(3) * HEX_SIZE; // Breite einer Wabe (Spitze oben)
+const ROW = 1.5 * HEX_SIZE;            // Abstand der Wabenreihen
+
+const cellKey = (xi, zi) => xi * 65536 + zi; // Zahl statt Text – deutlich schneller als Map-Schlüssel
+
+// Konturkanten in ein Raster einsortieren: Zeilen (für den Innen-Test per Strahl nach +x) und Zellen (für Schnitte)
+function edgeIndex(contours) {
+  const rows = new Map();
+  const cells = new Map();
+  const add = (map, key, edge) => { if (!map.has(key)) map.set(key, []); map.get(key).push(edge); };
   for (const contour of contours) {
     for (let i = 0; i < contour.length; i++) {
       const p = contour[i];
       const q = contour[(i + 1) % contour.length];
-      if ((p[axis] <= c) === (q[axis] <= c)) continue; // Kante kreuzt die Gerade nicht (halboffen, keine Doppelten)
-      hits.push(p[other] + ((c - p[axis]) / (q[axis] - p[axis])) * (q[other] - p[other]));
+      const edge = [p, q];
+      const z0 = Math.floor(Math.min(p.z, q.z) / CELL); const z1 = Math.floor(Math.max(p.z, q.z) / CELL);
+      const x0 = Math.floor(Math.min(p.x, q.x) / CELL); const x1 = Math.floor(Math.max(p.x, q.x) / CELL);
+      for (let zi = z0; zi <= z1; zi++) {
+        add(rows, zi, edge);
+        for (let xi = x0; xi <= x1; xi++) add(cells, cellKey(xi, zi), edge);
+      }
     }
   }
-  return hits.sort((a, b) => a - b);
+  return { rows, cells };
 }
 
-// Füllstrecken einer Schicht: [{ a: { x, z }, b: { x, z } }]. Die Linien liegen auf festen Vielfachen von
-// INFILL_SPACING, damit sie Schicht für Schicht übereinander liegen (und zum Muster der Schnittfläche passen).
-export function infillLines(contours) {
+// Liegt der Punkt in der Form? (gerade-ungerade-Regel, so werden auch Löcher richtig ausgespart)
+function insideShape(index, x, z) {
+  let hit = false;
+  for (const [p, q] of index.rows.get(Math.floor(z / CELL)) ?? []) {
+    if ((p.z > z) !== (q.z > z) && x < ((q.x - p.x) * (z - p.z)) / (q.z - p.z) + p.x) hit = !hit;
+  }
+  return hit;
+}
+
+// Parameter t (0…1) entlang a→b, an denen die Strecke eine Konturkante schneidet
+function wallHits(index, a, b) {
+  const ts = [];
+  let seen = null; // erst anlegen, wenn die Strecke überhaupt in der Nähe einer Wand liegt
+  const x0 = Math.floor(Math.min(a.x, b.x) / CELL); const x1 = Math.floor(Math.max(a.x, b.x) / CELL);
+  const z0 = Math.floor(Math.min(a.z, b.z) / CELL); const z1 = Math.floor(Math.max(a.z, b.z) / CELL);
+  const dx = b.x - a.x; const dz = b.z - a.z;
+  for (let xi = x0; xi <= x1; xi++) {
+    for (let zi = z0; zi <= z1; zi++) {
+      for (const edge of index.cells.get(cellKey(xi, zi)) ?? []) {
+        seen ??= new Set();
+        if (seen.has(edge)) continue;
+        seen.add(edge);
+        const [p, q] = edge;
+        const ex = q.x - p.x; const ez = q.z - p.z;
+        const den = dx * ez - dz * ex;
+        if (Math.abs(den) < 1e-14) continue;
+        const t = ((p.x - a.x) * ez - (p.z - a.z) * ex) / den;
+        const u = ((p.x - a.x) * dz - (p.z - a.z) * dx) / den;
+        if (t > 0 && t < 1 && u >= 0 && u < 1) ts.push(t);
+      }
+    }
+  }
+  return ts.sort((m, n) => m - n);
+}
+
+// Kanten des Wabenrasters (Spitze oben) im Bereich: je Wabe die beiden oberen Schrägen und die linke Senkrechte –
+// zusammen ergibt das jede Kante genau einmal. Das Raster ist fest, damit die Waben in jeder Schicht übereinander liegen.
+function hexEdges(minX, maxX, minZ, maxZ) {
+  const edges = [];
+  const h = HEX_SIZE; const w = HEX_W;
+  for (let r = Math.floor(minZ / ROW) - 1; r * ROW <= maxZ + h; r++) {
+    const shift = Math.abs(r % 2) ? w / 2 : 0;
+    for (let c = Math.floor((minX - shift) / w) - 1; c * w + shift <= maxX + w; c++) {
+      const cx = c * w + shift; const cz = r * ROW;
+      const top = { x: cx, z: cz - h };
+      const left = { x: cx - w / 2, z: cz - h / 2 };
+      const right = { x: cx + w / 2, z: cz - h / 2 };
+      edges.push([left, top], [top, right], [left, { x: cx - w / 2, z: cz + h / 2 }]);
+    }
+  }
+  return edges;
+}
+
+// Wabenkanten einer Schicht im Inneren der Konturen: [{ a: { x, z }, b: { x, z } }]. Wo eine Kante die Wand schneidet,
+// endet sie INSET davor; Krümel in dünnen Wänden fallen weg.
+export function infillSegments(contours) {
   if (!contours.length) return [];
   let minX = Infinity; let maxX = -Infinity; let minZ = Infinity; let maxZ = -Infinity;
   for (const c of contours) {
@@ -36,23 +102,26 @@ export function infillLines(contours) {
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
   }
+  const index = edgeIndex(contours);
   const segments = [];
-  const scan = (axis, lo, hi) => {
-    for (let k = Math.ceil(lo / INFILL_SPACING); k * INFILL_SPACING < hi; k++) {
-      const c = k * INFILL_SPACING;
-      const hits = crossings(contours, axis, c);
-      for (let i = 0; i + 1 < hits.length; i += 2) {
-        const from = hits[i] + INSET;
-        const to = hits[i + 1] - INSET;
-        if (to - from < MIN_LENGTH) continue;
-        segments.push(axis === 'x'
-          ? { a: { x: c, z: from }, b: { x: c, z: to } }
-          : { a: { x: from, z: c }, b: { x: to, z: c } });
-      }
+  for (const [a, b] of hexEdges(minX, maxX, minZ, maxZ)) {
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const cuts = [0, ...wallHits(index, a, b), 1];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      let t0 = cuts[i]; let t1 = cuts[i + 1];
+      const tm = (t0 + t1) / 2;
+      if (!insideShape(index, a.x + (b.x - a.x) * tm, a.z + (b.z - a.z) * tm)) continue;
+      const atWall0 = i > 0; const atWall1 = i + 2 < cuts.length;
+      if (atWall0 && atWall1 && (t1 - t0) * len < THIN_WALL) continue;
+      if (atWall0) t0 += INSET / len;
+      if (atWall1) t1 -= INSET / len;
+      if ((t1 - t0) * len < MIN_PIECE) continue;
+      segments.push({
+        a: { x: a.x + (b.x - a.x) * t0, z: a.z + (b.z - a.z) * t0 },
+        b: { x: a.x + (b.x - a.x) * t1, z: a.z + (b.z - a.z) * t1 },
+      });
     }
-  };
-  scan('x', minX, maxX);
-  scan('z', minZ, maxZ);
+  }
   return segments;
 }
 
@@ -80,80 +149,41 @@ export function orderSegments(segments, from = { x: 0, z: 0 }) {
   return points;
 }
 
-// ---------- Schnittfläche ----------
+// ---------- Wabenwände ----------
 
-function signedArea(contour) {
-  let a = 0;
-  for (let i = 0; i < contour.length; i++) {
-    const p = contour[i];
-    const q = contour[(i + 1) % contour.length];
-    a += p.x * q.z - q.x * p.z;
-  }
-  return a / 2;
-}
+const MERGE_TOLERANCE = 0.0003; // so wenig dürfen Strecken benachbarter Schichten abweichen, um eine Wand zu bilden
 
-function inside(point, contour) {
-  let hit = false;
-  for (let i = 0, j = contour.length - 1; i < contour.length; j = i++) {
-    const p = contour[i];
-    const q = contour[j];
-    if ((p.z > point.z) !== (q.z > point.z) && point.x < ((q.x - p.x) * (point.z - p.z)) / (q.z - p.z) + p.x) hit = !hit;
-  }
-  return hit;
-}
-
-// Fläche einer Schicht (Konturen einer Farbe) als waagrechte Geometrie bei y = 0, Löcher ausgespart.
-// UV = Position in Metern, damit das Gittermuster (infillTexture) genau auf den Linien der Düse liegt.
-export function capGeometry(contours) {
-  const loops = contours.filter((c) => c.length > 2);
-  // Verschachtelungstiefe: wie viele andere Konturen eine Kontur umschließen – gerade = Außenrand, ungerade = Loch
-  const depth = loops.map((c, i) => loops.filter((o, j) => j !== i && inside(c[0], o)).length);
-  const shapes = [];
-  const owner = new Map(); // Index der Außenkontur → Shape
-  loops.forEach((c, i) => {
-    if (depth[i] % 2) return;
-    const pts = c.map((p) => new THREE.Vector2(p.x, p.z));
-    if (signedArea(c) < 0) pts.reverse();
-    const shape = new THREE.Shape(pts);
-    shapes.push(shape);
-    owner.set(i, shape);
-  });
-  loops.forEach((c, i) => {
-    if (depth[i] % 2 === 0) return;
-    // Loch gehört zur kleinsten Außenkontur, die es umschließt
-    let parent = null;
-    let parentArea = Infinity;
-    for (const [j, shape] of owner) {
-      const area = Math.abs(signedArea(loops[j]));
-      if (depth[j] === depth[i] - 1 && area < parentArea && inside(c[0], loops[j])) [parent, parentArea] = [shape, area];
+// Wabenwände aus den Füllstrecken aller Schichten: layers[i] = Strecken der Schicht i, layerHeight in Metern.
+// Bleibt eine Strecke von Schicht zu Schicht gleich (z. B. im Würfel), wird daraus eine hohe Wand statt vieler
+// flacher – so bleibt die Geometrie klein. Jede Wand ist ein senkrechtes Rechteck (beidseitig sichtbar).
+// y0: Höhe der ersten Schicht (für Abschnitte, die weiter oben beginnen)
+export function infillWalls(layers, layerHeight, y0 = 0) {
+  const open = new Map(); // Schlüssel der Strecke → Wand, die in der letzten Schicht noch weiterlief
+  const walls = [];
+  const keyOf = ({ a, b }) => [a.x, a.z, b.x, b.z].map((v) => Math.round(v / MERGE_TOLERANCE)).join(',');
+  layers.forEach((segments, i) => {
+    const next = new Map();
+    for (const segment of segments) {
+      const key = keyOf(segment);
+      const wall = open.get(key);
+      if (wall) wall.y1 = y0 + (i + 1) * layerHeight;
+      const current = wall ?? { segment, y0: y0 + i * layerHeight, y1: y0 + (i + 1) * layerHeight };
+      if (!wall) walls.push(current);
+      next.set(key, current);
     }
-    if (!parent) return;
-    const pts = c.map((p) => new THREE.Vector2(p.x, p.z));
-    if (signedArea(c) > 0) pts.reverse();
-    parent.holes.push(new THREE.Path(pts));
+    open.clear();
+    for (const [k, v] of next) open.set(k, v);
   });
-  if (!shapes.length) return null;
-  const geometry = new THREE.ShapeGeometry(shapes);
-  geometry.rotateX(Math.PI / 2); // Form (x, y) → waagrecht (x, 0, z)
+  if (!walls.length) return null;
+  const positions = [];
+  for (const { segment: { a, b }, y0, y1 } of walls) {
+    positions.push(
+      a.x, y0, a.z, b.x, y0, b.z, b.x, y1, b.z,
+      a.x, y0, a.z, b.x, y1, b.z, a.x, y1, a.z,
+    );
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
   return geometry;
-}
-
-let texture = null;
-// Gittermuster: helle Linien (Filament) mit dunklen Zwischenräumen (Blick in die Tiefe), eine Kachel pro Quadrat
-export function infillTexture() {
-  if (texture) return texture;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 32;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#3a3a3a';
-  ctx.fillRect(0, 0, 32, 32);
-  ctx.fillStyle = '#ffffff';
-  // Linie liegt auf dem Kachelrand (Vielfache von INFILL_SPACING), über den Rand verteilt
-  for (const [x, y, w, h] of [[0, 0, 4, 32], [28, 0, 4, 32], [0, 0, 32, 4], [0, 28, 32, 4]]) ctx.fillRect(x, y, w, h);
-  texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1 / INFILL_SPACING, 1 / INFILL_SPACING);
-  texture.anisotropy = 4;
-  return texture;
 }

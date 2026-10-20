@@ -5,8 +5,7 @@ import * as THREE from 'three';
 import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
-import { getPrintShape, layerSlice, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
-import { capGeometry, infillTexture } from '../models/infill.js';
+import { INFILL_CHUNKS, getInfillChunk, getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
 import { createSpool, createSpoolBatch, finishProps } from '../models/spool.js';
@@ -41,29 +40,6 @@ function partMaterial(filament, clip = null) {
     side: THREE.DoubleSide, // an der Schnittkante sieht man ins Innere
     clippingPlanes: clip ? [clip] : [],
   });
-}
-
-// Schnittfläche oben am halbfertigen Teil: Filamentfarbe mit Gittermuster (Füllung), nicht beschnitten
-function capMaterial(filament) {
-  return new THREE.MeshStandardMaterial({ color: filament.hex, map: infillTexture(), roughness: 0.7, side: THREE.DoubleSide });
-}
-
-// Schnittflächen einer Schicht, je Farbe eine Geometrie – an der Form zwischengespeichert, alle Teile der Platte
-// (und alle Drucker mit derselben Vorlage) teilen sie sich
-function layerCaps(shape, hFrac) {
-  const { layer, contours } = layerSlice(shape, hFrac);
-  shape.caps ??= new Map();
-  if (!shape.caps.has(layer)) {
-    const colors = [...new Set(contours.map((c) => c.color))];
-    shape.caps.set(layer, colors.map((color) => {
-      try {
-        return { color, geometry: capGeometry(contours.filter((c) => c.color === color)) };
-      } catch {
-        return { color, geometry: null }; // ungewöhnliche Schnittform – dann eben ohne Fläche
-      }
-    }).filter((cap) => cap.geometry));
-  }
-  return { layer, caps: shape.caps.get(layer) };
 }
 
 // Material(ien) für ein gedrucktes Teil: zwei- und mehrfarbige Formen haben eine Geometrie-Gruppe pro Farbe.
@@ -360,18 +336,16 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const layout = plateLayout(template, printer.model.build, count);
     let hx = 0;
     let hz = 0;
-    const capHolders = [];
+    const colors = partColors(job);
+    const infillMaterials = colors.map((id) => partMaterial(filamentById(id), clip));
+    const instances = [];
     for (const pos of layout.positions) {
       const mesh = new THREE.Mesh(shape.geometry, material);
       mesh.position.set(pos.x * 0.001, 0, pos.y * 0.001);
       if (layout.rotated) mesh.rotation.y = Math.PI / 2;
       mesh.castShadow = true;
       part.add(mesh);
-      // Schnittfläche mit Füllgitter, wandert mit der Druckhöhe nach oben (Inhalt je Schicht, siehe updateCaps)
-      const holder = new THREE.Group();
-      holder.visible = false;
-      mesh.add(holder);
-      capHolders.push(holder);
+      instances.push(mesh);
       hx = Math.max(hx, Math.abs(pos.x) * 0.001);
       hz = Math.max(hz, Math.abs(pos.y) * 0.001);
     }
@@ -380,9 +354,11 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const d = (layout.rotated ? template.size.x : template.size.y) * 0.0005;
     const offsets = layout.positions.map((pos) => ({ x: pos.x * 0.001, z: pos.y * 0.001 }));
     const outline = plateOutline(shape, offsets, layout.rotated);
-    const colors = partColors(job);
-    const capMaterials = colors.map((id) => capMaterial(filamentById(id)));
-    part.userData = { shape, clip, pathT: 0, outline, spread: Math.max(hx + w, hz + d), capHolders, capMaterials, capLayer: -1 };
+    // Wabenfüllung im Inneren: wächst wie das Teil Schicht für Schicht (gleiche Schnittebene) – man sieht sie,
+    // solange das Teil oben offen ist. Gebaut wird abschnittsweise in updateInfill.
+    part.userData = {
+      shape, clip, pathT: 0, outline, spread: Math.max(hx + w, hz + d), instances, infillMaterials, infillMeshes: [], infillBuilt: 0,
+    };
     rig.partParent.add(part);
     model.userData.partMesh = part;
 
@@ -764,35 +740,31 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         const detached = job.status === 'failed' && job.failure === 'detached';
         part.scale.y = detached ? Math.max(0.15, job.progress) : 1;
         part.userData.clip.constant = job.status === 'done' || detached ? 1e6 : worldPos.y + state.layerY + 0.0004;
-        updateCaps(part, job, state.layerY);
+        updateInfill(part, job, detached);
       }
       bobBadge(model, printer);
       updatePrinterTubes(model); // Schlauch und Kabel biegen sich mit, ihr Anfang bleibt am Gerät
     }
   }
 
-  // Schnittfläche mit Füllgitter oben am halbfertigen Teil: nur während des Drucks (auch pausiert), sitzt knapp unter
-  // der Schnittebene und zeigt die Konturen der aktuellen Schicht
-  function updateCaps(part, job, layerY) {
-    const { capHolders, capMaterials, shape } = part.userData;
-    const show = job.status === 'printing' || job.status === 'paused';
-    for (const holder of capHolders) {
-      holder.visible = show;
-      holder.position.y = layerY + 0.0002;
-    }
+  // Wabenfüllung: Abschnitte bis zur aktuellen Druckhöhe bauen, höchstens einen pro Bild (kein Ruckeln beim
+  // Druckstart). Fertig ist das Teil oben zu – dann die Füllung nicht mehr zeichnen.
+  function updateInfill(part, job, detached) {
+    const data = part.userData;
+    const show = job.status !== 'done' && !detached;
+    for (const walls of data.infillMeshes) walls.visible = show;
     if (!show) return;
-    const { layer, caps } = layerCaps(shape, job.progress);
-    if (layer === part.userData.capLayer) return;
-    part.userData.capLayer = layer;
-    for (const holder of capHolders) {
-      holder.clear();
-      for (const { color, geometry } of caps) {
-        const mesh = new THREE.Mesh(geometry, capMaterials[color] ?? capMaterials[0]);
-        mesh.position.y = color * 0.00003; // mehrere Farben übereinander nicht flackern lassen
-        mesh.raycast = () => {};
-        holder.add(mesh);
+    const needed = Math.min(INFILL_CHUNKS, Math.floor(job.progress * INFILL_CHUNKS) + 1);
+    if (data.infillBuilt >= needed) return;
+    for (const { color, geometry } of getInfillChunk(data.shape, data.infillBuilt)) {
+      for (const instance of data.instances) {
+        const walls = new THREE.Mesh(geometry, data.infillMaterials[color] ?? data.infillMaterials[0]);
+        walls.raycast = () => {};
+        instance.add(walls);
+        data.infillMeshes.push(walls);
       }
     }
+    data.infillBuilt++;
   }
 
   // Statussymbol wippt leicht, damit es auffällt
