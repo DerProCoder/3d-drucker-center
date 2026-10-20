@@ -201,6 +201,36 @@ function iconCalc(ctx, x, y, s) {
   }
 }
 
+// Snake: grüne Schlange in Kurven auf dunklem Feld, davor eine Filamentspule
+function iconSnake(ctx, x, y, s) {
+  ctx.fillStyle = '#16301f';
+  roundRect(ctx, x + s * 0.04, y + s * 0.04, s * 0.92, s * 0.92, s * 0.18);
+  ctx.fill();
+  ctx.strokeStyle = '#3ad16b';
+  ctx.lineWidth = s * 0.13;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.22, y + s * 0.74);
+  ctx.lineTo(x + s * 0.22, y + s * 0.5);
+  ctx.lineTo(x + s * 0.5, y + s * 0.5);
+  ctx.lineTo(x + s * 0.5, y + s * 0.26);
+  ctx.lineTo(x + s * 0.7, y + s * 0.26);
+  ctx.stroke();
+  ctx.fillStyle = '#e8ecef'; // Kopf
+  ctx.beginPath();
+  ctx.arc(x + s * 0.74, y + s * 0.26, s * 0.09, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ff8a1a'; // Spule
+  ctx.beginPath();
+  ctx.arc(x + s * 0.72, y + s * 0.7, s * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a2c30';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.72, y + s * 0.7, s * 0.04, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function iconTrophy(ctx, x, y, s) {
   ctx.fillStyle = '#f2c419';
   ctx.beginPath();
@@ -309,7 +339,7 @@ const ICONS = {
   trophy: iconTrophy,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
-  wood: iconWood,
+  wood: iconWood, snake: iconSnake,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)

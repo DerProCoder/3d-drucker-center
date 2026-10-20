@@ -192,6 +192,12 @@ Wer gemein ist: Drucker mit `E` vom Tisch heben und mit `F` werfen. Trifft er de
 
 Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
 
+Für die Pause zwischendurch: **Snake** (Filament-Snake). Die Schlange frisst Filamentspulen, jedes neue Stück hat die
+Farbe der gefressenen Spule, und mit jeder Spule wird sie etwas schneller. Steuern mit **Pfeiltasten** oder **WASD**,
+**Leertaste** startet und pausiert. Auf Tablet und Handy übers Spielfeld **wischen** oder das Steuerkreuz darunter
+nutzen, Antippen startet und pausiert. Der Rekord bleibt im Browser gespeichert; schließt du das Fenster, pausiert
+die Runde.
+
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
 ## Draußen
@@ -271,6 +277,7 @@ src/
     upgrades.js       Ausbau: Drucktische, Regalebenen
     staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
+    snake.js          Mini-Spiel Snake: Raster, Schlange, Spulen als Futter, Tempo
     display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
@@ -324,6 +331,7 @@ src/
     printer-cam.js    App Drucker-Cam
     printer-preview.js  Produktbilder der Drucker für den Shop
     pc-apps.js        Notizen und Rechner
+    snake-app.js      PC-App Snake: Spielfeld zeichnen, Tasten, Wischen, Steuerkreuz, Rekord
     perf-overlay.js   Leistungsanzeige (F3); mit ?perf in der Adresse offen und mit Ausgabe in der Konsole
   audio/
     sound.js          Geräusche per WebAudio (ohne Audiodateien)
