@@ -67,7 +67,8 @@ function route(from, to) {
   return points;
 }
 
-function createNameTag(name) {
+// Namensschild über dem Kopf, z. B. „Azubi Kevin“
+export function createNameTag(label) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 64;
@@ -80,7 +81,7 @@ function createNameTag(name) {
   ctx.font = '700 30px "Segoe UI", Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`Azubi ${name}`, 128, 33);
+  ctx.fillText(label, 128, 33);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
@@ -97,7 +98,7 @@ const hitboxMaterial = new THREE.MeshBasicMaterial({ visible: false });
 function createHolder(worker) {
   const holder = new THREE.Group();
   holder.add(new THREE.Mesh(hitboxGeometry, hitboxMaterial));
-  const tag = createNameTag(worker.name);
+  const tag = createNameTag(`Azubi ${worker.name}`);
   tag.position.y = 2.05;
   holder.add(tag);
   const controller = createController();

@@ -21,6 +21,7 @@ export const RECEPTION_SPOTS = {
   counter: { x: COUNTER_POS.x - 0.2, z: COUNTER_POS.z + COUNTER.d / 2 + 0.5, heading: Math.PI },   // Kunde gibt ab
   pay: { x: COUNTER_POS.x + 0.8, z: COUNTER_POS.z + COUNTER.d / 2 + 0.5, heading: Math.PI },       // Kunde zahlt
   shelf: { x: SHELF_POS.x, z: SHELF_POS.z - PICKUP_SHELF.d / 2 - 0.55, heading: 0 },               // vor dem Regal
+  staff: { x: COUNTER_POS.x + 0.05, z: ENTRANCE.z0 + 0.27, heading: 0 },                            // Empfangskraft neben dem Bildschirm
   chairs: [-2.3, -1.65, 1.65, 2.3].map((z) => ({
     stand: { x: CHAIR_X + 0.6, z }, seat: { x: CHAIR_X - 0.06, z }, y: CHAIR_SEAT, heading: Math.PI / 2,
   })),
@@ -64,8 +65,8 @@ function drawHours(ctx, w, h) {
 }
 
 // reception: core/reception.js · orders: Aufträge (für Änderungen) · customers: world/customers.js (wer am Tresen
-// steht, welche Pakete gerade getragen werden) · collision: Kollision der Spielfigur
-export function createReceptionDesk({ reception, orders, customers, collision }) {
+// steht, welche Pakete gerade getragen werden) · collision: Kollision der Spielfigur · staff: für die Empfangskraft
+export function createReceptionDesk({ reception, orders, customers, collision, staff }) {
   const group = new THREE.Group();
 
   const screenCanvas = document.createElement('canvas');
@@ -136,7 +137,8 @@ export function createReceptionDesk({ reception, orders, customers, collision })
       const order = c && orders.orderById(c.orderId);
       if (order) {
         const tags = `${order.rush ? ' ⚡ Eilauftrag' : ''}${order.special ? ' 🤪' : ''}`;
-        return `Linksklick: Auftrag von ${order.customer} annehmen – ${orderSummary(order)} · ${euro.format(order.reward)}${tags}`;
+        const greeter = staff?.receptionist ? ` (sonst macht es gleich ${staff.receptionist.name})` : '';
+        return `Linksklick: Auftrag von ${order.customer} annehmen${greeter} – ${orderSummary(order)} · ${euro.format(order.reward)}${tags}`;
       }
       const n = reception.waiting.length;
       return n ? `${n === 1 ? 'Ein Kunde ist' : `${n} Kunden sind`} auf dem Weg zum Tresen` : 'Empfang – gerade wartet niemand';

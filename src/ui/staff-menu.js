@@ -1,5 +1,5 @@
-// App „Personal“ im PC-Fenster: Azubis einstellen und entlassen, sehen, was sie gerade tun.
-import { HIRE_FEE, MAX_WORKERS, WAGE_PER_HOUR } from '../core/staff.js';
+// App „Personal“ im PC-Fenster: Azubis und die Empfangskraft einstellen und entlassen, sehen, was sie gerade tun.
+import { HIRE_FEE, MAX_WORKERS, RECEPTION_HIRE_FEE, RECEPTION_WAGE, WAGE_PER_HOUR } from '../core/staff.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 
@@ -18,6 +18,42 @@ export function createStaffMenu(staff, getStatus) {
         <div class="card-foot">
           <span class="stock">Lohn ${euro.format(WAGE_PER_HOUR)} pro Stunde</span>
           <button class="danger" data-fire="${worker.id}">Entlassen</button>
+        </div>
+      </div>`;
+  }
+
+  // Empfangskraft: eine Stelle, steht hinter dem Tresen
+  function receptionCard() {
+    const r = staff.receptionist;
+    if (r) {
+      return `
+      <div class="card staff">
+        <div class="card-head">
+          <span class="staff-avatar">💁</span>
+          <div>
+            <div class="card-title">Empfang ${r.name}</div>
+            <div class="card-sub">Begrüßt die Kunden, nimmt Aufträge am Tresen an und kassiert beim Abholen</div>
+          </div>
+        </div>
+        <div class="card-foot">
+          <span class="stock">Lohn ${euro.format(RECEPTION_WAGE)} pro Stunde</span>
+          <button class="danger" data-fire-reception>Entlassen</button>
+        </div>
+      </div>`;
+    }
+    const problem = staff.receptionProblem();
+    return `
+      <div class="card staff hire">
+        <div class="card-head">
+          <span class="staff-avatar">💁</span>
+          <div>
+            <div class="card-title">Empfangskraft einstellen</div>
+            <div class="card-sub">Steht am Tresen, empfängt die Kunden und nimmt ihre Aufträge an</div>
+          </div>
+        </div>
+        <div class="card-foot">
+          <span class="stock">${euro.format(RECEPTION_HIRE_FEE)} einmalig, dann ${euro.format(RECEPTION_WAGE)}/h</span>
+          ${problem ? `<button class="buy" disabled>${problem}</button>` : '<button class="buy" data-hire-reception>Einstellen</button>'}
         </div>
       </div>`;
   }
@@ -44,6 +80,7 @@ export function createStaffMenu(staff, getStatus) {
             ${problem ? `<button class="buy" disabled>${problem}</button>` : '<button class="buy" data-hire>Einstellen</button>'}
           </div>
         </div>
+        ${receptionCard()}
       </div>`;
   }
 
@@ -52,6 +89,18 @@ export function createStaffMenu(staff, getStatus) {
     if (e.target.closest('[data-hire]')) {
       const worker = staff.hire();
       return worker ? `Azubi ${worker.name} eingestellt – kommt gleich durch die Lagertür` : null;
+    }
+    if (e.target.closest('[data-hire-reception]')) {
+      const r = staff.hireReceptionist();
+      return r ? `${r.name} steht jetzt am Empfang` : null;
+    }
+    if (e.target.closest('[data-fire-reception]')) {
+      const r = staff.receptionist;
+      if (r && confirm(`${r.name} vom Empfang wirklich entlassen?`)) {
+        staff.fireReceptionist();
+        return `${r.name} hat den Empfang verlassen`;
+      }
+      return null;
     }
     const fireId = e.target.closest('[data-fire]')?.dataset.fire;
     if (fireId) {

@@ -135,8 +135,8 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
 
   // Am Ziel angekommen
   function arrive(c) {
+    if (c.phase === 'leave') return; // am Rand angekommen, wird unten entfernt (hat keinen Platz mehr)
     const p = spotPoint(c);
-    if (c.phase === 'leave') return; // am Rand angekommen, wird unten entfernt
     if (c.kind === 'pickup') {
       if (c.spot === 'shelf') {
         c.phase = 'take';
@@ -271,10 +271,12 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
 
   // Kunde, der gerade am Tresen steht und auf die Annahme wartet
   const atCounter = () => customers.find((c) => c.kind === 'dropoff' && c.phase === 'counter') ?? null;
+  // Kunde, der nach dem Abholen gerade am Tresen bezahlt
+  const paying = () => customers.find((c) => c.kind === 'pickup' && c.phase === 'pay' && !c.path.length) ?? null;
   // Positionen für die Haustür (öffnet sich, wenn jemand davorsteht)
   const positions = () => customers.map((c) => c.holder.position);
 
   // counterInteraction setzt world/reception.js – ein Klick auf den Kunden am Tresen wirkt wie einer auf den Tresen
-  const api = { group, update, atCounter, positions, carrying, counterInteraction: null };
+  const api = { group, update, atCounter, paying, positions, carrying, counterInteraction: null };
   return api;
 }
