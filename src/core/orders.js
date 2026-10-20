@@ -9,6 +9,7 @@ const FIRST_ORDERS = 2;            // so viele Aufträge liegen beim Spielstart 
 const RUSH_CHANCE = 0.15;          // Anteil Eilaufträge
 const RUSH_BONUS = 1.8;            // Eilaufträge zahlen so viel mehr
 const SPECIAL_CHANCE = 0.12;       // Anteil absurder Sonderaufträge
+const COUNTER_PATIENCE = 120;     // so viele Spielminuten wartet ein neuer Kunde am Empfang (echt 6 min)
 const ANY_COLOR_CHANCE = 0.3;      // so oft ist dem Kunden die Farbe egal
 const EFFECT_LINE_CHANCE = 0.2;    // so oft will der Kunde eine Effektsorte (Matte, Silk+, Glow, Translucent)
 const TWO_COLOR_LEVEL = 3;         // ab diesem Level bestellen Kunden auch zweifarbige Teile
@@ -106,7 +107,10 @@ const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
 // Auftrag: { id, customer, templateId, quantity, material, filamentId (null = Farbe egal),
 //            filamentId2 (zweite Farbe bei zweifarbigen Teilen, null = egal), rush, note,
-//            reward (€ gesamt), minutesLeft (Spielminuten bis zur Frist), special? }
+//            reward (€ gesamt), minutesLeft (Spielminuten bis zur Frist), special?,
+//            stage: 'counter' (Kunde wartet am Empfang) | 'open' (angenommen) | 'packed' (liegt im Abholregal),
+//            waitLeft (Spielminuten, die der Kunde am Empfang noch wartet), shelfSlot und pickupIn (bei 'packed') }
+// Ablauf am Empfang (core/reception.js): annehmen → drucken → ins Abholregal packen → Kunde holt ab und zahlt
 // progress (progress.js) bestimmt Lohnaufschlag und wie viele Aufträge gleichzeitig offen sein dürfen
 export class Orders {
   constructor(economy, progress) {
@@ -118,8 +122,26 @@ export class Orders {
     this.completed = 0;
     this.stars = new Map(); // Kunde → Sterne (Ruf beim Kunden, MIN_STARS…MAX_STARS)
     this.listeners = new Set();
-    this.onEvent = null;    // (type, data) => void – 'delivered', 'expired', 'new-order'
-    for (let i = 0; i < FIRST_ORDERS; i++) this.open.push(this.createOrder(true));
+    this.onEvent = null;    // (type, data) => void – 'delivered', 'expired', 'new-order', 'customer-left'
+    for (let i = 0; i < FIRST_ORDERS; i++) this.open.push(this.atCounter(this.createOrder(true)));
+  }
+
+  // Neuer Auftrag: Der Kunde kommt erst zum Empfang und wartet dort, bis man ihn annimmt
+  atCounter(order) {
+    order.stage = 'counter';
+    order.waitLeft = COUNTER_PATIENCE;
+    return order;
+  }
+
+  // Annehmen am Empfang: ab jetzt läuft die Frist
+  accept(id) {
+    const order = this.orderById(id);
+    if (order?.stage !== 'counter') return false;
+    order.stage = 'open';
+    delete order.waitLeft;
+    this.onEvent?.('accepted', { order });
+    this.notify();
+    return true;
   }
 
   starsOf(customer) {
@@ -268,18 +290,32 @@ export class Orders {
     return this.economy.countParts(order.templateId, Orders.want(order));
   }
 
-  // Grund, warum der Auftrag nicht geliefert werden kann, oder null
+  // Grund, warum der Auftrag noch nicht ins Abholregal kann, oder null
   deliveryProblem(order) {
+    if (order.stage === 'counter') return 'Erst am Empfang annehmen';
+    if (order.stage === 'packed') return 'Liegt schon im Abholregal';
     const have = this.partsReady(order);
     const verb = templateById(order.templateId)?.laser ? 'lasern' : 'drucken';
     if (have < order.quantity) return `Noch ${order.quantity - have} × ${verb}`;
     return null;
   }
 
-  deliver(id) {
+  // Fertige Teile verpacken und ins Fach slot des Abholregals legen: die Frist ist geschafft,
+  // nach pickupIn Spielminuten kommt der Kunde zum Abholen
+  pack(id, slot, pickupIn) {
     const order = this.orderById(id);
     if (!order || this.deliveryProblem(order)) return false;
     this.economy.takeParts(order.templateId, order.quantity, Orders.want(order));
+    Object.assign(order, { stage: 'packed', shelfSlot: slot, pickupIn });
+    this.onEvent?.('packed', { order });
+    this.notify();
+    return true;
+  }
+
+  // Der Kunde holt den Auftrag am Empfang ab und bezahlt
+  deliver(id) {
+    const order = this.orderById(id);
+    if (order?.stage !== 'packed') return false;
     this.economy.earn(order.reward);
     this.progress.addXp(order.reward);
     this.open = this.open.filter((o) => o !== order);
@@ -290,9 +326,9 @@ export class Orders {
     return true;
   }
 
-  // Ablehnen ist ehrlicher als verfallen lassen: kostet keinen Stern
+  // Ablehnen ist ehrlicher als verfallen lassen: kostet keinen Stern. Verpackte Aufträge holt der Kunde noch ab.
   decline(id) {
-    this.open = this.open.filter((o) => o.id !== id);
+    this.open = this.open.filter((o) => o.id !== id || o.stage === 'packed');
     this.notify();
   }
 
@@ -304,19 +340,37 @@ export class Orders {
   // damit das PC-Fenster nicht in jedem Frame neu aufgebaut wird.
   advance(gameMinutes) {
     let changed = false;
-    for (const order of this.open) order.minutesLeft -= gameMinutes;
-    for (const order of this.open.filter((o) => o.minutesLeft <= 0)) {
-      this.changeStars(order.customer, -1);
-      this.onEvent?.('expired', { order });
+    const gone = new Set();
+    for (const order of this.open) {
+      if (order.stage === 'counter') {
+        // Wartet am Empfang: geht irgendwann wieder, ohne dass es Ärger gibt
+        order.waitLeft -= gameMinutes;
+        if (order.waitLeft <= 0) {
+          gone.add(order);
+          this.onEvent?.('customer-left', { order });
+        }
+      } else if (order.stage === 'packed') {
+        // Liegt im Abholregal: Frist geschafft, der Kunde kommt bald
+        if (order.pickupIn > 0 && (order.pickupIn -= gameMinutes) <= 0) changed = true;
+      } else {
+        order.minutesLeft -= gameMinutes;
+        if (order.minutesLeft <= 0) {
+          gone.add(order);
+          this.changeStars(order.customer, -1);
+          this.onEvent?.('expired', { order });
+        }
+      }
+    }
+    if (gone.size) {
+      this.open = this.open.filter((o) => !gone.has(o));
       changed = true;
     }
-    this.open = this.open.filter((o) => o.minutesLeft > 0);
 
     this.untilNext -= gameMinutes;
     if (this.untilNext <= 0) {
       this.untilNext += NEW_ORDER_EVERY;
       if (this.open.length < this.progress.maxOpenOrders) {
-        const order = this.createOrder();
+        const order = this.atCounter(this.createOrder());
         this.open.push(order);
         this.onEvent?.('new-order', { order });
         changed = true;

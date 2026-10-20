@@ -24,6 +24,7 @@ const CX = (X0 + X1) / 2;
 const CZ = (Z0 + Z1) / 2;
 const W = X1 - X0;
 const D = Z1 - Z0;
+export const STORAGE_ROOM = { x0: X0, x1: X1, z0: Z0, z1: Z1, height: HEIGHT }; // Innenmaße, z. B. für die Fassade
 
 // Spulen stehen nebeneinander, farbige Wicklung zeigt in den Raum
 const SHELF = {

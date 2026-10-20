@@ -70,14 +70,14 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
 Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
-1. **Auftrag aussuchen:** Geh zum PC rechts neben dem Druckertisch und klick ihn an. Auf dem Desktop siehst du die Apps – ein Klick öffnet sie, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel. In der App **Aufträge** siehst du, wer was bestellt hat (Material und meist auch die Farbe), was du dafür bekommst und wie lange du Zeit hast.
+1. **Auftrag annehmen:** Kunden kommen über den Gartenweg zum **Empfang** (Tür „EMPFANG“ in der Westwand) und stellen sich an den Tresen; wer warten muss, setzt sich auf die Stühle. Zielst du auf den Tresen oder den Kunden davor, siehst du, was er will (Teil, Anzahl, Material und meist Farbe) und was er zahlt – Linksklick nimmt den Auftrag an, dann läuft die Frist. Wer zu lange wartet (etwa 6 Minuten), geht wieder, ohne dass es Ärger gibt. Am PC rechts neben dem Druckertisch zeigt die App **Aufträge** alle Aufträge mit Frist; dort kannst du auch ablehnen. Auf dem Desktop öffnet ein Klick eine App, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel.
 2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, den **A2L** (350 €, wie der A1, aber mit großem Bauraum 325 × 325 × 325 mm und kann auch TPU), P1P, P1S, P2S, den **X2D** (950 €) mit zwei Düsen und KI-Kamera das Flaggschiff **H2D** (1.400 €) – ebenfalls mit zwei Düsen und KI-Kamera, dazu ein großer Bauraum (325 × 325 × 325 mm, mehr Teile pro Platte), Fenster vorne, an der Seite und im Dach und ein großes Touch-Display –, den **H2S** (1.800 €), ebenso groß und mit KI-Kamera, aber mit nur einer Düse, dafür mit **Turbo-Stufe bis 200 %** sowie präziserer Mechanik und starker Bauteilkühlung (nur halb so viele Fehldrucke), den **X1E** (2.200 €), so groß wie der X2D mit zwei Düsen, AMS und KI-Kamera, dazu der schnellste Drucker mit der **Hyper-Stufe bis 300 %** und 25 % weniger Fehldrucken, den **H2D Pro** (2.000 €), einen H2D mit zwei Düsen und KI-Kamera, dazu mit der **Turbo-Stufe bis 200 %**, oder den **H2C** (2.500 €): so groß wie der H2D, mit **Düsenwechsler** (8 Düsen), zwei AMS übereinander und einer LED-Leiste am Sockel. Du startest klein: mit **150 €**, einem **A1 mini**, der schon auf dem ersten Drucktisch steht, und **einer Rolle weißem PLA**, die schon im Drucker eingelegt ist – erfüll die ersten Aufträge und spar auf Filament in weiteren Farben und bessere Drucker.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1, A1 mini und A2L haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Der H2C hat zwei AMS übereinander, also 8 Fächer. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
 6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
 7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
-8. **Liefern:** Hast du alle bestellten Teile in der richtigen Farbe, in der App **Aufträge** auf **Liefern** klicken – das Geld kommt sofort. Läuft die Frist ab, ist der Auftrag weg. Neue Kunden melden sich etwa alle 30 Spielminuten.
+8. **Ins Abholregal legen:** Hast du alle bestellten Teile in der richtigen Farbe, geh zum Empfang und klick auf das **Abholregal** – der Auftrag wird verpackt und liegt mit dem Kundennamen im nächsten freien Fach (8 Fächer). Damit ist die Frist geschafft. Kurz darauf kommt der Kunde, nimmt sein Paket, **bezahlt am Tresen** und trägt es nach Hause. Läuft die Frist vorher ab, ist der Auftrag weg. Neue Kunden kommen etwa alle 30 Spielminuten.
 
 ### Filament-Sorten
 
@@ -99,7 +99,7 @@ Für Drucker und Aufträge zählt nur das Material (PLA, PETG, ABS, TPU) – PLA
 ### Kunden
 
 - **Eilaufträge** (⚡) haben eine knappe Frist, zahlen aber fast das Doppelte.
-- **Sterne:** Jede pünktliche Lieferung bringt einen Stern beim Kunden, ein verfallener Auftrag kostet einen. Zufriedene Kunden zahlen mehr und melden sich öfter, ab 3 Sternen sind sie **Stammkunden**. Ablehnen kostet keinen Stern.
+- **Sterne:** Jeder pünktlich ins Abholregal gelegte Auftrag bringt beim Abholen einen Stern, ein verfallener Auftrag kostet einen. Zufriedene Kunden zahlen mehr und melden sich öfter, ab 3 Sternen sind sie **Stammkunden**. Ablehnen kostet keinen Stern.
 - **Sonderwünsche** (🤪): Ab und zu kommen absurde Bestellungen – Jonas (12) braucht ein Dutzend Benchys für seine ganze Klasse, eine Influencerin will transparente Vasen für ihren Livestream …
 - **Zweifarbige Teile** (🎨): Ab Level 3 bestellen Kunden auch Namensschilder, Untersetzer mit Logo, Spielwürfel und Schachfiguren in **zwei verschiedenen Farben** – sie zahlen 40 % mehr. Dafür brauchst du zwei Spulen im gleichen Material, aber in unterschiedlichen Farben, also ein AMS. Im Druckermenü wählst du unter **Farben** für jedes Teil (z. B. beim Spielwürfel für Würfel und Augen) eine der eingelegten Spulen – die gewählte Farbe ist grün, die anderen grau. Daneben zeigt eine **Vorschau**, wie das Teil in diesen Farben aussieht. Wählst du für ein Teil die Farbe eines anderen, tauschen die beiden. Zweimal dieselbe Farbe geht nicht. Ob Grund- und Akzentfarbe vertauscht sind, ist dem Kunden egal.
   - **Dual-Nozzle (X2D, X1E, H2D, H2D Pro):** Jede Farbe hat ihre eigene Düse – kaum langsamer als einfarbig (+10 %) und fast ohne Abfall. Am Druckkopf siehst du, welche gerade druckt: die linke Düse (Grundfarbe) oder die rechte (zweite Farbe) ist ausgefahren, die andere eingefahren. Beim Farbwechsel tauschen sie die Plätze.
@@ -160,6 +160,14 @@ Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – 
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
+## Draußen
+
+In der Westwand der Halle führt die Tür **EMPFANG** in den hellen Eingangsbereich. Von dort öffnet sich die gläserne Schiebetür von selbst, sobald du davorstehst, und du kommst nach draußen:
+
+- **Garten:** Terrasse, Kiesweg mit Blumenbeeten und Gartenleuchten, Bäume, Büsche entlang der Fassade und eine Bank. Über der Tür hängt das Firmenschild.
+- **Straße:** Auf dem Gehweg vor der Hecke gehen Passanten spazieren, einer joggt. Steht man im Weg, weichen sie aus, manche winken. Auf der Fahrbahn fahren Autos in beide Richtungen, gegenüber stehen Wohnhäuser.
+- Auf die Fahrbahn kommst du nicht, und die Nachbargrundstücke sind durch Hecken getrennt.
+
 ## Personal
 
 In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lohn pro Spielstunde, höchstens 2). Sie kommen durch die Lagertür, laufen über den Gang neben den Drucktischen und kümmern sich selbst um:
@@ -170,8 +178,11 @@ In der PC-App **Personal** stellst du Azubis ein (50 € einmalig, dann 2 € Lo
 4. Neues Filament aus dem Lager holen, wenn ein Drucker darauf wartet
 5. Teile aufheben, die der Kater vom Tisch geworfen hat
 6. Den Mülleimer mit dem Spülabfall leeren (ab 70 g – ist er voll und der Drucker wartet, zuerst)
+7. Fertige Aufträge verpacken und ins Abholregal am Empfang bringen (sie tragen das Paket sichtbar durch die Halle)
 
 Ohne Arbeit gehen sie in ihr **Büro** hinter der Ostwand (Tür mit dem Schild „BÜRO“ – sie geht auf, sobald du den ersten Azubi einstellst). Dort sitzen sie abwechselnd an der Werkbank mit Übungsdruckern, Ersatzteilen und Filament oder auf der Couch und zocken Kart-Rennen auf der Konsole. Fällt Arbeit an, springen sie sofort auf. Zielst du auf einen Azubi, siehst du, was er gerade tut. Entlassen geht in derselben App.
+
+Die Azubis sind echte animierte Menschen: Lea, Sophie und Aylin sind Frauen, Kevin, Mehmet und Finn Männer, und jeder sieht anders aus. Sie laufen in ihrem eigenen Tempo, drehen sich weich um, hantieren mit den Händen am Drucker, tragen Spulen vor dem Bauch, sitzen auf Stuhl und Couch und halten beim Zocken den Controller.
 
 ## Halle ausbauen
 
@@ -208,13 +219,15 @@ Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
 index.html          Einstieg, Import-Map für Three.js
 css/style.css       HUD, Shop- und Menüfenster
 serve.ps1           Lokaler Webserver für Windows
+assets/people/      Menschenfiguren als GLB (Quaternius), auf die nötigen Animationen gekürzt
 .github/workflows/  pages.yml: veröffentlicht main automatisch auf GitHub Pages
 src/
   main.js           Verdrahtet alles: Szene, Steuerung, Spielschleife
   core/             Spiellogik, ohne Three.js und ohne DOM
     catalog.js        Drucker, Bambu-Filamentsorten und -farben, Druckvorlagen mit Preisen und Werten
     economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
-    orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Liefern
+    orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Stufen (am Empfang, angenommen, im Regal)
+    reception.js      Empfang: annehmen, ins Abholregal packen (feste Fächer), abholen und bezahlen
     two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse
     laser.js          Laser R1: Holzplatte im Gerät, Laseraufträge (Text, Logo, Ausschneiden)
     progress.js       Level, XP und Titel
@@ -231,6 +244,11 @@ src/
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
     laser.js          Laser R1: Holzplatte mit Gravur bzw. Schnittlinien, Laserkopf und Strahl
     storage-room.js   Abstellraum mit Regal, Holzpalette und Lieferzone
+    entrance.js       Eingangsbereich hinter der Westwand mit automatischer Glas-Schiebetür
+    outdoor.js        Fassaden und Dach, Garten, Straße mit Gehwegen, Häuser, Autos, Himmel
+    pedestrians.js    Passanten auf den Gehwegen
+    reception.js      Einrichtung des Empfangs: Tresen, Wartestühle, Abholregal mit Paketen, Klick-Aktionen
+    customers.js      Kunden als Figuren: kommen zum Tresen, warten, holen Pakete ab und zahlen
     office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder eine Holzplatte
     cat.js            Kater Düsentrieb
@@ -251,6 +269,9 @@ src/
     furniture.js      Regale am Drucktisch und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
+    people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
+    reception-furniture.js  Tresen, Wartestuhl, Abholregal, Paket mit Etikett
+    outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm
@@ -265,5 +286,7 @@ src/
 ```
 
 Technik: [Three.js](https://threejs.org/) 0.169 als ES-Module direkt im Browser, ohne npm und ohne Build-Tools.
+
+Menschenfiguren: [Quaternius](https://quaternius.com) – „Ultimate Modular Men Pack“ und „Ultimate Modular Women Pack“ über [Poly Pizza](https://poly.pizza), CC0. Ausnahmen mit Namensnennung (CC-BY 3.0): „Worker“ (`worker-woman.glb`, https://poly.pizza/m/E8079Ahx7k) und „Suit“ (`suit-woman.glb`, https://poly.pizza/m/sOUciDsoVV) von Quaternius.
 
 Filament-Farbwerte: [Open Filament Database](https://github.com/OpenFilamentCollective/open-filament-database) (© 2025 OpenFilamentCollective, MIT-Lizenz). Preise: Stand Oktober 2026 bei 3DJake.de, Silk+, Translucent und die ABS-Spule geschätzt.

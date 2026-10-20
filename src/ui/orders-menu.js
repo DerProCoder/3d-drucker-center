@@ -1,4 +1,5 @@
-// Reiter „Aufträge“ im PC-Fenster: offene Kundenaufträge mit Frist, Lohn und Liefern-Knopf.
+// Reiter „Aufträge“ im PC-Fenster: Überblick über die Kundenaufträge mit Frist und Lohn. Angenommen, verpackt und
+// abgeholt wird am Empfang (world/reception.js) – hier kann man nur noch ablehnen.
 import { filamentById, filamentColorName, filamentLabel, templateById } from '../core/catalog.js';
 import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
 import { CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isMultiColor, isTwoColor } from '../core/two-color.js';
@@ -10,10 +11,15 @@ const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR'
 const URGENT_MINUTES = 60;
 
 export function createOrdersMenu(orders, economy) {
+  const real = (gameMinutes) => formatMinutes(gameMinutes / GAME_MINUTES_PER_SECOND / 60);
   function deadlineText(order) {
-    const realMinutes = order.minutesLeft / GAME_MINUTES_PER_SECOND / 60;
-    return `Frist: noch ${formatMinutes(order.minutesLeft)} (echt ca. ${formatMinutes(realMinutes)})`;
+    if (order.stage === 'counter') return `Wartet am Empfang auf die Annahme (geht in ca. ${real(order.waitLeft)} wieder)`;
+    if (order.stage === 'packed') {
+      return order.pickupIn > 0 ? `Liegt im Abholregal – Kunde kommt in ca. ${real(order.pickupIn)}` : 'Liegt im Abholregal – Kunde ist unterwegs';
+    }
+    return `Frist: noch ${formatMinutes(order.minutesLeft)} (echt ca. ${real(order.minutesLeft)})`;
   }
+  const urgentClass = (order) => (order.stage === 'packed' ? 'done' : order.stage === 'counter' ? 'idle' : order.minutesLeft < URGENT_MINUTES ? 'urgent' : 'idle');
 
   // Was genau bestellt ist: Farbe + Material, nur Material, oder (alte Aufträge) egal
   function wantText(order, t) {
@@ -44,8 +50,9 @@ export function createOrdersMenu(orders, economy) {
     const t = templateById(order.templateId);
     const have = orders.partsReady(order);
     const problem = orders.deliveryProblem(order);
-    const urgent = order.minutesLeft < URGENT_MINUTES;
     const tags = [
+      order.stage === 'counter' ? '<span class="tag">🛎️ Am Empfang</span>' : '',
+      order.stage === 'packed' ? '<span class="tag">📦 Im Abholregal</span>' : '',
       order.rush ? '<span class="tag rush">⚡ Eilauftrag</span>' : '',
       order.special ? '<span class="tag special">🤪 Sonderwunsch</span>' : '',
       isTwoColor(t) ? '<span class="tag two-color">🎨 Zweifarbig</span>' : '',
@@ -74,21 +81,21 @@ export function createOrdersMenu(orders, economy) {
             : `<dt>Pro Teil</dt><dd>${t.grams} g · ${time}</dd>`}
           <dt>Fertig im Lager</dt><dd>${Math.min(have, order.quantity)} / ${order.quantity}</dd>
         </dl>
-        <div class="status ${urgent ? 'urgent' : 'idle'}" data-deadline>${deadlineText(order)}</div>
+        <div class="status ${urgentClass(order)}" data-deadline>${deadlineText(order)}</div>
         <div class="card-foot">
           <span class="price">${euro.format(order.reward)}</span>
           <span class="stock"></span>
-          <button class="danger" data-action="decline">Ablehnen</button>
-          ${problem
-            ? `<button class="buy" disabled>${problem}</button>`
-            : '<button class="buy" data-action="deliver">Liefern</button>'}
+          ${order.stage === 'packed' ? '' : '<button class="danger" data-action="decline">Ablehnen</button>'}
+          <button class="buy" disabled>${problem ?? 'Fertig – am Empfang ins Abholregal legen'}</button>
         </div>
       </div>`;
   }
 
   function render() {
-    const intro = `<p class="slots">Druck die bestellten Teile in Wunschmaterial und -farbe, entnimm sie und liefer sie hier vor Ablauf der Frist ab.
-      Pünktliche Lieferungen bringen Sterne beim Kunden (mehr Lohn, öfter Aufträge), verfallene kosten einen.
+    const intro = `<p class="slots">Kunden geben ihre Aufträge am <strong>Empfang</strong> ab (Tür in der Westwand) – dort am Tresen annehmen.
+      Druck die Teile in Wunschmaterial und -farbe, entnimm sie und leg den fertigen Auftrag am Empfang ins <strong>Abholregal</strong>,
+      bevor die Frist abläuft (das machen auch die Azubis). Der Kunde holt ihn ab und bezahlt.
+      Pünktliche Aufträge bringen Sterne beim Kunden (mehr Lohn, öfter Aufträge), verfallene kosten einen.
       Erledigte Aufträge: <strong>${orders.completed}</strong></p>`;
     if (!orders.open.length) {
       return `${intro}<p class="empty">Gerade keine Aufträge. Neue Kunden melden sich bald.</p>`;
@@ -103,7 +110,6 @@ export function createOrdersMenu(orders, economy) {
     if (!cardEl || !action) return null;
     const order = orders.orderById(Number(cardEl.dataset.order));
     if (!order) return null;
-    if (action === 'deliver' && orders.deliver(order.id)) return `Geliefert an ${order.customer}: +${euro.format(order.reward)}`;
     if (action === 'decline' && confirm(`Auftrag von ${order.customer} ablehnen? (Ablehnen kostet keinen Stern, verfallen lassen schon.)`)) orders.decline(order.id);
     return null;
   }
@@ -115,7 +121,7 @@ export function createOrdersMenu(orders, economy) {
       if (!order) continue;
       const el = cardEl.querySelector('[data-deadline]');
       el.textContent = deadlineText(order);
-      el.className = `status ${order.minutesLeft < URGENT_MINUTES ? 'urgent' : 'idle'}`;
+      el.className = `status ${urgentClass(order)}`;
     }
   }
 

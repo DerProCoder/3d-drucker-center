@@ -6,8 +6,8 @@ import { SLOTS_PER_TABLE } from './upgrades.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
-// Ausbau + Spieluhr (#5) · 4: beides zusammen
-const VERSION = 4;
+// Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
+const VERSION = 5;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -153,6 +153,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   // Version 3 aus #5 (Ausbau) kennt noch kein Lager mit festen Plätzen – wie Version 2 umwandeln
   if (data?.version === 2 || (data?.version === 3 && !data.economy.shelf)) data = migrateV2(data);
   if (data?.version === 3) data.version = 4; // Version 3 aus #6: Ausbau und Uhr ergänzen unten Standardwerte
+  // Version 4 kennt noch keinen Empfang: alle offenen Aufträge gelten als angenommen
+  if (data?.version === 4) {
+    for (const order of data.orders?.open ?? []) order.stage ??= 'open';
+    data.version = 5;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
