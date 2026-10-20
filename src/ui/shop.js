@@ -5,7 +5,7 @@
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
-  speedModesFor,
+  printerSpecRows, speedModesFor,
 } from '../core/catalog.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { WOOD_STOCK_MAX } from '../core/economy.js';
@@ -183,6 +183,18 @@ export function createShop(economy, {
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
+  const openSpecs = new Set(); // aufgeklappte „Technische Daten“, bleiben beim Neuzeichnen offen
+
+  // Datenblatt des echten Geräts zum Aufklappen
+  function techSpecs(p) {
+    const rows = printerSpecRows(p);
+    if (!rows.length) return '';
+    return `
+      <details class="tech-specs" data-specs="${p.id}" ${openSpecs.has(p.id) ? 'open' : ''}>
+        <summary>Technische Daten</summary>
+        <dl class="specs">${rows.map(([label, text]) => `<dt>${label}</dt><dd>${text}</dd>`).join('')}</dl>
+      </details>`;
+  }
 
   function renderPrinters() {
     printerImages ??= renderPrinterPreviews(PRINTERS);
@@ -207,10 +219,11 @@ export function createShop(economy, {
             ${p.nozzleChanger ? `<dt>Düsen</dt><dd>${p.nozzles} im Düsenwechsler – eigene Düse pro Farbe, kaum Spülabfall, Ersatz bei Verstopfung</dd>`
               : p.nozzles > 1 ? `<dt>Düsen</dt><dd>${p.nozzles} – halber Verschleiß, Ersatzdüse bei Verstopfung</dd>` : ''}
             ${p.ledStrip ? '<dt>Beleuchtung</dt><dd>LED-Leiste am Sockel, Farbe im Druckermenü wählbar</dd>' : ''}
-            ${p.failureFactor < 1 ? `<dt>Präzision</dt><dd>Präzisere Mechanik und starke Bauteilkühlung – ${Math.round((1 - p.failureFactor) * 100)} % weniger Fehldrucke</dd>` : ''}
+            ${p.failureFactor < 1 ? `<dt>Präzision</dt><dd>${p.precision ?? 'Präzisere Mechanik und starke Bauteilkühlung'} – ${Math.round((1 - p.failureFactor) * 100)} % weniger Fehldrucke</dd>` : ''}
             ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – stoppt Fehldrucke früh, spart Filament</dd>' : ''}
             <dt>Strom beim Drucken</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>
+          ${techSpecs(p)}
           <div class="card-foot">
             <span class="stock">Im Besitz: ${economy.printersOfModel(p.id)}</span>
             <span class="price">${euro.format(p.price)}</span>
@@ -269,6 +282,7 @@ export function createShop(economy, {
             ${p.aiCamera ? '<dt>Kamera</dt><dd>HD mit KI – gestochen scharfes Bild in der Drucker-Cam</dd>' : ''}
             <dt>Strom beim Lasern</dt><dd>${euro.format(p.powerPerHour)} / h</dd>
           </dl>
+          ${techSpecs(p)}
           <div class="card-foot">
             <span class="stock">Im Besitz: ${economy.printersOfModel(p.id)}</span>
             <span class="price">${euro.format(p.price)}</span>
@@ -446,6 +460,13 @@ export function createShop(economy, {
   contentEl.addEventListener('change', (e) => {
     if (app === 'control' && printerMenu.handleChange(e)) render();
   });
+  // „toggle“ steigt nicht auf, deshalb in der Capture-Phase mithören
+  contentEl.addEventListener('toggle', (e) => {
+    const id = e.target.dataset?.specs;
+    if (!id) return;
+    if (e.target.open) openSpecs.add(id);
+    else openSpecs.delete(id);
+  }, true);
   contentEl.addEventListener('input', (e) => {
     if (app === 'notes') notes.handleInput(e);
     if (app === 'control') printerMenu.handleInput(e);
