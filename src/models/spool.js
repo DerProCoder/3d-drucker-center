@@ -1,11 +1,14 @@
 // Filamentspule (1 kg, Ø 200 mm, 70 mm breit). Achse entlang x, Ursprung in der Mitte.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const RADIUS = 0.1;
 const WIDTH = 0.07;
 
 let shared = null;
 
+// Teile einer Spule als fertige Geometrie in Spulen-Koordinaten (Achse entlang x). Statt neun Meshes pro Spule
+// gibt es nur noch vier Draw Calls: Wicklung (Mantel + Stirnflächen), Seitenscheiben, Rest (Nabe, Löcher, Etikett).
 function getShared() {
   if (shared) return shared;
   // Wicklung: feine Rillen quer zur Spulenachse
@@ -20,19 +23,50 @@ function getShared() {
   const winding = new THREE.CanvasTexture(canvas);
   winding.colorSpace = THREE.SRGBColorSpace;
 
+  const toAxisX = new THREE.Matrix4().makeRotationZ(Math.PI / 2); // Zylinderachse y → x
+  const part = (geo, matrix = new THREE.Matrix4()) => geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toAxisX, matrix));
+
+  // etwas schmaler als der Abstand der Seitenscheiben, sonst flackern die Flächen (gleiche Ebene).
+  // Die beiden Stirnflächen bilden zusammen eine Gruppe (ein Draw Call für Mantel, einer für beide Deckel).
+  const coreGeo = part(new THREE.CylinderGeometry(RADIUS * 0.86, RADIUS * 0.86, WIDTH - 0.012, 48));
+  const [side, top, bottom] = coreGeo.groups;
+  coreGeo.clearGroups();
+  coreGeo.addGroup(side.start, side.count, 0);
+  coreGeo.addGroup(top.start, top.count + bottom.count, 1);
+
+  const flangeGeo = mergeGeometries([-1, 1].map((sideSign) => part(
+    new THREE.CylinderGeometry(RADIUS, RADIUS, 0.005, 48),
+    new THREE.Matrix4().makeTranslation(0, sideSign * (WIDTH / 2 - 0.0025), 0),
+  )));
+
+  // Nabe, Löcher und Etikett mit Vertexfarben in einem Material
+  const colored = (geo, hex) => {
+    const c = new THREE.Color(hex);
+    const colors = new Float32Array(geo.attributes.position.count * 3);
+    for (let i = 0; i < colors.length; i += 3) colors.set([c.r, c.g, c.b], i);
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return geo.index ? geo.toNonIndexed() : geo;
+  };
+  const restGeo = mergeGeometries([
+    colored(part(new THREE.CylinderGeometry(0.03, 0.03, WIDTH + 0.002, 24)), 0x3a3c40),
+    ...[-1, 1].map((sideSign) => colored(part(
+      new THREE.CircleGeometry(0.027, 24),
+      new THREE.Matrix4().makeTranslation(0, sideSign * (WIDTH / 2 + 0.0002), 0).multiply(new THREE.Matrix4().makeRotationX(sideSign * -Math.PI / 2)),
+    ), 0x050505)),
+    // Etikett auf der +x-Seite (nach der Drehung um z nicht mehr drehen – deshalb direkt in Spulen-Koordinaten)
+    colored(new THREE.PlaneGeometry(0.05, 0.03)
+      .applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2))
+      .applyMatrix4(new THREE.Matrix4().makeTranslation(WIDTH / 2 + 0.0003, 0.06, 0)), 0xf2f2f2),
+  ]);
+
   shared = {
     winding,
-    flangeGeo: new THREE.CylinderGeometry(RADIUS, RADIUS, 0.005, 48),
-    // etwas schmaler als der Abstand der Seitenscheiben, sonst flackern die Flächen (gleiche Ebene)
-    coreGeo: new THREE.CylinderGeometry(RADIUS * 0.86, RADIUS * 0.86, WIDTH - 0.012, 48),
-    hubGeo: new THREE.CylinderGeometry(0.03, 0.03, WIDTH + 0.002, 24),
-    holeGeo: new THREE.CircleGeometry(0.027, 24),
-    labelGeo: new THREE.PlaneGeometry(0.05, 0.03),
+    coreGeo,
+    flangeGeo,
+    restGeo,
     // Seitenscheiben leicht durchsichtig (Klarsicht-Spule), damit die Filamentfarbe durchscheint
     flangeMat: new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.3, transparent: true, opacity: 0.45 }),
-    hubMat: new THREE.MeshStandardMaterial({ color: 0x3a3c40, roughness: 0.6 }),
-    holeMat: new THREE.MeshBasicMaterial({ color: 0x050505 }),
-    labelMat: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 }),
+    restMat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }),
     filamentMats: new Map(),
   };
   return shared;
@@ -50,14 +84,14 @@ export function finishProps(filament, roughness) {
   }
 }
 
-// Materialien für den Wickelkörper: [Mantel mit Rillen, Deckfläche, Deckfläche] (Gruppen der CylinderGeometry)
+// Materialien für den Wickelkörper: [Mantel mit Rillen, Deckflächen]
 function filamentMaterials(filament) {
   const s = getShared();
   if (!s.filamentMats.has(filament.id)) {
     const base = { color: filament.hex, ...finishProps(filament, 0.35) };
     const side = new THREE.MeshStandardMaterial({ ...base, map: s.winding });
     const cap = new THREE.MeshStandardMaterial(base); // ohne Rillen, sonst flimmert die Stirnseite
-    s.filamentMats.set(filament.id, [side, cap, cap]);
+    s.filamentMats.set(filament.id, [side, cap]);
   }
   return s.filamentMats.get(filament.id);
 }
@@ -65,28 +99,47 @@ function filamentMaterials(filament) {
 export function createSpool(filament) {
   const s = getShared();
   const spool = new THREE.Group();
-  const inner = new THREE.Group();
-  inner.rotation.z = Math.PI / 2; // Zylinderachse y → x
-  spool.add(inner);
-
-  inner.add(new THREE.Mesh(s.coreGeo, filamentMaterials(filament)));
-  inner.add(new THREE.Mesh(s.hubGeo, s.hubMat));
-  for (const side of [-1, 1]) {
-    const flange = new THREE.Mesh(s.flangeGeo, s.flangeMat);
-    flange.position.y = side * (WIDTH / 2 - 0.0025);
-    inner.add(flange);
-    const hole = new THREE.Mesh(s.holeGeo, s.holeMat);
-    hole.rotation.x = side * -Math.PI / 2;
-    hole.position.y = side * (WIDTH / 2 + 0.0002);
-    inner.add(hole);
-  }
-
-  // Etikett auf der +x-Seite
-  const label = new THREE.Mesh(s.labelGeo, s.labelMat);
-  label.rotation.y = Math.PI / 2;
-  label.position.set(WIDTH / 2 + 0.0003, 0.06, 0);
-  spool.add(label);
-
+  spool.add(
+    new THREE.Mesh(s.coreGeo, filamentMaterials(filament)),
+    new THREE.Mesh(s.flangeGeo, s.flangeMat),
+    new THREE.Mesh(s.restGeo, s.restMat),
+  );
   spool.userData.filament = filament;
   return spool;
+}
+
+// Viele Spulen auf einmal (Lagerregal, Filament-Regal): pro Teil ein InstancedMesh für alle Spulen, die Wicklung
+// eines pro Filament – statt neun Draw Calls pro Spule nur noch wenige für das ganze Regal.
+// items: [{ filament, position, rotationY, interaction }] – interaction wie bei world/interaction.js, gilt für
+// die angeklickte Spule (der Klickstrahl liefert die Nummer der Instanz).
+export function createSpoolBatch(items) {
+  const s = getShared();
+  const group = new THREE.Group();
+  if (!items.length) return group;
+  const matrices = items.map(({ position, rotationY = 0 }) => new THREE.Matrix4().compose(
+    position, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotationY), new THREE.Vector3(1, 1, 1),
+  ));
+
+  const add = (geometry, material, indices) => {
+    const mesh = new THREE.InstancedMesh(geometry, material, indices.length);
+    indices.forEach((item, i) => mesh.setMatrixAt(i, matrices[item]));
+    mesh.computeBoundingSphere();
+    const itemAt = (hit) => items[indices[hit?.instanceId]]?.interaction;
+    mesh.userData.interaction = {
+      hint: (hit) => itemAt(hit)?.hint(hit) ?? null,
+      action: (hit) => itemAt(hit)?.action?.(hit),
+    };
+    group.add(mesh);
+  };
+
+  const all = items.map((_, i) => i);
+  add(s.flangeGeo, s.flangeMat, all);
+  add(s.restGeo, s.restMat, all);
+  const byFilament = new Map();
+  items.forEach((item, i) => {
+    if (!byFilament.has(item.filament.id)) byFilament.set(item.filament.id, []);
+    byFilament.get(item.filament.id).push(i);
+  });
+  for (const [, indices] of byFilament) add(s.coreGeo, filamentMaterials(items[indices[0]].filament), indices);
+  return group;
 }

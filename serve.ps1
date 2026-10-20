@@ -33,11 +33,12 @@ try {
       $ext = [IO.Path]::GetExtension($path).ToLower()
       $ctx.Response.ContentType = if ($mime.ContainsKey($ext)) { $mime[$ext] } else { 'application/octet-stream' }
       $ctx.Response.Headers.Add('Cache-Control', 'no-store')
-      $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+      # Bricht der Browser die Anfrage ab (Tab zu, Neuladen), nicht den ganzen Server beenden
+      try { $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length) } catch { }
     } else {
       $ctx.Response.StatusCode = 404
     }
-    $ctx.Response.Close()
+    try { $ctx.Response.Close() } catch { }
   }
 } finally {
   $listener.Stop()

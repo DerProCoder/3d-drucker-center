@@ -12,6 +12,7 @@ import {
 } from '../models/office-furniture.js';
 import { ROOM_SIZE, WALL_THICKNESS, OFFICE_DOOR, createWallGeometry, canvasTexture, speckle, rand } from './room.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 // Innenmaße (Welt-Koordinaten)
 const X0 = ROOM_SIZE / 2 + WALL_THICKNESS; // Innenseite der gemeinsamen Wand
@@ -386,6 +387,7 @@ export function createOffice({ staff, collision }) {
   rug.castShadow = false;
   // Decke und Wände halten das Sonnenlicht draußen
   ceiling.castShadow = true;
+  mergeStatic(group, { cell: 3 }); // Unbewegliches pro Material zusammenfassen (Tür, Fernseher, Möbel mit Interaktion bleiben eigenständig)
 
   // Kollision: Außenwände (die gemeinsame Wand kommt aus room.js), Möbel
   const t = WALL_THICKNESS;

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { SHEET_MM, WOODS, filamentById } from '../core/catalog.js';
 import { WET, spoolLabel } from '../core/economy.js';
-import { createSpool } from '../models/spool.js';
+import { createSpool, createSpoolBatch } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
 import { MAX_SPOOLS } from './carry.js';
 import { furnitureSize } from '../models/furniture.js';
@@ -13,6 +13,7 @@ import {
   ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
 } from './room.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 // Innenmaße (Welt-Koordinaten)
 const X0 = -8;
@@ -362,6 +363,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   floor.castShadow = false;
   // Decke und Wände halten das Sonnenlicht aus dem Keller fern
   ceiling.castShadow = true;
+  mergeStatic(group, { cell: 3 }); // Wände, Regal, Rohre … pro Material zusammenfassen
 
   // Kollision: Wände, Regal, Tür, Gerümpel
   const t = WALL_THICKNESS;
@@ -384,6 +386,7 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const dryer = createDryer();
   dryer.position.set(DRYER.x, 0, DRYER.z);
   dryer.visible = false;
+  mergeStatic(dryer);
   dryer.userData.interaction = {
     hint: () => (dryer.visible ? 'Trockenschrank läuft – Spulen im Regal bleiben trocken' : null),
   };
@@ -449,21 +452,41 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
     };
   }
 
+  // Neu aufgebaut wird nur, wenn sich im Lager etwas geändert hat – sync() kommt bei jeder Änderung im Spiel
+  // (Druck fertig, Geld, Spule eingelegt …), und alles neu zu bauen ließe das Bild jedes Mal kurz stocken.
+  const ids = new WeakMap();
+  let nextId = 1;
+  const idOf = (o) => {
+    if (!ids.has(o)) ids.set(o, nextId++);
+    return ids.get(o);
+  };
+  let lastKey = null;
+  const contentKey = () => JSON.stringify([
+    upgrades.shelfLevels, economy.hasDryer,
+    economy.shelf.map((s) => [idOf(s), s.shelfSlot, s.filamentId]),
+    WOODS.map((w) => economy.woodCount(w.id)),
+    [...economy.printers, ...economy.furniture].map((item) => [idOf(item), item.location === 'storage' ? item.storageSpot : null]),
+  ]);
+
   function sync() {
+    const key = contentKey();
+    if (key === lastKey) return;
+    lastKey = key;
     contents.clear();
     shelf.userData.levels.forEach((parts, i) => { parts.visible = i < upgrades.shelfLevels; });
     dryer.visible = economy.hasDryer;
 
-    for (const spool of economy.shelf) {
-      if (spool.shelfSlot >= upgrades.shelfCapacity) continue;
-      const level = Math.floor(spool.shelfSlot / SHELF.perLevel);
-      const index = spool.shelfSlot % SHELF.perLevel;
-      const mesh = createSpool(filamentById(spool.filamentId));
-      mesh.rotation.y = Math.PI / 2; // Achse entlang des Regals
-      mesh.position.set(SHELF.spoolX, SHELF.levels[level] + 0.1, SHELF.firstZ + index * SHELF.spacing);
-      mesh.userData.interaction = spoolInteraction(spool);
-      contents.add(mesh);
-    }
+    // Alle Spulen im Regal als ein Satz InstancedMeshes – wenige Draw Calls, egal wie voll das Regal ist
+    contents.add(createSpoolBatch(economy.shelf.filter((spool) => spool.shelfSlot < upgrades.shelfCapacity).map((spool) => ({
+      filament: filamentById(spool.filamentId),
+      rotationY: Math.PI / 2, // Achse entlang des Regals
+      position: new THREE.Vector3(
+        SHELF.spoolX,
+        SHELF.levels[Math.floor(spool.shelfSlot / SHELF.perLevel)] + 0.1,
+        SHELF.firstZ + (spool.shelfSlot % SHELF.perLevel) * SHELF.spacing,
+      ),
+      interaction: spoolInteraction(spool),
+    }))));
 
     // Holzstapel auf der Palette: einer pro Holzart, so hoch wie Platten da sind, davor ein Schild
     WOODS.forEach((wood, i) => {

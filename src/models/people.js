@@ -49,6 +49,7 @@ export async function createPerson(id) {
 }
 
 const FADE = 0.25; // s Überblendung zwischen zwei Animationen
+const OFFSCREEN_STEP = 0.2; // s – so oft wird eine Figur außerhalb des Bildes weiterbewegt
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -77,11 +78,21 @@ export class Person {
     this.object = new THREE.Group();     // Ursprung zwischen den Füßen, Blick nach +z
     this.body = SkeletonUtils.clone(gltf.scene);
     this.object.add(this.body);
+    this.object.updateMatrixWorld(true);
+    this.lastSeen = 0;      // wann die Figur zuletzt im Bild war (performance.now)
+    this.pendingDt = 0;     // aufgesparte Zeit, solange die Animation pausiert
     this.body.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
-        o.frustumCulled = false; // animierte Figuren ragen sonst manchmal aus ihrer Hülle und verschwinden
+        // Animierte Figuren ragen aus der Hülle ihrer Ruhepose heraus – die Hülle großzügig vergrößern, statt
+        // die Figur immer zu zeichnen (auch hinter Wänden und hinter dem Rücken des Spielers)
+        if (o.isSkinnedMesh) {
+          o.skeleton.update();
+          o.computeBoundingSphere();
+          o.boundingSphere.radius *= 2;
+        }
+        o.onBeforeRender = () => { this.lastSeen = performance.now(); };
       }
     });
     this.bones = {};
@@ -122,8 +133,14 @@ export class Person {
   }
 
   // Zeitschritt: Animation abspielen, danach Sitz- und Armhaltung über die Knochen setzen
+  // Außerhalb des Bildes läuft die Animation nur noch fünfmal pro Sekunde (mit der aufgesparten Zeit),
+  // damit Figuren hinter Wänden, draußen oder hinter dem Spieler kaum Rechenzeit kosten.
   update(dt) {
-    this.mixer.update(dt);
+    this.pendingDt += dt;
+    const onScreen = performance.now() - this.lastSeen < 250;
+    if (!onScreen && this.pendingDt < OFFSCREEN_STEP) return;
+    this.mixer.update(this.pendingDt);
+    this.pendingDt = 0;
     if (this.seat === null && !this.arms) return;
     this.object.updateMatrixWorld(true);
     this.object.getWorldDirection(_fwd); // +z der Figur in Weltkoordinaten

@@ -8,9 +8,10 @@ import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
-import { createSpool, finishProps } from '../models/spool.js';
+import { createSpool, createSpoolBatch, finishProps } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
 import { isPurging, updatePurge } from './purge.js';
 import { animateLaser, syncLaserWorkpiece } from './laser.js';
@@ -510,13 +511,13 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     model.userData.contents?.removeFromParent();
     const contents = new THREE.Group();
     if (rack.spools) {
+      const items = [];
       rack.spools.forEach((spool, i) => {
-        if (!spool) return;
-        const mesh = createSpool(filamentById(spool.filamentId));
-        mesh.position.copy(model.userData.spoolSpots[i]);
-        mesh.userData.interaction = rackSpoolInteraction(rack, i);
-        contents.add(mesh);
+        if (spool) {
+          items.push({ filament: filamentById(spool.filamentId), position: model.userData.spoolSpots[i], interaction: rackSpoolInteraction(rack, i) });
+        }
       });
+      contents.add(createSpoolBatch(items));
     } else {
       for (let i = 0; i < rack.nozzles; i++) {
         const nozzle = createNozzle(1.6);
@@ -525,6 +526,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       }
     }
     enableShadows(contents);
+    if (!rack.spools) mergeStatic(contents); // alle Düsen im Regal als ein Mesh
     model.add(contents);
     model.userData.contents = contents;
   }

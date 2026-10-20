@@ -5,6 +5,14 @@
 //   hover(hit) / unhover() → optional, z. B. für Vorschauen
 import * as THREE from 'three';
 
+// Wie raycaster.intersectObjects, aber ausgeblendete Objekte (z. B. der Außenbereich, solange man drinnen ist)
+// samt allem darin überspringen – die lassen sich ohnehin nicht anklicken und kosten sonst in jedem Bild Zeit
+function raycastVisible(object, raycaster, hits) {
+  if (!object.visible) return;
+  if (object.layers.test(raycaster.layers)) object.raycast(raycaster, hits);
+  for (const child of object.children) raycastVisible(child, raycaster, hits);
+}
+
 export class Interaction {
   constructor({ camera, distance, hintEl, targets }) {
     this.camera = camera;
@@ -20,7 +28,10 @@ export class Interaction {
     let found = null;
     if (active) {
       this.raycaster.setFromCamera(this.center, this.camera);
-      const hit = this.raycaster.intersectObjects(this.targets, true)[0];
+      const hits = [];
+      for (const target of this.targets) raycastVisible(target, this.raycaster, hits);
+      hits.sort((a, b) => a.distance - b.distance);
+      const hit = hits[0];
       let owner = hit?.object;
       while (owner && !owner.userData.interaction) owner = owner.parent;
       const text = owner?.userData.interaction.hint(hit);

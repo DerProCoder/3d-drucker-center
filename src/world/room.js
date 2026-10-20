@@ -1,6 +1,7 @@
 // Raum: Holzdielenboden, verputzte Wände mit Wandvertäfelung, Fenster mit hellblauem Himmel,
 // Decke mit Leuchten. Alle Texturen werden prozedural per Canvas erzeugt (keine Bilddateien nötig).
 import * as THREE from 'three';
+import { mergeStatic } from '../models/merge-static.js';
 
 export const ROOM_SIZE = 20;      // m, quadratisch
 export const ROOM_HEIGHT = 3.5;   // m
@@ -411,7 +412,8 @@ export function createRoom() {
     }
   }
 
-  return room;
+  // Wände, Leisten, Fenster und Lampengehäuse pro Material und Raster-Feld zu je einem Mesh zusammenfassen
+  return mergeStatic(room, { cell: 7 });
 }
 
 // Wände als Kollisionsrechtecke (Wanddicke liegt außerhalb des Raums), mit Lücken für Lager-, Büro- und Empfangstür

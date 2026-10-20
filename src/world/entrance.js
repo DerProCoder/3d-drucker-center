@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { ROOM_SIZE, WALL_THICKNESS, ENTRANCE_DOOR, createWallGeometry, canvasTexture, speckle } from './room.js';
 import { enableShadows } from './util.js';
+import { mergeStatic } from '../models/merge-static.js';
 
 // Innenmaße (Welt-Koordinaten)
 export const ENTRANCE = { x0: -16.2, x1: -(ROOM_SIZE / 2 + WALL_THICKNESS), z0: -2.8, z1: 2.8, height: 3.0 };
@@ -188,6 +189,7 @@ export function createEntrance({ collision }) {
   floor.castShadow = false;
   mat.castShadow = false;
   door.traverse((o) => { o.castShadow = false; });
+  mergeStatic(group, { cell: 4 }); // Unbewegliches pro Material zusammenfassen (die Schiebetür bleibt beweglich)
 
   // Kollision: Außenwände (die Wand zur Halle kommt aus room.js), Haustür solange zu
   const t = WALL_THICKNESS;
