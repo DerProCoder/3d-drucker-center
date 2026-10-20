@@ -420,6 +420,11 @@ const CUBE_VARIANTS = {
     color: 0x2a2b2f, darkAms: true, sideWindow: true, dualHead: true,
     railDrop: 0.06, // Mechanik tiefer, damit Lüfter und Logo am Kopf unter der hohen Frontleiste sichtbar sind
   },
+  // X1 Carbon: Gehäuse wie der P1S ohne Seitenfenster, aber mit 5-Zoll-Touchscreen statt Tasten und hellem AMS
+  x1c: {
+    title: 'X1 Carbon', w: 0.389, d: 0.389, h: 0.457, enclosed: true, screen: [0.11, 0.066], buttons: false, fascia: 0.05,
+    color: 0x26272b, railDrop: 0.03,
+  },
   // H2D: deutlich größer, Seitenfenster so groß wie die Tür, Glasdach mit Rahmen (AMS nach hinten gerückt,
   // damit man von oben hineinsieht), sehr großes Touch-Display und Dual-Nozzle-Kopf
   h2d: {
@@ -651,7 +656,7 @@ function buildBambuCube(g, variant) {
   bedAxis.add(box(plateSize + 0.034, 0.012, 0.05, frame, 0, plateTop - plate.userData.topY - 0.008, backZ + 0.01)); // Träger hinten
   for (const sx of [-1, 1]) bedAxis.add(box(0.03, 0.012, plateSize + 0.044, frame, sx * bedX, plateTop - plate.userData.topY - 0.008, -0.02));
   g.add(bedAxis);
-  // Drucker mit einer Düse und AMS (P1P, P1S, P2S, H2S) spülen beim Farbwechsel die alte Farbe aus: hinten links
+  // Drucker mit einer Düse und AMS (P1P, P1S, P2S, X1 Carbon, H2S) spülen beim Farbwechsel die alte Farbe aus: hinten links
   // hinter dem Bett sitzt ein Trichter auf Düsenhöhe, eine Rutsche führt durch die Rückwand in einen kleinen
   // Mülleimer hinter dem Drucker. purge.spot: wo die Düse zum Spülen steht (relativ zur Plattenmitte wie die
   // Druckbahn), tipY: Höhe der Düsenspitze. Die Bewegung dazu steckt in world/purge.js.
@@ -764,6 +769,7 @@ const BUILDERS = {
   p1s: (g) => buildBambuCube(g, CUBE_VARIANTS.p1s),
   p2s: (g) => buildBambuCube(g, CUBE_VARIANTS.p2s),
   x2d: (g) => buildBambuCube(g, CUBE_VARIANTS.x2d),
+  x1c: (g) => buildBambuCube(g, CUBE_VARIANTS.x1c),
   x1e: (g) => buildBambuCube(g, CUBE_VARIANTS.x1e),
   h2d: (g) => buildBambuCube(g, CUBE_VARIANTS.h2d),
   h2s: (g) => buildBambuCube(g, CUBE_VARIANTS.h2s),
