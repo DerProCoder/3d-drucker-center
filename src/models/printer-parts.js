@@ -503,7 +503,7 @@ export function createSpoolHolder(length, m) {
 // userData.outlet: Anschluss des Filamentschlauchs hinten.
 export const AMS_SLOTS = 4;
 
-// dark: AMS 2 Pro (dunkelgrau, P2S) statt des hellgrauen AMS
+// dark: dunkelgraues AMS (P1P, P1S, P2S, X1 Carbon und die großen Drucker) statt des hellgrauen
 export function createAMS(m, { dark: darkBody = false } = {}) {
   const ams = new THREE.Group();
   const W = 0.36;

@@ -413,8 +413,8 @@ function addPurgeChute(g, { spot, tipY, backZ, wall, frame }) {
 // bis oben durch, vorne eine große Glastür mit schwarzem Siebdruckrand, darüber die Frontleiste mit Display,
 // oben ein Glasdeckel im Rahmen. Der P1P ist das offene Gerüst: Sockel, vier runde Eckstreben, oberer Rahmen.
 const CUBE_VARIANTS = {
-  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x232427, railDrop: 0.015 },
-  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x2a2b2f, railDrop: 0.015 },
+  p1p: { title: 'P1P', w: 0.386, d: 0.389, h: 0.458, enclosed: false, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x232427, darkAms: true, railDrop: 0.015 },
+  p1s: { title: 'P1S', w: 0.389, d: 0.389, h: 0.458, enclosed: true, screen: [0.06, 0.036], buttons: true, fascia: 0.03, color: 0x2a2b2f, darkAms: true, railDrop: 0.015 },
   p2s: { title: 'P2S', w: 0.392, d: 0.406, h: 0.505, enclosed: true, screen: [0.105, 0.064], buttons: false, fascia: 0.05, color: 0x34363b, darkAms: true,
     bigFan: true, railDrop: 0.04 }, // großer Lüfter vorne wie beim X2D
   // X2D: wie der P1S aufgebaut, dazu Seitenfenster rechts, großes Display, Kamera und Dual-Nozzle-Kopf
@@ -423,10 +423,10 @@ const CUBE_VARIANTS = {
     color: 0x2a2b2f, darkAms: true, sideWindow: true, dualHead: true,
     railDrop: 0.06, // Mechanik tiefer, damit Lüfter und Logo am Kopf unter der hohen Frontleiste sichtbar sind
   },
-  // X1 Carbon: Gehäuse wie der P1S ohne Seitenfenster, aber mit 5-Zoll-Touchscreen statt Tasten und hellem AMS
+  // X1 Carbon: Gehäuse wie der P1S ohne Seitenfenster, aber mit 5-Zoll-Touchscreen statt Tasten
   x1c: {
     title: 'X1 Carbon', w: 0.389, d: 0.389, h: 0.457, enclosed: true, screen: [0.11, 0.066], buttons: false, fascia: 0.05,
-    color: 0x26272b, railDrop: 0.03,
+    color: 0x26272b, darkAms: true, railDrop: 0.03,
   },
   // H2D: deutlich größer, Seitenfenster so groß wie die Tür, Glasdach mit Rahmen (AMS nach hinten gerückt,
   // damit man von oben hineinsieht), sehr großes Touch-Display und Dual-Nozzle-Kopf

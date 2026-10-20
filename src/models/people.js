@@ -93,6 +93,10 @@ export class Person {
           o.boundingSphere.radius *= 2;
         }
         o.onBeforeRender = () => { this.lastSeen = performance.now(); };
+        // Die Dateien bringen halb metallische Materialien mit – Haut und Stoff sollen matt sein, nicht glänzen
+        o.material = o.material.clone();
+        o.material.metalness = 0;
+        o.material.roughness = 0.85;
       }
     });
     this.bones = {};
@@ -161,13 +165,16 @@ export class Person {
     }
 
     if (this.arms) {
+      const controller = this.arms === 'controller';
       for (const [s, sign] of [['L', 1], ['R', -1]]) {
-        // Oberarm nach vorn unten, Unterarm nach vorn und zur Körpermitte
-        const inward = this.arms === 'controller' ? 0.45 : 0.25;
-        _aim.copy(DOWN).multiplyScalar(0.75).addScaledVector(_fwd, 0.55).normalize();
+        // Oberarm hängt fast senkrecht am Körper, Ellbogen etwas nach vorn und außen.
+        // Unterarm nach vorn und leicht zur Mitte, sodass sich die Hände vor dem Bauch treffen (ohne Überkreuzen)
+        _aim.copy(DOWN).addScaledVector(_fwd, controller ? 0.3 : 0.45).addScaledVector(_side, sign * 0.12).normalize();
         pointBone(b[`UpperArm${s}`], b[`LowerArm${s}`], _aim);
-        _aim.copy(_fwd).addScaledVector(_side, -sign * inward).addScaledVector(DOWN, this.arms === 'controller' ? 0.25 : -0.1).normalize();
+        _aim.copy(_fwd).addScaledVector(_side, -sign * (controller ? 0.3 : 0.2)).addScaledVector(DOWN, -0.1).normalize();
         pointBone(b[`LowerArm${s}`], b[`Wrist${s}`], _aim);
+        // Handgelenk gerade wie in der Grundhaltung, sonst verdreht die Idle-Animation die Hände unterschiedlich
+        b[`Wrist${s}`].quaternion.identity();
       }
     }
   }

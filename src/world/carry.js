@@ -25,6 +25,7 @@ export class Carry {
     this.spools = [];
     this.selected = 0;
     this.mesh = null;
+    this.formatText = (text) => text; // Tastennamen fürs Tablet umschreiben
   }
 
   get isEmpty() {
@@ -218,7 +219,7 @@ export class Carry {
   }
 
   setInfo(text) {
-    this.infoEl.textContent = text;
+    this.infoEl.textContent = this.formatText(text);
     this.infoEl.classList.remove('hidden');
   }
 }

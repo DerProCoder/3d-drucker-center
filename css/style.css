@@ -1053,3 +1053,103 @@ kbd {
 /* Personal-App */
 .staff .staff-avatar { font-size: 1.8rem; line-height: 1; }
 .staff.hire { border-style: dashed; }
+
+/* ---------- Tablet-Steuerung (ui/touch-controls.js) ---------- */
+
+canvas { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#start-overlay [hidden] { display: none !important; }
+
+#touch-ui { position: fixed; inset: 0; z-index: 12; pointer-events: none; -webkit-user-select: none; user-select: none; }
+#touch-ui.hidden { display: none; }
+
+/* Joystick erscheint dort, wo der Daumen aufsetzt */
+.touch-stick {
+  position: absolute;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.35);
+}
+.touch-stick.hidden { display: none; }
+.touch-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.touch-pause {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: #fff;
+  font-size: 1.3rem;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.touch-buttons {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right, 0px));
+  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+}
+.touch-btn {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: #fff;
+  font-family: inherit;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.touch-btn span { font-size: 1.6rem; line-height: 1; margin-top: 8px; }
+.touch-btn small { font-size: 0.62rem; opacity: 0.8; margin-bottom: 8px; }
+.touch-btn.hidden { display: none; }
+.touch-btn.on { background: var(--accent); border-color: var(--accent); }
+.touch-btn:active, .touch-pause:active { transform: scale(0.93); }
+
+/* Frage beim ersten Start: Über welches Gerät spielst du? */
+.title-device p { margin: 18px 0 12px; font-weight: 600; font-size: 1.05rem; }
+.title-device-choices { display: flex; gap: 14px; justify-content: center; }
+.title-device-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 150px;
+  padding: 16px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: 700 1.1rem var(--font-display);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.title-device-choices button span { font-size: 2rem; }
+.title-device-choices button small { font: 400 0.75rem 'Inter', system-ui, sans-serif; opacity: 0.7; }
+.title-device-choices button.suggested { border-color: var(--accent); box-shadow: 0 0 16px rgba(58, 160, 255, 0.35); }
+.title-device-choices button:hover { background: rgba(255, 255, 255, 0.12); }
+.title-quality + .title-quality { margin-top: 10px; }

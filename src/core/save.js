@@ -110,7 +110,9 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
     clock: { minutes: clock.minutes },
-    staff: staff ? { workers: staff.workers.map((w) => ({ ...w })), nextId: staff.nextId } : undefined,
+    staff: staff
+      ? { workers: staff.workers.map((w) => ({ ...w })), nextId: staff.nextId, receptionist: staff.receptionist ? { ...staff.receptionist } : null }
+      : undefined,
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -239,6 +241,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (staff && data.staff) {
     staff.workers = data.staff.workers;
     staff.nextId = data.staff.nextId;
+    staff.receptionist = data.staff.receptionist ?? null; // ältere Stände haben noch keine Empfangskraft
     staff.syncWages();
   }
   clock.notify();

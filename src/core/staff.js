@@ -8,8 +8,12 @@ import { templateById } from './catalog.js';
 export const MAX_WORKERS = 2;
 export const HIRE_FEE = 50;       // € einmalig
 export const WAGE_PER_HOUR = 2;   // € pro Spielstunde und Mitarbeiter
+// Empfangskraft: steht hinter dem Tresen, begrüßt die Kunden, nimmt ihre Aufträge an und kassiert beim Abholen
+export const RECEPTION_HIRE_FEE = 80;
+export const RECEPTION_WAGE = 3;
 const NAMES = ['Kevin', 'Lea', 'Mehmet', 'Sophie', 'Finn', 'Aylin'];
-const WOMEN = new Set(['Lea', 'Sophie', 'Aylin']);
+const RECEPTION_NAMES = ['Nina', 'Jan'];
+const WOMEN = new Set(['Lea', 'Sophie', 'Aylin', 'Nina']);
 
 // 'm' oder 'w' – bestimmt, welche Figur der Azubi in der Halle bekommt
 export const workerGender = (worker) => (WOMEN.has(worker.name) ? 'w' : 'm');
@@ -29,6 +33,7 @@ export class Staff {
     this.economy = economy;
     this.reception = null; // Empfang (core/reception.js) – setzt main.js, dann packen Azubis fertige Aufträge ein
     this.workers = []; // { id, name }
+    this.receptionist = null; // { name } – Empfangskraft am Tresen
     this.nextId = 1;
     this.retries = new Map(); // Drucker-ID → { templateId, count }: Fehldruck weggeräumt, Neustart steht noch aus
     this.listeners = new Set();
@@ -36,7 +41,7 @@ export class Staff {
   }
 
   get wagesPerHour() {
-    return this.workers.length * WAGE_PER_HOUR;
+    return this.workers.length * WAGE_PER_HOUR + (this.receptionist ? RECEPTION_WAGE : 0);
   }
 
   // Grund, warum man gerade niemanden einstellen kann, oder null
@@ -64,6 +69,31 @@ export class Staff {
     this.syncWages();
     this.notify();
     this.onEvent?.('fired', { worker });
+  }
+
+  receptionProblem() {
+    if (this.receptionist) return 'Empfang ist besetzt';
+    if (!this.economy.canAfford(RECEPTION_HIRE_FEE)) return 'Zu wenig Geld';
+    return null;
+  }
+
+  hireReceptionist() {
+    if (this.receptionProblem() || !this.economy.spend(RECEPTION_HIRE_FEE)) return null;
+    const name = RECEPTION_NAMES[Math.floor(Math.random() * RECEPTION_NAMES.length)];
+    this.receptionist = { name };
+    this.syncWages();
+    this.notify();
+    this.onEvent?.('hired', { receptionist: this.receptionist });
+    return this.receptionist;
+  }
+
+  fireReceptionist() {
+    const receptionist = this.receptionist;
+    if (!receptionist) return;
+    this.receptionist = null;
+    this.syncWages();
+    this.notify();
+    this.onEvent?.('fired', { receptionist });
   }
 
   syncWages() {

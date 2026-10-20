@@ -15,6 +15,7 @@ import { GameClock } from './core/game-clock.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
+import { createTouchControls, loadDevice, saveDevice, suggestedDevice, tabletText } from './ui/touch-controls.js';
 import { createTitleScreen } from './ui/title-screen.js';
 import { createHud } from './ui/hud.js';
 import { createRoom, roomColliders } from './world/room.js';
@@ -35,6 +36,7 @@ import { createPedestrians } from './world/pedestrians.js';
 import { createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
 import { createRoomCulling } from './world/room-culling.js';
+import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
@@ -244,14 +246,18 @@ const customers = createCustomers({
   orders,
   onEvent: (type, d) => {
     if (type === 'arrived') {
-      hud.notify(`🛎️ ${d.customer} wartet am Empfang – am Tresen annehmen`, 'info');
+      const greeter = staff.receptionist?.name;
+      hud.notify(greeter ? `🛎️ ${d.customer} ist am Empfang – ${greeter} nimmt den Auftrag an` : `🛎️ ${d.customer} wartet am Empfang – am Tresen annehmen`, 'info');
       sound.play('pop');
     }
   },
 });
 scene.add(customers.group);
-const receptionDesk = createReceptionDesk({ reception, orders, customers, collision });
+const receptionDesk = createReceptionDesk({ reception, orders, customers, collision, staff });
 scene.add(receptionDesk.group);
+// Empfangskraft hinter dem Tresen (falls eingestellt): begrüßt Kunden, nimmt Aufträge an, kassiert
+const receptionist = createReceptionist({ staff, reception, customers });
+scene.add(receptionist.group);
 
 const TABLE_HEIGHT = 0.8;
 const TOP_THICKNESS = 0.05;
@@ -430,7 +436,9 @@ const workers = createWorkers({ economy, staff });
 scene.add(workers.group);
 staff.onEvent = (type, d) => {
   const who = d.worker ? `Azubi ${d.worker.name}` : 'Ein Azubi';
-  if (type === 'hired') hud.notify(`🧑‍🔧 Azubi ${d.worker.name} ist eingestellt und kommt durch die Lagertür`, 'good');
+  if (type === 'hired' && d.receptionist) hud.notify(`💁 ${d.receptionist.name} steht jetzt am Empfang und nimmt die Kunden in Empfang`, 'good');
+  else if (type === 'fired' && d.receptionist) hud.notify(`👋 ${d.receptionist.name} hat den Empfang verlassen`, 'info');
+  else if (type === 'hired') hud.notify(`🧑‍🔧 Azubi ${d.worker.name} ist eingestellt und kommt durch die Lagertür`, 'good');
   else if (type === 'fired') hud.notify(`👋 Azubi ${d.worker.name} hat die Halle verlassen`, 'info');
   else if (type === 'restarted') hud.notify(`🔁 ${who} hat den Fehldruck weggeräumt und ${d.template.name} am ${d.printer.model.name} neu gestartet`, 'info');
   else if (type === 'restart-blocked') {
@@ -445,7 +453,7 @@ economy.subscribe(() => {
   storage.sync();
 });
 
-// FPV-Steuerung
+// FPV-Steuerung: am PC Maus (Pointer Lock) und Tastatur, auf dem Tablet Touch (ui/touch-controls.js)
 const controls = new PointerLockControls(camera, document.body);
 // Chrome meldet bei gesperrter Maus ab und zu einzelne riesige Mausbewegungen – der Blick würde schlagartig
 // herumspringen. Solche Ausreißer verwerfen, bevor PointerLockControls sie sieht (Capture-Phase am window).
@@ -455,13 +463,70 @@ window.addEventListener('mousemove', (e) => {
     e.stopImmediatePropagation();
   }
 }, true);
+let device = loadDevice(); // 'pc' | 'tablet' | null – wird beim ersten Start gefragt
+const isTablet = () => device === 'tablet';
+const touch = createTouchControls({
+  canvas: renderer.domElement,
+  camera,
+  onTap: (point) => interaction.clickAt(point),
+  onButton: (id) => {
+    if (id === 'take') liftAimedPrinter();
+    else if (id === 'throw') throwing.throwCarried();
+    else if (id === 'return') carry.returnToStorage();
+    else if (id === 'cycle') carry.cycle(1);
+  },
+  onPause: () => stopPlaying(),
+});
+// Läuft das Spiel gerade (Maus eingefangen bzw. Touch-Steuerung aktiv)?
+const playing = () => (isTablet() ? touch.active : controls.isLocked);
+
+function startPlaying() {
+  if (!isTablet()) {
+    controls.lock(); // weiter in onStarted, sobald der Browser die Maus hergibt
+    return;
+  }
+  touch.setActive(true);
+  const el = document.documentElement;
+  if (!document.fullscreenElement) (el.requestFullscreen ?? el.webkitRequestFullscreen)?.call(el)?.catch?.(() => {});
+  onStarted();
+}
+
+function stopPlaying() {
+  if (!isTablet()) {
+    controls.unlock();
+    return;
+  }
+  if (!touch.active) return;
+  touch.setActive(false);
+  onStopped();
+}
+
+function onStarted() {
+  title.hide();
+  sound.unlock(); // Browser erlauben Ton erst nach einer Nutzeraktion
+}
+
+function onStopped() {
+  if (!shop.isOpen()) {
+    title.show(true);
+    autosave.save(); // beim Pausieren gleich sichern
+  }
+}
+
 const overlay = document.getElementById('start-overlay');
 const title = createTitleScreen({
   overlay,
   hasSave: saveFound,
   quality,
   gpu: gpuInfo(renderer),
-  onPlay: () => controls.lock(),
+  device,
+  suggested: suggestedDevice(),
+  onDevice: (d) => {
+    device = d;
+    saveDevice(d);
+    carry.refresh(); // Hinweise mit den passenden Tasten bzw. Knöpfen
+  },
+  onPlay: () => startPlaying(),
   onNewGame: () => {
     autosave.disable();
     deleteSave();
@@ -473,16 +538,10 @@ const title = createTitleScreen({
     location.reload();
   },
 });
-controls.addEventListener('lock', () => {
-  title.hide();
-  sound.unlock(); // Browser erlauben Ton erst nach einer Nutzeraktion
-});
-controls.addEventListener('unlock', () => {
-  if (!shop.isOpen()) {
-    title.show(true);
-    autosave.save(); // beim Pausieren gleich sichern
-  }
-});
+controls.addEventListener('lock', onStarted);
+controls.addEventListener('unlock', onStopped);
+// Auf dem Tablet sprechen Hinweise von Tippen und Knöpfen statt von Maus und Tasten
+carry.formatText = (text) => (isTablet() ? tabletText(text) : text);
 
 // Shop: Linksklick auf den PC öffnet ihn, Schließen kehrt ins Spiel zurück
 // Live-Bild der Drucker für die PC-App
@@ -501,8 +560,8 @@ const shop = createShop(economy, {
   freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage - carry.spools.length,
   onClose: () => {
     if (gameOver) return; // Pleite: Maus nicht wieder einfangen
-    title.showResume(); // nach Esc klappt das erneute Sperren der Maus nicht – dann weiter per Klick
-    controls.lock();
+    title.showResume(); // PC: nach Esc klappt das erneute Sperren der Maus nicht – dann weiter per Klick
+    startPlaying();
   },
 });
 
@@ -510,7 +569,7 @@ const pcInteraction = {
   hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
   action: () => {
     shop.open();
-    controls.unlock();
+    stopPlaying();
   },
 };
 for (const part of [monitor, pc, keyboard, mouse]) part.userData.interaction = pcInteraction;
@@ -524,12 +583,21 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, entrance.group, receptionDesk.group, customers.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
+  targets: [room, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
+
+interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && controls.isLocked) interaction.click();
 });
+
+// E bzw. ✋: den Drucker, auf den man zielt, vom Tisch hochheben
+function liftAimedPrinter() {
+  if (!carry.isEmpty) return;
+  const printer = interaction.current?.owner.userData.printer;
+  if (printer && economy.liftPrinter(printer.id)) carry.holdPrinter(printer, { unboxed: true });
+}
 
 // Mausrad: welche Spule aus der Hand als Nächstes eingelegt wird
 document.addEventListener('wheel', (e) => {
@@ -543,10 +611,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
-  if (e.code === 'KeyE' && !e.repeat && controls.isLocked && carry.isEmpty) {
-    const printer = interaction.current?.owner.userData.printer;
-    if (printer && economy.liftPrinter(printer.id)) carry.holdPrinter(printer, { unboxed: true });
-  }
+  if (e.code === 'KeyE' && !e.repeat && controls.isLocked) liftAimedPrinter();
   if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwing.throwCarried();
   if (e.code === 'KeyM' && !e.repeat && !shop.isOpen()) {
     sound.toggleMute();
@@ -560,17 +625,17 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear()); // sonst bleibt z. B. C nach einem Fensterwechsel „gedrückt“
 
 function updateMovement(dt) {
-  if (!controls.isLocked) return;
-  // Schleichen: nur solange C gedrückt ist – Kamera gleitet weich nach unten bzw. wieder hoch
-  const sneaking = keys.has('KeyC');
+  if (!playing()) return;
+  // Schleichen: nur solange C gedrückt ist (Tablet: Knopf an/aus) – Kamera gleitet weich nach unten bzw. wieder hoch
+  const sneaking = isTablet() ? touch.sneak : keys.has('KeyC');
   const eye = sneaking ? SNEAK_EYE_HEIGHT : EYE_HEIGHT;
   camera.position.y += (eye - camera.position.y) * Math.min(1, CROUCH_RATE * dt);
 
-  const forward = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
-  const right = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+  const forward = isTablet() ? touch.move.y : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+  const right = isTablet() ? touch.move.x : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   if (forward === 0 && right === 0) return;
 
-  const len = Math.hypot(forward, right);
+  const len = Math.max(1, Math.hypot(forward, right)); // Joystick: halb gezogen = halbes Tempo
   const speed = WALK_SPEED * (sneaking ? SNEAK_SPEED : 1);
   // Nach einem Ruckler die verlorene Zeit nicht auf einmal nachlaufen – sonst springt die Figur ein Stück weiter
   const moveDt = Math.min(dt, MAX_MOVE_DT);
@@ -651,7 +716,7 @@ function checkBankrupt() {
   autosave.disable();
   deleteSave();
   shop.close();
-  controls.unlock();
+  stopPlaying();
   title.showGameOver({ day: gameClock.day, ...achievements.stats });
 }
 
@@ -691,7 +756,7 @@ renderer.setAnimationLoop(() => {
   perf.begin();
   const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
-  const paused = !controls.isLocked && !shop.isOpen();
+  const paused = !playing() && !shop.isOpen();
   if (!gameOver && !paused) {
     safely('Spielzeit', () => {
       const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
@@ -714,6 +779,7 @@ renderer.setAnimationLoop(() => {
   safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
   safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));
   safely('Kunden', () => customers.update(dt, outdoor.group.visible));
+  safely('Empfangskraft', () => receptionist.update(dt, outdoor.group.visible));
   safely('Empfang', () => receptionDesk.update());
   safely('Halle', () => hall.update(dt));
   // Lieferungen laufen in echter Zeit, auch bei offenem PC-Fenster
@@ -725,7 +791,15 @@ renderer.setAnimationLoop(() => {
   safely('Geräusche', () => printerSounds(dt));
   safely('Bewegung', () => updateMovement(dt));
   safely('Zielen', () => {
-    interaction.update(controls.isLocked);
+    interaction.update(playing());
+    if (touch.active) {
+      touch.update({
+        take: carry.isEmpty && !!interaction.current?.owner.userData.printer,
+        throw: !!carry.printer,
+        return: !carry.isEmpty,
+        cycle: carry.spools.length > 1,
+      });
+    }
     crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
   });
   safely('Zeichnen', () => graphics.render(dt));
