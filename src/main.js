@@ -48,6 +48,7 @@ const SNEAK_EYE_HEIGHT = 1.2;  // m – geduckt, solange C gedrückt ist
 const SNEAK_SPEED = 0.4;       // Anteil der Laufgeschwindigkeit beim Schleichen
 const CROUCH_RATE = 8;         // wie schnell man in die Hocke geht bzw. aufsteht (1/s)
 const PLAYER_RADIUS = 0.3;     // m, Abstand des Körpers zu Hindernissen
+const MAX_STEP = 0.1;          // m pro Kollisionsschritt – deutlich unter PLAYER_RADIUS, sonst läuft man durch Wände
 const INTERACT_DISTANCE = 2.5; // m
 
 const collision = new CollisionWorld();
@@ -486,7 +487,7 @@ const shop = createShop(economy, {
   freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage - carry.spools.length,
   onClose: () => {
     if (gameOver) return; // Pleite: Maus nicht wieder einfangen
-    title.show(true); // falls das erneute Sperren der Maus scheitert
+    title.showResume(); // nach Esc klappt das erneute Sperren der Maus nicht – dann weiter per Klick
     controls.lock();
   },
 });
@@ -522,7 +523,9 @@ document.addEventListener('wheel', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+  // Esc im PC: zurück ins Spiel · nochmal Esc auf dem Hinweis „Klicken, um weiterzuspielen“: Pausenmenü
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
+  else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
   if (e.code === 'KeyE' && !e.repeat && controls.isLocked && carry.isEmpty) {
@@ -554,10 +557,15 @@ function updateMovement(dt) {
 
   const len = Math.hypot(forward, right);
   const speed = WALK_SPEED * (sneaking ? SNEAK_SPEED : 1);
-  controls.moveForward((forward / len) * speed * dt);
-  controls.moveRight((right / len) * speed * dt);
-
-  collision.resolve(camera.position, PLAYER_RADIUS);
+  // In kleinen Schritten laufen und nach jedem Schritt die Kollision auflösen. Nach einem Ruckler ist dt groß
+  // (bis 0,1 s = 40 cm) – in einem Schritt landete der Mittelpunkt dann mitten in einer dünnen Wand oder Tür
+  // und wurde auf der anderen Seite wieder herausgeschoben.
+  const steps = Math.ceil((speed * dt) / MAX_STEP);
+  for (let i = 0; i < steps; i++) {
+    controls.moveForward((forward / len) * speed * (dt / steps));
+    controls.moveRight((right / len) * speed * (dt / steps));
+    collision.resolve(camera.position, PLAYER_RADIUS);
+  }
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);

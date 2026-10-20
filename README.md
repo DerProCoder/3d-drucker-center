@@ -63,7 +63,7 @@ Im Browser **http://localhost:8080** öffnen und ins Bild klicken.
 | Q | Alles in der Hand zurück ins Lager legen |
 | M | Ton an/aus |
 | F3 | Leistungsanzeige: Bilder pro Sekunde, Bildzeit, Draw Calls, Auflösung |
-| Esc | Pause / PC verlassen |
+| Esc | Pause / PC verlassen (danach einmal klicken, um weiterzuspielen) |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
