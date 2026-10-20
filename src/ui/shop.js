@@ -16,6 +16,7 @@ import { createOrdersMenu } from './orders-menu.js';
 import { createUpgradesMenu } from './upgrades-menu.js';
 import { createStaffMenu } from './staff-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
+import { createSnakeApp } from './snake-app.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
@@ -37,6 +38,7 @@ const APPS = [
   { id: 'cam', name: 'Drucker-Cam', icon: 'cam', live: true },
   { id: 'staff', name: 'Personal', icon: 'staff', live: true },
   { id: 'achievements', name: 'Erfolge', icon: 'trophy', live: true },
+  { id: 'snake', name: 'Snake', icon: 'snake', live: false }, // nicht live: das Spielfeld darf nicht neu aufgebaut werden
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
   // versteckt: kein Symbol, nur über dreimal Windows-Symbol
@@ -106,6 +108,7 @@ export function createShop(economy, {
   const staffMenu = createStaffMenu(staff, staffStatus);
   const notes = createNotesApp();
   const calc = createCalcApp();
+  const snake = createSnakeApp();
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -362,7 +365,7 @@ export function createShop(economy, {
     const scroll = contentEl.scrollTop;
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
-      control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render,
+      control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
       cam: cam.render, dev: renderDev,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
@@ -379,6 +382,7 @@ export function createShop(economy, {
       return;
     }
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
+    if (app === 'snake') snake.attach(contentEl.querySelector('[data-snake]'));
     contentEl.scrollTop = scroll;
     const input = focus && contentEl.querySelector(`[data-keep-focus="${focus.key}"]`);
     if (input) {
@@ -525,6 +529,10 @@ export function createShop(economy, {
     }
     if (app === 'calc') {
       if (calc.handleClick(e)) render();
+      return;
+    }
+    if (app === 'snake') {
+      snake.handleClick(e);
       return;
     }
     const id = e.target.closest('[data-buy]')?.dataset.buy;

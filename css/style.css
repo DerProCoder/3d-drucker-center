@@ -1024,6 +1024,54 @@ kbd {
 .title-gpu { margin-top: 12px; font-size: 0.75rem; opacity: 0.55; }
 .title-gpu.warn { opacity: 1; padding: 10px 12px; border-radius: 10px; background: rgba(181, 57, 43, 0.3); border: 1px solid var(--bad); line-height: 1.5; }
 
+/* Snake */
+
+.snake { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+.snake-bar { display: flex; align-items: center; gap: 16px; font-variant-numeric: tabular-nums; }
+.snake-bar button { margin-left: auto; padding: 4px 12px; }
+.snake-stage { position: relative; flex: 1; min-height: 160px; display: grid; place-items: center; }
+.snake-stage canvas { border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.snake-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(10, 14, 12, 0.55);
+  border-radius: 8px;
+}
+.snake-overlay[hidden] { display: none; }
+.snake-overlay b { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.04em; }
+.snake-overlay small { opacity: 0.7; }
+/* Steuerkreuz nur auf Touch-Geräten */
+.snake-pad { display: none; }
+@media (pointer: coarse) {
+  .snake-pad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 50px); gap: 6px; justify-content: center; }
+  .snake-pad button {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: #343944;
+    color: #fff;
+    font-size: 1.2rem;
+    touch-action: manipulation;
+  }
+  .snake-pad button:active { background: #4a5160; }
+  .snake-pad [data-snake-dir="up"] { grid-column: 2; }
+  .snake-pad [data-snake-dir="left"] { grid-column: 1; grid-row: 2; }
+  .snake-pad [data-snake-dir="down"] { grid-column: 2; grid-row: 2; }
+  .snake-pad [data-snake-dir="right"] { grid-column: 3; grid-row: 2; }
+}
+/* Handy quer: Steuerkreuz neben statt unter das Spielfeld */
+@media (pointer: coarse) and (max-height: 500px) {
+  .snake { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; column-gap: 12px; }
+  .snake-bar { grid-column: 1 / -1; }
+  .snake-pad { align-self: center; }
+}
+
 /* Drucker-Cam */
 
 .cam { display: flex; flex-direction: column; gap: 10px; height: 100%; }
