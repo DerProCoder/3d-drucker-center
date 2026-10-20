@@ -3,6 +3,7 @@
 // Zu jeder Form gehört ein Umriss pro Schichthöhe, den der Druckkopf abfährt.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { infillLines, orderSegments } from './infill.js';
 
 // ---------- Hilfen ----------
 
@@ -458,6 +459,11 @@ function layerContours(shape, hFrac) {
   return { layer, contours: shape.layers[layer] };
 }
 
+// Konturen der Schicht auf Höhe hFrac (0…1), z. B. für die Schnittfläche mit dem Füllmuster: { layer, contours }
+export function layerSlice(shape, hFrac) {
+  return layerContours(shape, hFrac);
+}
+
 const cache = new Map();
 
 // Liefert { geometry, height, layers } für eine Vorlage, in Metern und auf die Vorlagengröße eingepasst.
@@ -480,7 +486,8 @@ export function getPrintShape(template) {
 }
 
 // Bahn der Düse für eine ganze Druckplatte: Funktion hFrac → Bahn. Die Düse fährt in jeder Schicht die echten
-// Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks.
+// Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks,
+// danach das Füllgitter im Inneren (models/infill.js) – Strecke für Strecke immer zur nächstgelegenen.
 // offsets: Mittelpunkte der Teile [{ x, z }] in Metern · rotated: Teile um 90° gedreht (wie die Meshes)
 // Zweifarbig wie ein echter Slicer: erst alle Umrisse der einen Farbe, dann die der anderen – so wird pro
 // Schicht möglichst selten gewechselt. Jeder Bahnpunkt trägt seine Farbe (color).
@@ -489,18 +496,25 @@ export function plateOutline(shape, offsets, rotated = false) {
   return (hFrac) => {
     const { layer, contours } = layerContours(shape, hFrac);
     if (!paths.has(layer)) {
-      const loops = Array.from({ length: Math.max(2, shape.geometry.groups.length) }, () => []);
+      const colors = Math.max(2, shape.geometry.groups.length);
+      const loops = Array.from({ length: colors }, () => []);
+      const fills = Array.from({ length: colors }, () => []);
+      // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
+      const place = (o, p, color) => (rotated ? { x: o.x + p.z, z: o.z - p.x, color } : { x: o.x + p.x, z: o.z + p.z, color });
+      // Füllgitter je Farbe einmal in Formkoordinaten berechnen, dann auf jedes Teil der Platte setzen
+      const lines = Array.from({ length: colors }, (_, color) => infillLines(contours.filter((c) => c.color === color)));
       for (const o of offsets) {
-        for (const c of contours) {
-          const color = c.color;
-          // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
-          loops[color].push(c.map((p) => (rotated
-            ? { x: o.x + p.z, z: o.z - p.x, color }
-            : { x: o.x + p.x, z: o.z + p.z, color })));
-        }
+        for (const c of contours) loops[c.color].push(c.map((p) => place(o, p, c.color)));
+        lines.forEach((segments, color) => {
+          for (const { a, b } of segments) fills[color].push({ a: place(o, a, color), b: place(o, b, color) });
+        });
       }
+      // Je Farbe erst die Wände, dann die Füllung – so wird pro Schicht möglichst selten gewechselt
       const points = [];
-      for (const group of loops) points.push(...orderLoops(group, points.at(-1)));
+      loops.forEach((group, color) => {
+        points.push(...orderLoops(group, points.at(-1)));
+        points.push(...orderSegments(fills[color], points.at(-1)).map((p) => ({ ...p, color })));
+      });
       paths.set(layer, buildPath(points));
     }
     return paths.get(layer);

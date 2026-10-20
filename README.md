@@ -99,7 +99,7 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1, A1 mini und A2L haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X1 Carbon, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Der H2C hat zwei AMS übereinander, also 8 Fächer. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
+6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker: In jeder Schicht fährt die Düse erst die Außenwände ab und füllt dann das Innere mit einem **Gitter aus kleinen Quadraten** (Grid-Füllung, 2,5 mm) – Strecke für Strecke, immer zur nächstgelegenen, mit schnellen Leerfahrten dazwischen. Oben am halbfertigen Teil siehst du das Gitter. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
 7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
 8. **Ins Abholregal legen:** Hast du alle bestellten Teile in der richtigen Farbe, geh zum Empfang und klick auf das **Abholregal** – der Auftrag wird verpackt und liegt mit dem Kundennamen im nächsten freien Fach (8 Fächer). Damit ist die Frist geschafft. Kurz darauf kommt der Kunde, nimmt sein Paket, **bezahlt am Tresen** und trägt es nach Hause. Läuft die Frist vorher ab, ist der Auftrag weg. Neue Kunden kommen etwa alle 30 Spielminuten.
 
@@ -302,7 +302,8 @@ src/
     laser-model.js    Laser R1: Gehäuse mit Laserschutzfenster, Wabenbett, Laserkopf
     laser-art.js      Was der Laser auf die Platte bringt: Motive, Text, Gravurzeilen, Schnittbahn
     printer-box.js    Lieferkarton
-    print-shapes.js   Formen der Druckvorlagen
+    print-shapes.js   Formen der Druckvorlagen und Düsenbahn je Schicht
+    infill.js         Gitterfüllung: Füllstrecken, kürzester Weg, Schnittfläche mit Gittermuster
     spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend – im Dunkeln heller –, durchscheinend), ganze Regale als Instanzen
     furniture.js      Regale am Drucktisch, Ausstellungsregal und Ersatzdüse
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
