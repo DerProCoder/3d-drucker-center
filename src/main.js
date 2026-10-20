@@ -49,6 +49,7 @@ const SNEAK_SPEED = 0.4;       // Anteil der Laufgeschwindigkeit beim Schleichen
 const CROUCH_RATE = 8;         // wie schnell man in die Hocke geht bzw. aufsteht (1/s)
 const PLAYER_RADIUS = 0.3;     // m, Abstand des Körpers zu Hindernissen
 const MAX_STEP = 0.1;          // m pro Kollisionsschritt – deutlich unter PLAYER_RADIUS, sonst läuft man durch Wände
+const MAX_MOVE_DT = 1 / 30;    // s – länger dauernde Bilder (Ruckler) bewegen die Figur nicht weiter als das
 const INTERACT_DISTANCE = 2.5; // m
 
 const collision = new CollisionWorld();
@@ -441,6 +442,14 @@ economy.subscribe(() => {
 
 // FPV-Steuerung
 const controls = new PointerLockControls(camera, document.body);
+// Chrome meldet bei gesperrter Maus ab und zu einzelne riesige Mausbewegungen – der Blick würde schlagartig
+// herumspringen. Solche Ausreißer verwerfen, bevor PointerLockControls sie sieht (Capture-Phase am window).
+const MAX_MOUSE_STEP = 400; // px pro Ereignis – echte Bewegungen liegen weit darunter
+window.addEventListener('mousemove', (e) => {
+  if (controls.isLocked && (Math.abs(e.movementX) > MAX_MOUSE_STEP || Math.abs(e.movementY) > MAX_MOUSE_STEP)) {
+    e.stopImmediatePropagation();
+  }
+}, true);
 const overlay = document.getElementById('start-overlay');
 const title = createTitleScreen({
   overlay,
@@ -557,25 +566,32 @@ function updateMovement(dt) {
 
   const len = Math.hypot(forward, right);
   const speed = WALK_SPEED * (sneaking ? SNEAK_SPEED : 1);
-  // In kleinen Schritten laufen und nach jedem Schritt die Kollision auflösen. Nach einem Ruckler ist dt groß
-  // (bis 0,1 s = 40 cm) – in einem Schritt landete der Mittelpunkt dann mitten in einer dünnen Wand oder Tür
-  // und wurde auf der anderen Seite wieder herausgeschoben.
-  const steps = Math.ceil((speed * dt) / MAX_STEP);
+  // Nach einem Ruckler die verlorene Zeit nicht auf einmal nachlaufen – sonst springt die Figur ein Stück weiter
+  const moveDt = Math.min(dt, MAX_MOVE_DT);
+  // In kleinen Schritten laufen und nach jedem Schritt die Kollision auflösen: in einem großen Schritt landete der
+  // Mittelpunkt mitten in einer dünnen Wand oder Tür und wurde auf der anderen Seite wieder herausgeschoben.
+  const steps = Math.ceil((speed * moveDt) / MAX_STEP);
   for (let i = 0; i < steps; i++) {
-    controls.moveForward((forward / len) * speed * (dt / steps));
-    controls.moveRight((right / len) * speed * (dt / steps));
+    controls.moveForward((forward / len) * speed * (moveDt / steps));
+    controls.moveRight((right / len) * speed * (moveDt / steps));
     collision.resolve(camera.position, PLAYER_RADIUS);
   }
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
 // Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
+// Die Lampenschatten der Anbauten sind statisch. Ein ausgeblendeter Raum fehlt in der Schattenkarte, deshalb beim
+// Einblenden neu zeichnen – aber nur, wenn sich seitdem etwas geändert hat. Bei jedem Umschauen zu zeichnen
+// (jede Lampe zeichnet dafür die Szene sechsmal) ließ das Bild beim Kurvenlaufen ruckeln.
+const staleShadows = new Set();
 const culling = createRoomCulling(camera, {
   hall: [room, hall.group, workshop.group, computerDesk],
   storage: [storage.group],
   office: [office.group],
   entrance: [entrance.group, receptionDesk.group],
-}, () => graphics.refreshStaticShadows());
+}, (name) => {
+  if (staleShadows.delete(name)) graphics.refreshStaticShadows();
+});
 
 // Shader vorab im Hintergrund übersetzen. Sonst übersetzt three.js sie erst, wenn ein Objekt zum ersten Mal
 // ins Bild kommt – unter Windows (ANGLE → Direct3D) dauert das spürbar, das Spiel steht so lange und
@@ -590,7 +606,10 @@ function precompileShaders() {
   }, 50);
 }
 economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
-economy.subscribe(() => graphics.refreshStaticShadows()); // z. B. neue Kartons im Lager
+economy.subscribe(() => { // z. B. neue Kartons im Lager
+  graphics.refreshStaticShadows();
+  for (const name of ['hall', 'storage', 'office', 'entrance']) staleShadows.add(name);
+});
 onPersonLoaded(precompileShaders);    // Figuren (Azubis, Kunden, Passanten) kommen nach und nach dazu
 
 window.addEventListener('resize', () => {
