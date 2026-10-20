@@ -2,7 +2,8 @@
 // Spulen, Druckauftrag, Pannen), Filamentlager mit Feuchte, fertige Teile, Zubehör.
 // Bewusst ohne Three.js, damit die Logik unabhängig vom Rendering bleibt.
 import {
-  FAILURES, LED_COLORS, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, speedById, speedModesFor, templateById,
+  FAILURES, LED_COLORS, PRINTERS, SPOOL_GRAMS, filamentById, filamentLabel, isWallFurniture, speedById, speedModesFor,
+  templateById,
 } from './catalog.js';
 import {
   PURGE_SHARE, accentProblem, accentSlot, colorCount, colorTimeFactor, gramsPerColor, hasNozzleChanger, hasWasteBin,
@@ -101,8 +102,10 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 // Regal: Spulen mit festem Platz { filamentId, grams, moisture, shelfSlot }, damit beim Herausnehmen nichts nachrutscht
 // Kartons im Abstellraum haben ebenso einen festen Platz (storageSpot)
 // Einrichtung (Regale am Druckertisch): { id, type (aus FURNITURE), location, slot, storageSpot,
-//   spools (Filament-Regal: Fächer mit Spule oder null), nozzles (Ersatzteilregal: Anzahl Ersatzdüsen) }
-//   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (3 pro Drucktisch, siehe upgrades.js).
+//   spools (Filament-Regal: Fächer mit Spule oder null), nozzles (Ersatzteilregal: Anzahl Ersatzdüsen),
+//   parts (Ausstellungsregal: Fächer mit ausgestelltem Teil oder null, siehe display-shelf.js) }
+//   Regale stehen auf eigenen Plätzen in den Lücken zwischen den Druckern (3 pro Drucktisch, siehe upgrades.js),
+//   Ausstellungsregale an der Südwand (location 'wall').
 // Lose Teile: hat der Kater vom Tisch geworfen, liegen auf dem Boden { id, templateId, filamentId, x, z, rotY }
 export const DELIVERY_SECONDS = 60; // so lange (echte Sekunden) ist ein bestelltes Paket unterwegs
 
@@ -897,6 +900,7 @@ export class Economy {
     const item = {
       id: this.nextFurnitureId++, type, location: 'storage', slot: null, storageSpot: this.freeStorageSpot(),
       spools: type.id === 'filament-rack' ? Array(type.capacity).fill(null) : null,
+      parts: type.id === 'display-shelf' ? Array(type.capacity).fill(null) : null,
       nozzles: 0,
     };
     this.ship(item);
@@ -923,22 +927,25 @@ export class Economy {
     this.notify();
   }
 
+  // Regal auf einen Platz stellen: zwischen die Drucker oder – Ausstellungsregal – an die Südwand
   placeFurniture(id, slot) {
     const f = this.furnitureById(id);
-    if (!f || slot < 0 || this.rackSlotUsed(slot)) return;
-    f.location = 'table';
+    const location = f && isWallFurniture(f.type) ? 'wall' : 'table';
+    const used = this.furniture.some((x) => x.location === location && x.slot === slot);
+    if (!f || slot < 0 || used) return;
+    f.location = location;
     f.slot = slot;
     this.notify();
   }
 
   isFurnitureEmpty(f) {
-    return !f.nozzles && !(f.spools ?? []).some(Boolean);
+    return !f.nozzles && !(f.spools ?? []).some(Boolean) && !(f.parts ?? []).some(Boolean);
   }
 
   // Leeres Regal wieder vom Tisch nehmen (z. B. um den Platz für einen Drucker frei zu machen)
   pickUpFurniture(id) {
     const f = this.furnitureById(id);
-    if (f?.location !== 'table' || !this.isFurnitureEmpty(f)) return false;
+    if ((f?.location !== 'table' && f?.location !== 'wall') || !this.isFurnitureEmpty(f)) return false;
     f.location = 'carried';
     f.slot = null;
     this.notify();
@@ -1018,6 +1025,16 @@ export class Economy {
   addPart(templateId, colors, count = 1) {
     const key = partKey({ templateId, filamentIds: colors });
     this.finishedParts.set(key, (this.finishedParts.get(key) ?? 0) + count);
+  }
+
+  // Ein Teil mit genau diesen Farben aus dem Inventar nehmen (z. B. fürs Ausstellungsregal)
+  removePart(templateId, colors) {
+    const key = partKey({ templateId, filamentIds: colors });
+    const count = this.finishedParts.get(key) ?? 0;
+    if (!count) return false;
+    if (count === 1) this.finishedParts.delete(key);
+    else this.finishedParts.set(key, count - 1);
+    return true;
   }
 
   // Alle fertigen Teile als Liste [{ templateId, filamentId, filamentId2, count }],

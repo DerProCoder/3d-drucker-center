@@ -3,7 +3,7 @@
 // welche als Nächstes eingelegt wird.
 // Spule: { filamentId, grams, moisture } · Holzplatte: { woodId }
 import * as THREE from 'three';
-import { SHEET_MM, filamentById, woodById } from '../core/catalog.js';
+import { SHEET_MM, filamentById, isWallFurniture, woodById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
 import { createPrinterModel } from '../models/printer-model.js';
@@ -173,7 +173,8 @@ export class Carry {
       const { h, d } = box.userData.size;
       box.position.set(0, -0.32 - h, -0.42 - d / 2);
       this.show(box);
-      this.setInfo(`In der Hand: Karton ${furniture.type.name} – auf einen freien Platz am Druckertisch stellen · Q: zurück ins Lager`);
+      const where = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand' : 'auf einen freien Platz am Druckertisch';
+      this.setInfo(`In der Hand: Karton ${furniture.type.name} – ${where} stellen · Q: zurück ins Lager`);
       return;
     }
     if (this.nozzle) {

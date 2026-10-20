@@ -22,6 +22,8 @@ import { createDesktopScreen } from './ui/desktop.js';
 import { createShop } from './ui/shop.js';
 import { createStorageRoom } from './world/storage-room.js';
 import { createWorkshop } from './world/workshop.js';
+import { createDisplayWall } from './world/display-wall.js';
+import { createHallLights } from './world/hall-lights.js';
 import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
@@ -373,6 +375,9 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
+// Ausstellungsregale an der Südwand
+const displayWall = createDisplayWall({ economy, carry, collision });
+scene.add(displayWall.group);
 const storage = createStorageRoom({ economy, carry, collision, upgrades });
 scene.add(storage.group);
 
@@ -519,7 +524,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, entrance.group, receptionDesk.group, customers.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, cat.group, throwing.group, workers.group],
+  targets: [room, entrance.group, receptionDesk.group, customers.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
 
 document.addEventListener('mousedown', (e) => {
@@ -528,7 +533,8 @@ document.addEventListener('mousedown', (e) => {
 
 // Mausrad: welche Spule aus der Hand als Nächstes eingelegt wird
 document.addEventListener('wheel', (e) => {
-  if (controls.isLocked) carry.cycle(Math.sign(e.deltaY));
+  // Zielt man auf ein Ausstellungsregal, wählt das Rad das nächste Teil, sonst die Spule in der Hand
+  if (controls.isLocked && !displayWall.cycle(Math.sign(e.deltaY), interaction.current?.owner)) carry.cycle(Math.sign(e.deltaY));
 });
 
 window.addEventListener('keydown', (e) => {
@@ -579,6 +585,10 @@ function updateMovement(dt) {
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
+// Lichtschalter neben der Lagertür – erst nach setupGraphics, das die Helligkeiten je Grafikstufe einstellt
+const hallLights = createHallLights({ room, scene });
+scene.add(hallLights.group);
+interaction.targets.push(hallLights.group);
 // Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
 // Die Lampenschatten der Anbauten sind statisch. Ein ausgeblendeter Raum fehlt in der Schattenkarte, deshalb beim
 // Einblenden neu zeichnen – aber nur, wenn sich seitdem etwas geändert hat. Bei jedem Umschauen zu zeichnen
@@ -667,6 +677,8 @@ renderer.setAnimationLoop(() => {
     checkBankrupt();
   }
   workshop.animate(dt);
+  displayWall.update();
+  hallLights.update(dt, camera.position);
   cat.update(dt);
   throwing.update(dt);
   workers.update(dt);
