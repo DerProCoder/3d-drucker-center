@@ -3,7 +3,7 @@
 // Zu jeder Form gehört ein Umriss pro Schichthöhe, den der Druckkopf abfährt.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { infillSegments, infillWalls, orderSegments } from './infill.js';
+import { infillSegments, infillWalls, orderSegments, shapeTest } from './infill.js';
 
 // ---------- Hilfen ----------
 
@@ -123,7 +123,7 @@ function phoneStand() {
   p.closePath();
   const geo = new THREE.ExtrudeGeometry(p, { depth: 90, bevelEnabled: false });
   geo.rotateY(-Math.PI / 2); // Profil-u → Tiefe (Ablage vorne, Lehne hinten), Extrusion → Breite
-  return geo;
+  return merge([geo]); // eine Gruppe – sonst hielte der Slicer Deck- und Seitenflächen für zwei Farben
 }
 
 function phoneCase() {
@@ -131,7 +131,10 @@ function phoneCase() {
   bottom.holes.push(roundedRect(new THREE.Path(), 26, 30, 7, -18, 55)); // Kameraloch
   const wall = roundedRect(new THREE.Shape(), 80, 160, 11);
   wall.holes.push(roundedRect(new THREE.Path(), 75, 155, 9));
-  return merge([extrudeUp(bottom, 1.6), extrudeUp(wall, 12)]);
+  // Rand erst über dem Boden beginnen lassen – überlappende Teile hielte der Slicer sonst für leer
+  const rim = extrudeUp(wall, 12 - 1.6);
+  rim.translate(0, 1.6, 0);
+  return merge([extrudeUp(bottom, 1.6), rim]);
 }
 
 function gear(teeth, rRoot, rTip, holeR, lightening) {
@@ -209,7 +212,7 @@ function toolHolder() {
   for (let i = 0; i < 6; i++) block.holes.push(circle(new THREE.Path(), -75 + i * 30, 32, 6));     // Schraubendreher
   for (let i = 0; i < 4; i++) block.holes.push(circle(new THREE.Path(), -66 + i * 44, -6, 12));    // Zangen
   for (const x of [-48, 48]) block.holes.push(roundedRect(new THREE.Path(), 64, 16, 6, x, -40));  // Fächer
-  return extrudeUp(block, 80);
+  return merge([extrudeUp(block, 80)]); // eine Gruppe = eine Farbe
 }
 
 // Benchy, das berühmte Testboot: Rumpf mit spitzem Bug, Kajüte mit Fenstern, Schornstein
@@ -390,9 +393,10 @@ const BUILDERS = {
 
 // ---------- Schichten schneiden (wie ein Slicer) ----------
 
-const LAYERS = 120;      // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
-const WALL_STEP = 2;     // sichtbare Wabenwände: eine Lage je zwei Schichten
-const CHUNK_LAYERS = 4;  // Wabenwände werden in Abschnitten zu so vielen Schichten gebaut
+export const LAYERS = 120; // so viele Schichtbahnen pro Teil werden berechnet (bei Bedarf, dann zwischengespeichert)
+const WALL_STEP = 2;     // sichtbare Gitterwände: eine Lage je zwei Schichten
+const CHUNK_LAYERS = 4;  // Gitterwände werden in Abschnitten zu so vielen Schichten gebaut
+const SKIN_DEPTH = 0.0008; // so dick werden offene Flächen oben und unten geschlossen gedruckt (0,8 mm)
 const KEY = 1e5;         // Schnittpunkte auf 0,01 mm runden, damit Nachbardreiecke zusammenfinden
 
 // Schnitt durch die Geometrie auf Höhe y: Liste von Konturen, jede eine Punktliste [{ x, z }] in Metern.
@@ -452,16 +456,44 @@ function sliceContours(geometry, y, group = null) {
 // Jede Kontur hat eine Farbe (color: 0 = Grundfarbe, 1 = Akzentfarbe bei zweifarbigen Formen).
 function layerContours(shape, hFrac) {
   const layer = Math.min(LAYERS - 1, Math.max(0, Math.floor(hFrac * LAYERS)));
+  return { layer, contours: contoursAt(shape, layer) };
+}
+
+function contoursAt(shape, layer) {
   if (!shape.layers[layer]) {
     const y = ((layer + 0.5) / LAYERS) * shape.height;
     const groups = shape.geometry.groups.length > 1 ? shape.geometry.groups : [null];
     shape.layers[layer] = groups.flatMap((group, color) => sliceContours(shape.geometry, y, group)
       .map((c) => Object.assign(c, { color })));
   }
-  return { layer, contours: shape.layers[layer] };
+  return shape.layers[layer];
 }
 
-// Wabenfüllung im Inneren der Form als Wände – in Abschnitten von CHUNK_LAYERS Schichten, damit beim Druckstart
+// Offene Flächen einer Schicht: Wo innerhalb von SKIN_DEPTH darüber oder darunter kein Material liegt, wird die Fläche
+// geschlossen gedruckt (wie Boden und Deckel bei einem echten Slicer, auch an Absätzen mitten im Teil).
+// Gibt true (ganze Schicht offen, ganz unten/oben) oder eine Funktion (x, z) → true/false zurück.
+function skinAt(shape, layer) {
+  shape.skins ??= [];
+  shape.insides ??= [];
+  if (shape.skins[layer] !== undefined) return shape.skins[layer];
+  const n = Math.max(1, Math.round(SKIN_DEPTH / (shape.height / LAYERS)));
+  const tests = [];
+  for (const k of new Set([1, n])) { // direkt darüber/darunter und SKIN_DEPTH weiter – das reicht als Stichprobe
+    for (const other of [layer - k, layer + k]) {
+      if (other < 0 || other >= LAYERS) return (shape.skins[layer] = true);
+      shape.insides[other] ??= shapeTest(contoursAt(shape, other));
+      tests.push(shape.insides[other]);
+    }
+  }
+  return (shape.skins[layer] = (x, z) => tests.some((inside) => !inside(x, z)));
+}
+
+// Füllung einer Schicht für eine Farbe (Gitter innen, geschlossene Linien an offenen Flächen)
+function layerFill(shape, layer, contours, color) {
+  return infillSegments(contours.filter((c) => c.color === color), skinAt(shape, layer), layer);
+}
+
+// Füllung im Inneren der Form als Wände – in Abschnitten von CHUNK_LAYERS Schichten, damit beim Druckstart
 // nicht alles auf einmal berechnet werden muss (world/workshop.js baut einen Abschnitt pro Bild, wenn der Druck
 // dort ankommt). Gibt je Farbe eine Geometrie zurück: [{ color, geometry }], an der Form zwischengespeichert.
 export const INFILL_CHUNKS = LAYERS / CHUNK_LAYERS;
@@ -473,10 +505,8 @@ export function getInfillChunk(shape, chunk) {
   const first = chunk * CHUNK_LAYERS;
   // Für die sichtbaren Wände reicht jede zweite Schicht (je doppelt so hoch)
   for (let layer = first; layer < first + CHUNK_LAYERS; layer += WALL_STEP) {
-    const { contours } = layerContours(shape, (layer + WALL_STEP / 2) / LAYERS);
-    for (let color = 0; color < colors; color++) {
-      perColor[color].push(infillSegments(contours.filter((c) => c.color === color)));
-    }
+    const { layer: sliced, contours } = layerContours(shape, (layer + WALL_STEP / 2) / LAYERS);
+    for (let color = 0; color < colors; color++) perColor[color].push(layerFill(shape, sliced, contours, color));
   }
   const layerHeight = shape.height / LAYERS;
   shape.infillChunks[chunk] = perColor
@@ -508,7 +538,8 @@ export function getPrintShape(template) {
 
 // Bahn der Düse für eine ganze Druckplatte: Funktion hFrac → Bahn. Die Düse fährt in jeder Schicht die echten
 // Umrisse aller Teile nacheinander ab (Teil für Teil, jeweils zur nächstgelegenen Kontur) statt eines Rechtecks,
-// danach die Wabenfüllung im Inneren (models/infill.js) – Kante für Kante immer zur nächstgelegenen.
+// danach die Füllung im Inneren (models/infill.js): Gitter, an offenen Flächen dichte schräge Linien – Linie für Linie
+// immer zur nächstgelegenen, so fährt die Düse auf Deckflächen hin und her.
 // offsets: Mittelpunkte der Teile [{ x, z }] in Metern · rotated: Teile um 90° gedreht (wie die Meshes)
 // Zweifarbig wie ein echter Slicer: erst alle Umrisse der einen Farbe, dann die der anderen – so wird pro
 // Schicht möglichst selten gewechselt. Jeder Bahnpunkt trägt seine Farbe (color).
@@ -522,8 +553,8 @@ export function plateOutline(shape, offsets, rotated = false) {
       const fills = Array.from({ length: colors }, () => []);
       // Drehung um +90° um die Hochachse wie mesh.rotation.y: (x, z) → (z, -x)
       const place = (o, p, color) => (rotated ? { x: o.x + p.z, z: o.z - p.x, color } : { x: o.x + p.x, z: o.z + p.z, color });
-      // Waben je Farbe einmal in Formkoordinaten berechnen, dann auf jedes Teil der Platte setzen
-      const lines = Array.from({ length: colors }, (_, color) => infillSegments(contours.filter((c) => c.color === color)));
+      // Gitter je Farbe einmal in Formkoordinaten berechnen, dann auf jedes Teil der Platte setzen
+      const lines = Array.from({ length: colors }, (_, color) => layerFill(shape, layer, contours, color));
       for (const o of offsets) {
         for (const c of contours) loops[c.color].push(c.map((p) => place(o, p, c.color)));
         lines.forEach((segments, color) => {
@@ -572,12 +603,15 @@ function orderLoops(loops, from = { x: 0, z: 0 }) {
   return result;
 }
 
-// Linienzug mit aufsummierten Längen, damit sich Punkte entlang der Bahn schnell finden lassen
+// Linienzug mit aufsummierter Fahrzeit, damit sich Punkte entlang der Bahn schnell finden lassen. Leerfahrten zählen
+// weniger, weil die Düse dort ohne zu drucken schneller fährt – wie bei einem echten Drucker.
+const TRAVEL_FACTOR = 3;
 function buildPath(points) {
   if (points.length < 2) points = [{ x: 0, z: 0 }, { x: 0.001, z: 0 }];
   const lengths = [0];
   for (let i = 1; i < points.length; i++) {
-    lengths.push(lengths[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z));
+    const len = Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z);
+    lengths.push(lengths[i - 1] + (points[i].travel ? len / TRAVEL_FACTOR : len));
   }
   return { points, lengths, total: lengths.at(-1) };
 }
@@ -605,20 +639,3 @@ export function outlinePoint(path, t) {
   };
 }
 
-export function outlineLength(path) {
-  return path.total;
-}
-
-// Parameter t des Bahnpunkts, der (x, z) am nächsten liegt – für einen nahtlosen Übergang zur nächsten Schicht.
-// color: am liebsten mit derselben Farbe weitermachen, damit nicht unnötig die Düse gewechselt wird
-export function nearestPathT(path, x, z, color = null) {
-  let best = 0;
-  let bestDist = Infinity;
-  const sameColor = color !== null && path.points.some((p) => (p.color ?? 0) === color);
-  path.points.forEach((p, i) => {
-    if (sameColor && (p.color ?? 0) !== color) return;
-    const dist = (p.x - x) ** 2 + (p.z - z) ** 2;
-    if (dist < bestDist) [best, bestDist] = [i, dist];
-  });
-  return path.total > 0 ? (path.lengths[best] / path.total) % 1 : 0;
-}

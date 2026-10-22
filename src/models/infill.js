@@ -1,19 +1,22 @@
-// Wabenfüllung (Honeycomb-Infill) für gedruckte Teile: Innen sind die Teile nicht massiv, sondern mit Sechseck-Waben
-// gefüllt – dünne Wände, Schicht für Schicht genau übereinander, wie bei einem Bienenstock. Hier steht:
-//   infillSegments: die Wabenkanten einer Schicht im Inneren der Form (für die Düsenbahn und für die Wände)
-//   orderSegments: kürzester Weg der Düse durch die Kanten
-//   infillWalls: die Wabenwände im Inneren als Geometrie (man sieht sie, solange das Teil oben offen ist)
+// Gitterfüllung (Grid-Infill, 45° gedreht) für gedruckte Teile: Innen sind die Teile nicht massiv, sondern mit einem
+// schrägen Rautengitter gefüllt – dünne Wände, Schicht für Schicht genau übereinander. Wo die Form nach oben oder
+// unten offen ist (unterste und oberste Schichten, aber auch Absätze wie der Sockel des Handyhalters), wird die Fläche
+// wie bei einem echten Slicer geschlossen: dichte schräge Linien, Lage für Lage abwechselnd nach links und rechts.
+// Hier steht:
+//   infillSegments: Gitter- und Deckflächenlinien einer Schicht im Inneren der Form (für Düsenbahn und Wände)
+//   shapeTest: liegt ein Punkt in einer Schicht? (für die Suche nach offenen Flächen)
+//   orderSegments: kürzester Weg der Düse durch die Linien
+//   infillWalls: die Gitterwände im Inneren als Geometrie (man sieht sie, solange das Teil oben offen ist)
 // Alles in Metern im Koordinatensystem der Form (x, z), wie die Konturen aus sliceContours.
 import * as THREE from 'three';
 
-export const HEX_SIZE = 0.002;     // Kantenlänge einer Wabe (2 mm, Wabe etwa 3,5 mm breit)
+export const GRID_GAP = 0.01;      // Abstand der Gitterlinien (10 mm, gut sichtbare Rauten)
+const SKIN_GAP = 0.002;            // Linienabstand der geschlossenen Ober- und Unterseiten (2 mm – Hin und Her bleibt sichtbar)
+const SKIN_STEP = 0.0015;          // in diesen Schritten wird geprüft, ob eine Linie auf einer offenen Fläche liegt
 const INSET = 0.0004;              // so weit bleibt die Füllung von den Wänden weg
 const MIN_PIECE = 0.0005;          // kürzere Reststücke an der Wand lässt die Düse weg
 const THIN_WALL = 0.002;           // Stücke, die von Wand zu Wand kürzer als das sind, liegen in dünnen Wänden – weg damit
 const CELL = 0.004;                // Rastergröße für die schnelle Suche nach Konturkanten
-
-const HEX_W = Math.sqrt(3) * HEX_SIZE; // Breite einer Wabe (Spitze oben)
-const ROW = 1.5 * HEX_SIZE;            // Abstand der Wabenreihen
 
 const cellKey = (xi, zi) => xi * 65536 + zi; // Zahl statt Text – deutlich schneller als Map-Schlüssel
 
@@ -52,9 +55,15 @@ function wallHits(index, a, b) {
   const ts = [];
   let seen = null; // erst anlegen, wenn die Strecke überhaupt in der Nähe einer Wand liegt
   const x0 = Math.floor(Math.min(a.x, b.x) / CELL); const x1 = Math.floor(Math.max(a.x, b.x) / CELL);
-  const z0 = Math.floor(Math.min(a.z, b.z) / CELL); const z1 = Math.floor(Math.max(a.z, b.z) / CELL);
   const dx = b.x - a.x; const dz = b.z - a.z;
   for (let xi = x0; xi <= x1; xi++) {
+    // Nur die Zellen entlang der Strecke durchsuchen, nicht das ganze umschließende Rechteck (lange Schräglinien)
+    let za = a.z; let zb = b.z;
+    if (Math.abs(dx) > 1e-12) {
+      za = a.z + dz * Math.min(1, Math.max(0, (xi * CELL - a.x) / dx));
+      zb = a.z + dz * Math.min(1, Math.max(0, ((xi + 1) * CELL - a.x) / dx));
+    }
+    const z0 = Math.floor(Math.min(za, zb) / CELL); const z1 = Math.floor(Math.max(za, zb) / CELL);
     for (let zi = z0; zi <= z1; zi++) {
       for (const edge of index.cells.get(cellKey(xi, zi)) ?? []) {
         seen ??= new Set();
@@ -73,38 +82,32 @@ function wallHits(index, a, b) {
   return ts.sort((m, n) => m - n);
 }
 
-// Kanten des Wabenrasters (Spitze oben) im Bereich: je Wabe die beiden oberen Schrägen und die linke Senkrechte –
-// zusammen ergibt das jede Kante genau einmal. Das Raster ist fest, damit die Waben in jeder Schicht übereinander liegen.
-function hexEdges(minX, maxX, minZ, maxZ) {
-  const edges = [];
-  const h = HEX_SIZE; const w = HEX_W;
-  for (let r = Math.floor(minZ / ROW) - 1; r * ROW <= maxZ + h; r++) {
-    const shift = Math.abs(r % 2) ? w / 2 : 0;
-    for (let c = Math.floor((minX - shift) / w) - 1; c * w + shift <= maxX + w; c++) {
-      const cx = c * w + shift; const cz = r * ROW;
-      const top = { x: cx, z: cz - h };
-      const left = { x: cx - w / 2, z: cz - h / 2 };
-      const right = { x: cx + w / 2, z: cz - h / 2 };
-      edges.push([left, top], [top, right], [left, { x: cx - w / 2, z: cz + h / 2 }]);
+// Schräge Linien im Bereich mit Abstand gap: Richtung +1 heißt x + z = konstant, -1 heißt x - z = konstant. Jede Linie
+// ist eine Strecke über den ganzen Bereich. Das Raster ist fest, damit die Linien in jeder Schicht übereinander liegen.
+function diagonalLines(box, gap, dirs) {
+  const lines = [];
+  const step = gap * Math.SQRT2; // senkrechter Abstand gap → Abstand entlang x + z bzw. x - z
+  const x0 = box.minX - gap; const x1 = box.maxX + gap;
+  if (dirs.includes(1)) {
+    for (let k = Math.floor((box.minX + box.minZ) / step); k * step <= box.maxX + box.maxZ; k++) {
+      const c = k * step; // x + z = c
+      lines.push([{ x: x0, z: c - x0 }, { x: x1, z: c - x1 }]);
     }
   }
-  return edges;
+  if (dirs.includes(-1)) {
+    for (let k = Math.floor((box.minX - box.maxZ) / step); k * step <= box.maxX - box.minZ; k++) {
+      const c = k * step; // x - z = c
+      lines.push([{ x: x0, z: x0 - c }, { x: x1, z: x1 - c }]);
+    }
+  }
+  return lines;
 }
 
-// Wabenkanten einer Schicht im Inneren der Konturen: [{ a: { x, z }, b: { x, z } }]. Wo eine Kante die Wand schneidet,
-// endet sie INSET davor; Krümel in dünnen Wänden fallen weg.
-export function infillSegments(contours) {
-  if (!contours.length) return [];
-  let minX = Infinity; let maxX = -Infinity; let minZ = Infinity; let maxZ = -Infinity;
-  for (const c of contours) {
-    for (const p of c) {
-      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-      minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
-    }
-  }
-  const index = edgeIndex(contours);
+// Linien auf das Innere der Konturen zuschneiden. Wo eine Linie die Wand schneidet, endet sie INSET davor;
+// Krümel in dünnen Wänden fallen weg.
+function clipLines(index, lines) {
   const segments = [];
-  for (const [a, b] of hexEdges(minX, maxX, minZ, maxZ)) {
+  for (const [a, b] of lines) {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     const cuts = [0, ...wallHits(index, a, b), 1];
     for (let i = 0; i + 1 < cuts.length; i++) {
@@ -123,6 +126,58 @@ export function infillSegments(contours) {
     }
   }
   return segments;
+}
+
+// Nur die Stücke der Strecken behalten, deren Punkte keep(x, z) erfüllen (in Schritten von SKIN_STEP geprüft)
+function keepWhere(segments, keep) {
+  const result = [];
+  for (const { a, b } of segments) {
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / SKIN_STEP));
+    const at = (t) => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    let from = null;
+    for (let i = 0; i <= n; i++) {
+      const inside = i < n && keep(a.x + (b.x - a.x) * ((i + 0.5) / n), a.z + (b.z - a.z) * ((i + 0.5) / n));
+      if (inside && from === null) from = i;
+      if (!inside && from !== null) {
+        const piece = { a: at(from / n), b: at(i / n) };
+        if (Math.hypot(piece.b.x - piece.a.x, piece.b.z - piece.a.z) >= MIN_PIECE) result.push(piece);
+        from = null;
+      }
+    }
+  }
+  return result;
+}
+
+const length = (segments) => segments.reduce((sum, { a, b }) => sum + Math.hypot(b.x - a.x, b.z - a.z), 0);
+
+// Liegt ein Punkt in diesen Konturen? Gibt eine Funktion (x, z) → true/false zurück.
+export function shapeTest(contours) {
+  if (!contours.length) return () => false;
+  const index = edgeIndex(contours);
+  return (x, z) => insideShape(index, x, z);
+}
+
+// Füllung einer Schicht im Inneren der Konturen: [{ a: { x, z }, b: { x, z } }].
+// skin: wo die Fläche offen ist – true (ganze Schicht) oder Funktion (x, z) → true/false; dort dichte schräge Linien
+// statt Gitter. layer: Schichtnummer, damit die Richtung der Deckflächenlinien alle zwei Schichten wechselt.
+export function infillSegments(contours, skin = null, layer = 0) {
+  if (!contours.length) return [];
+  const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+  for (const c of contours) {
+    for (const p of c) {
+      box.minX = Math.min(box.minX, p.x); box.maxX = Math.max(box.maxX, p.x);
+      box.minZ = Math.min(box.minZ, p.z); box.maxZ = Math.max(box.maxZ, p.z);
+    }
+  }
+  const index = edgeIndex(contours);
+  const skinLines = () => clipLines(index, diagonalLines(box, SKIN_GAP, [Math.floor(layer / 2) % 2 ? -1 : 1]));
+  if (skin === true) return skinLines();
+  const grid = clipLines(index, diagonalLines(box, GRID_GAP, [1, -1]));
+  if (!skin) return grid;
+  const inner = keepWhere(grid, (x, z) => !skin(x, z));
+  // Hat das Gitter nirgends eine offene Fläche gestreift, die teuren dichten Linien gar nicht erst berechnen
+  if (length(inner) > length(grid) - MIN_PIECE) return grid;
+  return [...inner, ...keepWhere(skinLines(), skin)];
 }
 
 // Strecken so ordnen, dass die Düse immer zur nächstgelegenen fährt und sie vom näheren Ende aus druckt.
@@ -149,11 +204,11 @@ export function orderSegments(segments, from = { x: 0, z: 0 }) {
   return points;
 }
 
-// ---------- Wabenwände ----------
+// ---------- Füllwände ----------
 
 const MERGE_TOLERANCE = 0.0003; // so wenig dürfen Strecken benachbarter Schichten abweichen, um eine Wand zu bilden
 
-// Wabenwände aus den Füllstrecken aller Schichten: layers[i] = Strecken der Schicht i, layerHeight in Metern.
+// Gitterwände aus den Füllstrecken aller Schichten: layers[i] = Strecken der Schicht i, layerHeight in Metern.
 // Bleibt eine Strecke von Schicht zu Schicht gleich (z. B. im Würfel), wird daraus eine hohe Wand statt vieler
 // flacher – so bleibt die Geometrie klein. Jede Wand ist ein senkrechtes Rechteck (beidseitig sichtbar).
 // y0: Höhe der ersten Schicht (für Abschnitte, die weiter oben beginnen)

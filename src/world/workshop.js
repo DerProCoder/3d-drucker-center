@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
-import { INFILL_CHUNKS, getInfillChunk, getPrintShape, nearestPathT, outlinePoint, outlineLength, plateOutline } from '../models/print-shapes.js';
+import { INFILL_CHUNKS, getInfillChunk, getPrintShape, outlinePoint, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
 import { createSpool, createSpoolBatch, finishProps } from '../models/spool.js';
@@ -22,7 +22,7 @@ import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
 export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern
 export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
-const TRAVEL_FACTOR = 3;     // Leerfahrten zur nächsten Kontur gehen so viel schneller als das Drucken
+const HEAD_SPEED = 0.08;     // m/s – sichtbares Tempo der Düse auf der Bahn (bei 100 % Druckstufe)
 const MAX_HEAD_SPEED = 0.4;  // m/s – mehr gilt als Sprung (z. B. neue Schicht), nicht als Bewegung
 
 // Weltposition eines Drucker- bzw. Regalplatzes. Plätze sind über alle Tische durchnummeriert.
@@ -354,7 +354,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const d = (layout.rotated ? template.size.x : template.size.y) * 0.0005;
     const offsets = layout.positions.map((pos) => ({ x: pos.x * 0.001, z: pos.y * 0.001 }));
     const outline = plateOutline(shape, offsets, layout.rotated);
-    // Wabenfüllung im Inneren: wächst wie das Teil Schicht für Schicht (gleiche Schnittebene) – man sieht sie,
+    // Gitterfüllung im Inneren: wächst wie das Teil Schicht für Schicht (gleiche Schnittebene) – man sieht sie,
     // solange das Teil oben offen ist. Gebaut wird abschnittsweise in updateInfill.
     part.userData = {
       shape, clip, pathT: 0, outline, spread: Math.max(hx + w, hz + d), instances, infillMaterials, infillMeshes: [], infillBuilt: 0,
@@ -701,21 +701,20 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
           state.partHeight = state.layerY;
         } else {
           state.mode = 'printing'; // auch pausiert: Achsen bleiben an der Stelle stehen
-          const outline = part.userData.outline(job.progress);
-          if (part.userData.path !== outline) {
-            // Neue Schicht: dort weitermachen, wo die Düse gerade ist, statt quer übers Bett zu springen
-            const last = part.userData.lastPoint;
-            if (last) part.userData.pathT = nearestPathT(outline, last.x, last.z, last.color);
-            part.userData.path = outline;
-          }
+          // Die Düse fährt eine Schichtbahn immer ganz ab – erst die Außenwände, dann innen Gitter bzw. Deckfläche
+          // hin und her – und nimmt erst danach die Schicht, die gerade dran ist. Lange Bahnen hinken dabei ein paar
+          // Schichten hinterher, dafür bleibt das Tempo ruhig und man sieht den ganzen Ablauf.
+          part.userData.path ??= part.userData.outline(job.progress);
           if (job.status === 'printing' && !swapping) {
-            // Bahngeschwindigkeit der Düse (sichtbar verlangsamt), abhängig von der Druckstufe. Leerfahrten zur
-            // nächsten Kontur gehen schneller, wie bei einem echten Drucker.
-            const travel = part.userData.lastPoint?.travel ? TRAVEL_FACTOR : 1;
-            const speed = 0.06 * (speedById(printer.speedId).percent / 100) * travel;
-            part.userData.pathT = (part.userData.pathT + (dt * speed) / Math.max(outlineLength(outline), 0.01)) % 1;
+            const speed = HEAD_SPEED * (speedById(printer.speedId).percent / 100);
+            part.userData.pathT += (dt * speed) / Math.max(part.userData.path.total, 0.01);
+            if (part.userData.pathT >= 1) {
+              const next = part.userData.outline(job.progress);
+              part.userData.pathT = next === part.userData.path ? part.userData.pathT % 1 : 0;
+              part.userData.path = next;
+            }
           }
-          part.userData.lastPoint = outlinePoint(outline, part.userData.pathT);
+          part.userData.lastPoint = outlinePoint(part.userData.path, part.userData.pathT);
           Object.assign(state, part.userData.lastPoint);
         }
       }
@@ -747,7 +746,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     }
   }
 
-  // Wabenfüllung: Abschnitte bis zur aktuellen Druckhöhe bauen, höchstens einen pro Bild (kein Ruckeln beim
+  // Gitterfüllung: Abschnitte bis zur aktuellen Druckhöhe bauen, höchstens einen pro Bild (kein Ruckeln beim
   // Druckstart). Fertig ist das Teil oben zu – dann die Füllung nicht mehr zeichnen.
   function updateInfill(part, job, detached) {
     const data = part.userData;
