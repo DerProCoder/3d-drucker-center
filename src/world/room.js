@@ -286,7 +286,8 @@ function createDoorway(d) {
   return door;
 }
 
-function createWall(length, windowsAt, materials, doors = []) {
+// keepWindowAt: dieses Fenster bleibt ein eigenes Objekt (userData), damit es sich später ausblenden lässt
+function createWall(length, windowsAt, materials, doors = [], keepWindowAt = null) {
   const wall = new THREE.Group();
 
   const plaster = new THREE.Mesh(createWallGeometry(length, ROOM_HEIGHT, doors), materials.plaster);
@@ -312,6 +313,7 @@ function createWall(length, windowsAt, materials, doors = []) {
   for (const x of windowsAt) {
     const win = createWindow(materials.sky, materials.glass);
     win.position.x = x;
+    if (x === keepWindowAt) win.userData.keep = true;
     wall.add(win);
   }
   return wall;
@@ -340,36 +342,28 @@ function createCeilingLight() {
 
 // ---------- Raum ----------
 
-export function createRoom() {
-  const room = new THREE.Group();
-  const half = ROOM_SIZE / 2;
+// Lackierte Dielen: Klarlack spiegelt Leuchten und Fenster, die Maserung gibt per Bump-Map Struktur.
+// repeat: Wiederholungen der Textur über die Fläche (bei Geometrie mit UVs in Metern 1 / 1,6)
+export function floorMaterial(repeat = ROOM_SIZE / 1.6) {
+  const planks = canvasTexture(1024, 1024, drawPlanks, repeat, repeat);
+  return new THREE.MeshPhysicalMaterial({
+    map: planks,
+    bumpMap: planks,
+    bumpScale: 0.6,
+    roughness: 0.6,
+    clearcoat: 0.55,
+    clearcoatRoughness: 0.18,
+  });
+}
 
-  // Lackierte Dielen: Klarlack spiegelt Leuchten und Fenster, die Maserung gibt per Bump-Map Struktur
-  const planks = canvasTexture(1024, 1024, drawPlanks, ROOM_SIZE / 1.6, ROOM_SIZE / 1.6);
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE),
-    new THREE.MeshPhysicalMaterial({
-      map: planks,
-      bumpMap: planks,
-      bumpScale: 0.6,
-      roughness: 0.6,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.18,
-    })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  room.add(floor);
+export const ceilingMaterial = (repeat = 8) => new THREE.MeshStandardMaterial({
+  map: canvasTexture(512, 512, drawPlaster('#f4f3ef'), repeat, repeat), roughness: 0.95,
+});
 
-  const ceiling = new THREE.Mesh(
-    new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE),
-    new THREE.MeshStandardMaterial({ map: canvasTexture(512, 512, drawPlaster('#f4f3ef'), 8, 8), roughness: 0.95 })
-  );
-  ceiling.rotation.x = Math.PI / 2;
-  ceiling.position.y = ROOM_HEIGHT;
-  room.add(ceiling);
-
-  const materials = {
+// Materialien der Hallenwände (einmal angelegt, auch für die zweite Etage in world/upper-floor.js)
+let wallMaterials = null;
+function hallWallMaterials() {
+  wallMaterials ??= {
     plaster: new THREE.MeshStandardMaterial({
       map: canvasTexture(512, 512, drawPlaster('#e9e3d8')), // Wand-UVs sind in Weltmaßen
       roughness: 0.95,
@@ -383,6 +377,31 @@ export function createRoom() {
       color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.05, metalness: 0.1, depthWrite: false,
     }),
   };
+  return wallMaterials;
+}
+
+// Hallenwand mit Fenstern (Positionen entlang der Wand), wie im Erdgeschoss – für die zweite Etage
+export const createHallWall = (length, windowsAt) => createWall(length, windowsAt, hallWallMaterials());
+export { createCeilingLight };
+
+export function createRoom() {
+  const room = new THREE.Group();
+  const half = ROOM_SIZE / 2;
+
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), floorMaterial());
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  room.add(floor);
+
+  // Decke bleibt ein eigenes Mesh (userData), damit die zweite Etage sie gegen eine Decke mit Treppenloch tauschen kann
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), ceilingMaterial());
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.y = ROOM_HEIGHT;
+  ceiling.userData.hallCeiling = true;
+  room.add(ceiling);
+  room.userData.ceiling = ceiling;
+
+  const materials = hallWallMaterials();
 
   // Lokale +z jeder Wand zeigt in den Raum. Die Südwand ist um 180° gedreht,
   // daher liegt die Tür dort lokal bei -STORAGE_DOOR.x. Bei der Ostwand entspricht lokales x der Welt-z.
@@ -394,10 +413,13 @@ export function createRoom() {
     { pos: [0, 0, -half], rotY: 0, windows: [-6, 0, 6] },                          // Nord
     { pos: [0, 0, half], rotY: Math.PI, windows: [], doors: [southDoor] },        // Süd
     { pos: [-half, 0, 0], rotY: Math.PI / 2, windows: [-4, 4], doors: [westDoor] }, // West
-    { pos: [half, 0, 0], rotY: -Math.PI / 2, windows: [-4, 4], doors: [eastDoor] }, // Ost
+    // Ost – das nördliche Fenster (Welt-z −4) liegt hinter der Treppe zur zweiten Etage und verschwindet mit ihr
+    { pos: [half, 0, 0], rotY: -Math.PI / 2, windows: [-4, 4], doors: [eastDoor], keep: -4 },
   ];
   for (const w of walls) {
-    const wall = createWall(ROOM_SIZE, w.windows, materials, w.doors);
+    const wall = createWall(ROOM_SIZE, w.windows, materials, w.doors, w.keep);
+    const kept = wall.children.find((c) => c.userData.keep);
+    if (kept) room.userData.stairWindow = kept;
     wall.position.set(...w.pos);
     wall.rotation.y = w.rotY;
     room.add(wall);

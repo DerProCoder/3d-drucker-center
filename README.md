@@ -103,7 +103,7 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1, A1 mini und A2L haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X1 Carbon, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Der H2C hat zwei AMS übereinander, also 8 Fächer. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
-6. **Drucken:** Am PC die App **Druckermenü** öffnen, Druckvorlage und Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker: In jeder Schicht fährt die Düse erst die Außenwände ab und füllt dann das Innere mit einem **schrägen Gitter** (Rauten unter 45°, 10 mm Linienabstand). Unterseite und Oberseite – auch Absätze mitten im Teil, etwa der Sockel des Handyhalters – druckt sie geschlossen: dichte schräge Bahnen hin und her, Lage für Lage abwechselnd nach links und rechts. Alles Linie für Linie, immer zur nächstgelegenen, mit schnellen Leerfahrten dazwischen. Schaust du von oben in das halbfertige Teil, siehst du die Gitterwände im Inneren Schicht für Schicht mitwachsen; ist das Teil fertig, ist es außen geschlossen. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
+6. **Drucken:** Am PC die App **Druckermenü** öffnen. Links stehen alle Drucker mit Status, Fortschritt und Restzeit (in echter Zeit); ein Klick zeigt rechts die Details. Dort die Druckvorlage aus der Bildergalerie und die Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker: In jeder Schicht fährt die Düse erst die Außenwände ab und füllt dann das Innere mit einem **schrägen Gitter** (Rauten unter 45°, 10 mm Linienabstand). Unterseite und Oberseite – auch Absätze mitten im Teil, etwa der Sockel des Handyhalters – druckt sie geschlossen: dichte schräge Bahnen hin und her, Lage für Lage abwechselnd nach links und rechts. Alles Linie für Linie, immer zur nächstgelegenen, mit schnellen Leerfahrten dazwischen. Schaust du von oben in das halbfertige Teil, siehst du die Gitterwände im Inneren Schicht für Schicht mitwachsen; ist das Teil fertig, ist es außen geschlossen. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
 7. **Entnehmen:** Ist der Druck fertig (grüner Haken über dem Drucker), auf den Drucker klicken oder im Druckermenü auf **Teil entnehmen**.
 8. **Ins Abholregal legen:** Hast du alle bestellten Teile in der richtigen Farbe, geh zum Empfang und klick auf das **Abholregal** – der Auftrag wird verpackt und liegt mit dem Kundennamen im nächsten freien Fach (8 Fächer). Damit ist die Frist geschafft. Kurz darauf kommt der Kunde, nimmt sein Paket, **bezahlt am Tresen** und trägt es nach Hause. Läuft die Frist vorher ab, ist der Auftrag weg. Neue Kunden kommen etwa alle 30 Spielminuten.
 
@@ -197,7 +197,8 @@ Für die Pause zwischendurch: **Snake** (Filament-Snake). Die Schlange frisst Fi
 Farbe der gefressenen Spule, und mit jeder Spule wird sie etwas schneller. Steuern mit **Pfeiltasten** oder **WASD**,
 **Leertaste** startet und pausiert. Auf Tablet und Handy übers Spielfeld **wischen** oder das Steuerkreuz darunter
 nutzen, Antippen startet und pausiert. Der Rekord bleibt im Browser gespeichert; schließt du das Fenster, pausiert
-die Runde.
+die Runde. Oben schaltest du zwischen **Survival** (selbst spielen) und **Auto** um. Im Auto-Modus spielt die Schlange von selbst: Sie holt alle Spulen, stirbt nie und hört erst auf, wenn
+das ganze Feld voll ist (zählt nicht für den Rekord).
 
 Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
@@ -229,10 +230,12 @@ Die Azubis sind echte animierte Menschen: Lea, Sophie und Aylin sind Frauen, Kev
 
 ## Halle ausbauen
 
-Platz kostet Geld – Tische und Regalebenen kauft man in der PC-App **Ausbau**:
+Platz kostet Geld – Tische, Regalebenen, eine zweite Etage und einen Fahrstuhl kauft man in der PC-App **Ausbau**:
 
 - **Drucktische:** Am Anfang hast du einen Tisch mit 4 Druckerplätzen und 3 Regalplätzen dazwischen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen. Der Tisch wird geliefert (blaue Markierung, eine Minute); danach wird die Markierung grün und ein Klick darauf stellt den Tisch auf.
 - **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es ebenfalls in der App **Ausbau**; sie werden nach der Lieferung automatisch eingebaut.
+- **Zweite Etage (2.000 €):** Eine ganze Etage über der Halle, genauso groß, erstmal leer. Nach dem Bau führt eine Treppe rechts hinten in der Halle (an der Ostwand) nach oben. Was du in der Hand trägst, nimmst du mit. Von oben kann man nichts werfen.
+- **Fahrstuhl (3.000 €, erst nach der Etage):** Kommt neben die Treppe. Am Ruftaster rechts neben der Tür klicken – der Fahrstuhl bringt dich samt allem, was du trägst, aufs andere Stockwerk.
 - **Lieferzeit:** Alles, was als Paket kommt – Drucker, Regale, Tische, Regalebenen – ist nach dem Kauf **eine Minute** unterwegs. Im Druckermenü und in der App **Ausbau** siehst du die Restzeit, bei Ankunft gibt es eine Meldung.
 
 ## Speichern, Level und Grafik
@@ -275,15 +278,17 @@ src/
     laser.js          Laser R1: Holzplatte im Gerät, Laseraufträge (Text, Logo, Ausschneiden)
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
-    upgrades.js       Ausbau: Drucktische, Regalebenen
+    upgrades.js       Ausbau: Drucktische, Regalebenen, zweite Etage, Fahrstuhl
     staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
     snake.js          Mini-Spiel Snake: Raster, Schlange, Spulen als Futter, Tempo
+    snake-autopilot.js  Auto-Modus für Snake: Rundweg über alle Felder mit sicheren Abkürzungen
     display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
     room.js           Halle mit Boden, Wänden, Fenstern, Licht
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
+    upper-floor.js    Zweite Etage: Zwischendecke, Treppe, Fahrstuhl, Stockwerk der Spielfigur, Fassade oben
     hall-lights.js    Lichtschalter der Halle: Deckenleuchten aus, Raum dunkel, Glow-Filament leuchtet
     display-wall.js   Ausstellungsregale an der Südwand: Aufstellen, Teile ausstellen (Mausrad wählt), zurücknehmen
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
@@ -325,6 +330,7 @@ src/
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
+    screen-fade.js    Bildschirm kurz abblenden (Fahrstuhlfahrt)
     touch-controls.js Tablet-Steuerung: Joystick, Umschauen per Wischen, Antippen, Knöpfe; gewähltes Gerät
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm, Geräteabfrage (PC oder Tablet)
     shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger

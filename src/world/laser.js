@@ -1,6 +1,7 @@
 // Laser R1 in der Halle: die Holzplatte im Gerät und wie der Laser sie bearbeitet. Der Kopf fährt wie ein echter
 // Laser erst alle Außenkonturen ab, dann alle Innenkonturen und – beim Gravieren – zuletzt die Füllung, Zeile für Zeile
-// und nur dort, wo eingebrannt wird. Zwischen den Stücken fährt er mit ausgeschaltetem Strahl schnell hinüber.
+// und nur dort, wo eingebrannt wird. Beim Schild kommen zuerst die Buchstaben dran, danach der Rahmen außen herum.
+// Zwischen den Stücken fährt er mit ausgeschaltetem Strahl schnell hinüber.
 // Reine Darstellung – Zeit und Fortschritt rechnet core/economy.js (advancePrints) ab.
 import * as THREE from 'three';
 import { SHEET_MM } from '../core/catalog.js';
@@ -53,18 +54,27 @@ export function syncLaserWorkpiece(model, printer) {
   Object.assign(state, { mesh, texture, ctx, design });
   if (!job) return;
 
-  let plan;
+  let plans;
   if (job.laser === 'cut') {
-    plan = cutPlan(design);
+    plans = [cutPlan(design)];
   } else {
-    state.engraving = document.createElement('canvas');
-    state.engraving.width = canvas.width;
-    state.engraving.height = canvas.height;
-    const ectx = state.engraving.getContext('2d');
-    drawEngraving(ectx, design, PX_PER_MM);
-    plan = engravePlan(engraveMask(ectx, SHEET_MM.x, SHEET_MM.y), SHEET_MM.x, SHEET_MM.y);
+    state.engraving = engravingCanvas(design, 'all');
+    // Schild: erst die Schrift, dann der Rahmen – je ein eigener Durchgang mit Konturen und Füllung
+    plans = (job.laser === 'text' ? ['text', 'frame'] : ['all']).map((part) => {
+      const mask = engraveMask(engravingCanvas(design, part).getContext('2d'), SHEET_MM.x, SHEET_MM.y);
+      return engravePlan(mask, SHEET_MM.x, SHEET_MM.y);
+    });
   }
-  Object.assign(state, buildMoves(plan, job.laser === 'cut' ? KERF_MM : OUTLINE_MM), { index: 0, offset: 0, done: 0 });
+  Object.assign(state, buildMoves(plans, job.laser === 'cut' ? KERF_MM : OUTLINE_MM), { index: 0, offset: 0, done: 0 });
+}
+
+// Gravur (ganz oder nur ein Teil, siehe drawEngraving) auf eine eigene Leinwand in Texturgröße
+function engravingCanvas(design, part) {
+  const canvas = document.createElement('canvas');
+  canvas.width = SHEET_MM.x * PX_PER_MM;
+  canvas.height = SHEET_MM.y * PX_PER_MM;
+  drawEngraving(canvas.getContext('2d'), design, PX_PER_MM, part);
+  return canvas;
 }
 
 // Maske der Gravur, ein Wert pro mm: 1, wo eingebrannt wird
@@ -83,8 +93,8 @@ function engraveMask(ectx, cols, rows) {
 
 // Fahrplan → Liste von Strecken { kind: 'line' | 'fill' | 'travel', a, b, len, weight, width?, h? } in mm.
 // weight: Zeit pro mm (1 / Geschwindigkeit) – Konturen am langsamsten, Leerfahrten am schnellsten
-// Reihenfolge: Außenkonturen, Innenkonturen, Füllzeilen; dazwischen Leerfahrten.
-function buildMoves({ outer, inner, spans }, lineWidth) {
+// Reihenfolge je Plan: Außenkonturen, Innenkonturen, Füllzeilen; Pläne nacheinander, dazwischen Leerfahrten.
+function buildMoves(plans, lineWidth) {
   const moves = [];
   let at = [0, 0];
   const go = (kind, b, extra = {}) => {
@@ -93,15 +103,17 @@ function buildMoves({ outer, inner, spans }, lineWidth) {
     if (len > 1e-6) moves.push({ kind, a: at, b, len, weight, ...extra });
     at = b;
   };
-  for (const loops of [outer, inner]) {
-    for (const loop of orderLoops(loops, at)) {
-      go('travel', loop[0]);
-      for (let i = 1; i <= loop.length; i++) go('line', loop[i % loop.length], { width: lineWidth });
+  for (const { outer, inner, spans } of plans) {
+    for (const loops of [outer, inner]) {
+      for (const loop of orderLoops(loops, at)) {
+        go('travel', loop[0]);
+        for (let i = 1; i <= loop.length; i++) go('line', loop[i % loop.length], { width: lineWidth });
+      }
     }
-  }
-  for (const span of spans) {
-    go('travel', [span.x0, span.y]);
-    go('fill', [span.x1, span.y], { h: span.h });
+    for (const span of spans) {
+      go('travel', [span.x0, span.y]);
+      go('fill', [span.x1, span.y], { h: span.h });
+    }
   }
   return { moves, total: moves.reduce((sum, m) => sum + m.len * m.weight, 0) };
 }

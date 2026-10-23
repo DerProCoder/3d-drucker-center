@@ -1,5 +1,6 @@
-// Ausbau der Halle: weitere Drucktische und Regalebenen kauft man mit Spielgeld. Beides wird geliefert
-// (economy.deliverySeconds); Regalebenen baut der Lieferdienst gleich ein, Tische stellt man selbst auf.
+// Ausbau der Halle: weitere Drucktische und Regalebenen kauft man mit Spielgeld, dazu eine zweite Etage (mit Treppe)
+// und danach einen Fahrstuhl. Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage und Fahrstuhl baut
+// der Lieferdienst gleich ein, Tische stellt man selbst auf.
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
 
 export const SLOTS_PER_TABLE = 4;
@@ -9,6 +10,8 @@ export const SPOOLS_PER_SHELF_LEVEL = 20;
 // Preis für den 1., 2., 3. … Tisch bzw. die Regalebene. Den ersten Tisch und die unterste Ebene hat man von Anfang an.
 export const TABLE_PRICES = [0, 150, 400, 900];
 export const SHELF_LEVEL_PRICES = [0, 60, 150, 300];
+export const UPPER_FLOOR_PRICE = 2000; // zweite Etage, so groß wie die Halle, mit Treppe
+export const ELEVATOR_PRICE = 3000;    // Fahrstuhl zwischen Halle und zweiter Etage
 
 export class Upgrades {
   constructor(economy) {
@@ -17,7 +20,11 @@ export class Upgrades {
     this.tablesOrdered = 1;   // gekaufte Tische (aufgestellt, unterwegs oder bereit zum Aufstellen)
     this.shelfLevels = 1;     // eingebaute Regalebenen
     this.shelfOrdered = 1;
-    this.deliveries = [];     // { kind: 'table' | 'shelf', arriveIn (Sekunden) }
+    this.upperFloor = false;  // zweite Etage gebaut
+    this.upperFloorOrdered = false;
+    this.elevator = false;    // Fahrstuhl gebaut
+    this.elevatorOrdered = false;
+    this.deliveries = [];     // { kind: 'table' | 'shelf' | 'floor' | 'elevator', arriveIn (Sekunden) }
     this.listeners = new Set();
     this.onEvent = null;      // (type, data) => void – z. B. 'delivered'
   }
@@ -43,6 +50,14 @@ export class Upgrades {
   // Preis des nächsten Tisches bzw. der nächsten Regalebene, null wenn alles gekauft ist
   get nextTablePrice() { return TABLE_PRICES[this.tablesOrdered] ?? null; }
   get nextShelfPrice() { return SHELF_LEVEL_PRICES[this.shelfOrdered] ?? null; }
+  get upperFloorPrice() { return this.upperFloorOrdered ? null : UPPER_FLOOR_PRICE; }
+  get elevatorPrice() { return this.elevatorOrdered ? null : ELEVATOR_PRICE; }
+
+  // Restzeit einer Lieferung dieser Art (Sekunden) oder null
+  arrivalOf(kind) {
+    const times = this.deliveries.filter((d) => d.kind === kind).map((d) => d.arriveIn);
+    return times.length ? Math.max(0, Math.min(...times)) : null;
+  }
 
   // Grund, warum man gerade nicht kaufen kann, oder null
   buyProblem(price) {
@@ -68,6 +83,30 @@ export class Upgrades {
     return true;
   }
 
+  buyUpperFloor() {
+    const price = this.upperFloorPrice;
+    if (this.buyProblem(price) || !this.economy.spend(price)) return false;
+    this.upperFloorOrdered = true;
+    this.deliveries.push({ kind: 'floor', arriveIn: this.economy.deliverySeconds });
+    this.notify();
+    return true;
+  }
+
+  // Grund, warum man den Fahrstuhl gerade nicht kaufen kann, oder null
+  get elevatorProblem() {
+    if (this.elevatorOrdered) return 'Alles ausgebaut';
+    if (!this.upperFloor) return 'Erst die zweite Etage bauen';
+    return this.buyProblem(this.elevatorPrice);
+  }
+
+  buyElevator() {
+    if (this.elevatorProblem || !this.economy.spend(this.elevatorPrice)) return false;
+    this.elevatorOrdered = true;
+    this.deliveries.push({ kind: 'elevator', arriveIn: this.economy.deliverySeconds });
+    this.notify();
+    return true;
+  }
+
   buyShelfLevel() {
     const price = this.nextShelfPrice;
     if (this.buyProblem(price) || !this.economy.spend(price)) return false;
@@ -77,13 +116,15 @@ export class Upgrades {
     return true;
   }
 
-  // Läuft in echter Zeit: angekommene Regalebenen werden eingebaut, Tische warten aufs Aufstellen
+  // Läuft in echter Zeit: angekommene Regalebenen, Etage und Fahrstuhl werden eingebaut, Tische warten aufs Aufstellen
   advance(seconds) {
     if (!this.deliveries.length) return;
     let changed = false;
     for (const d of this.deliveries) d.arriveIn -= seconds;
     for (const d of this.deliveries.filter((x) => x.arriveIn <= 0)) {
       if (d.kind === 'shelf') this.shelfLevels++;
+      if (d.kind === 'floor') this.upperFloor = true;
+      if (d.kind === 'elevator') this.elevator = true;
       this.onEvent?.('delivered', { kind: d.kind });
       changed = true;
     }

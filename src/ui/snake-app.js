@@ -1,10 +1,14 @@
 // PC-App „Snake“: Filament-Snake (Regeln in core/snake.js) auf einem Canvas. Steuerung mit Pfeiltasten/WASD,
 // auf Touch-Geräten per Wischen über das Spielfeld oder mit dem Steuerkreuz darunter. Leertaste bzw. Tippen startet
 // und pausiert. Der Rekord bleibt im Browser gespeichert. Schließt man das Fenster, pausiert die Runde.
+// Umschalter oben: Survival (selbst spielen) oder Auto – dort steuert sich die Schlange selbst
+// (core/snake-autopilot.js), bis das Feld voll ist; zählt nicht für den Rekord.
 import { GRID, createSnake, step, turn } from '../core/snake.js';
+import { createAutopilot } from '../core/snake-autopilot.js';
 
 const BEST_KEY = 'druckercenter-snake-best';
 const SWIPE_PX = 24; // so weit muss man wischen, damit es als Richtung zählt
+const AUTO_MS = 30;  // Schrittdauer im Auto-Modus – flott, damit das Feld in ein paar Minuten voll wird
 const KEYS = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
   ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
@@ -35,12 +39,14 @@ export function createSnakeApp() {
   let last = 0;
   let acc = 0;
   let swipe = null;
+  let autopilot = null; // gesetzt, solange der Auto-Modus läuft
 
   const el = (name) => canvas?.closest('.snake')?.querySelector(`[data-snake-${name}]`);
 
   function overlayText() {
-    if (mode === 'ready') return '<b>Filament-Snake</b>Friss Spulen, jede färbt ein Stück der Schlange.<small>Start: Leertaste oder Tippen</small>';
+    if (mode === 'ready') return '<b>Filament-Snake</b>Friss Spulen, jede färbt ein Stück der Schlange.<small>Start: Leertaste oder Tippen · Auto: spielt von selbst</small>';
     if (mode === 'paused') return '<b>Pause</b><small>Weiter: Leertaste oder Tippen</small>';
+    if (mode === 'over' && !game.food) return `<b>Feld voll!</b>Alle ${game.score} Spulen geholt.<small>Nochmal: Leertaste oder Tippen</small>`;
     if (mode === 'over') {
       return `<b>Game Over</b>${game.score} ${game.score === 1 ? 'Spule' : 'Spulen'}${game.score > 0 && game.score >= best ? ' – neuer Rekord! 🏆' : ''}<small>Nochmal: Leertaste oder Tippen</small>`;
     }
@@ -54,20 +60,39 @@ export function createSnakeApp() {
     const overlay = el('overlay');
     overlay.innerHTML = overlayText();
     overlay.hidden = mode === 'running';
+    for (const button of canvas.closest('.snake').querySelectorAll('[data-snake-mode]')) {
+      button.classList.toggle('active', (button.dataset.snakeMode === 'auto') === !!autopilot);
+    }
   }
 
   // Leertaste/Tippen: starten, pausieren, fortsetzen oder neu beginnen
   function toggle() {
     if (mode === 'running') mode = 'paused';
     else {
-      if (mode === 'over') game = createSnake();
+      if (mode === 'over') newRound();
       mode = 'running';
       acc = 0;
     }
     updateHud();
   }
 
+  // Neue Runde, im Auto-Modus gleich mit frischem Autopiloten
+  function newRound(auto = !!autopilot) {
+    game = createSnake();
+    autopilot = auto ? createAutopilot(game) : null;
+  }
+
+  // Umschalter: Auto (neue Runde, läuft sofort) oder Survival (neue Runde zum Selberspielen)
+  function setAuto(auto) {
+    if (auto === !!autopilot) return;
+    newRound(auto);
+    mode = autopilot ? 'running' : 'ready';
+    acc = 0;
+    updateHud();
+  }
+
   function steer(name) {
+    if (autopilot) return; // im Auto-Modus lenkt die Schlange selbst
     if (mode === 'ready' || mode === 'over') toggle(); // erste Richtung startet gleich die Runde
     if (mode === 'paused') toggle();
     turn(game, name);
@@ -145,13 +170,18 @@ export function createSnakeApp() {
     }
     if (mode === 'running') {
       acc += Math.min(now - last, 250); // nach einem Hänger keine Schritte nachholen
-      while (acc >= game.stepMs && mode === 'running') {
-        acc -= game.stepMs;
+      const stepMs = autopilot ? AUTO_MS : game.stepMs;
+      while (acc >= stepMs && mode === 'running') {
+        acc -= stepMs;
+        if (autopilot) {
+          const dir = autopilot.next(game);
+          if (dir) turn(game, dir);
+        }
         const result = step(game);
         if (result === 'eat') updateHud();
-        if (result === 'die') {
+        if (result === 'die' || result === 'full') {
           mode = 'over';
-          if (game.score > best) {
+          if (!autopilot && game.score > best) {
             best = game.score;
             saveBest(best);
           }
@@ -181,6 +211,10 @@ export function createSnakeApp() {
         <div class="snake-bar">
           <span>🧵 Spulen: <b data-snake-score>0</b></span>
           <span>🏆 Rekord: <b data-snake-best>0</b></span>
+          <div class="snake-modes" role="group" aria-label="Spielmodus">
+            <button class="secondary" data-snake-mode="survival" title="Selbst steuern">Survival</button>
+            <button class="secondary" data-snake-mode="auto" title="Die Schlange spielt von selbst, bis das Feld voll ist">🤖 Auto</button>
+          </div>
           <button class="secondary" data-snake-toggle>⏯</button>
         </div>
         <div class="snake-stage">
@@ -223,6 +257,7 @@ export function createSnakeApp() {
     handleClick(e) {
       const dir = e.target.closest('[data-snake-dir]')?.dataset.snakeDir;
       if (dir) steer(dir);
+      else if (e.target.closest('[data-snake-mode]')) setAuto(e.target.closest('[data-snake-mode]').dataset.snakeMode === 'auto');
       else if (e.target.closest('[data-snake-toggle], [data-snake-overlay]')) toggle();
       else if (e.target.closest('[data-snake]') && !matchMedia('(pointer: coarse)').matches) toggle(); // Maus: Klick aufs Feld
       return false;

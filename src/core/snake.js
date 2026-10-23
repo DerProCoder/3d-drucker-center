@@ -1,5 +1,6 @@
 // Mini-Spiel Snake für den PC in der Halle („Filament-Snake“): Die Schlange frisst Filamentspulen, jedes neue
-// Stück hat die Farbe der gefressenen Spule. Wand oder eigener Schwanz beenden die Runde. Ohne DOM – gezeichnet
+// Stück hat die Farbe der gefressenen Spule. Wand oder eigener Schwanz beenden die Runde, ebenso ein volles Feld.
+// Ohne DOM – gezeichnet
 // und gesteuert wird in ui/snake-app.js.
 import { FILAMENTS } from './catalog.js';
 
@@ -54,7 +55,7 @@ export function turn(state, name) {
   state.turns.push(next);
 }
 
-// Ein Schritt. Rückgabe: 'eat' (Spule gefressen), 'die' (Runde vorbei) oder null
+// Ein Schritt. Rückgabe: 'eat' (Spule gefressen), 'die' (Runde vorbei), 'full' (Feld voll, gewonnen) oder null
 export function step(state) {
   if (!state.alive) return null;
   if (state.turns.length) state.dir = state.turns.shift();
@@ -77,6 +78,10 @@ export function step(state) {
     state.score++;
     state.stepMs = Math.max(MIN_MS, state.stepMs - SPEEDUP_MS);
     placeFood(state);
+    if (!state.food) {
+      state.alive = false; // kein freies Feld mehr – mehr geht nicht
+      return 'full';
+    }
     return 'eat';
   }
   state.snake.pop();

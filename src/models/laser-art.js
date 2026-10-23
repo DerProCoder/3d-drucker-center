@@ -90,7 +90,9 @@ function cutCenters(sheet) {
 
 // Gravur als Bild zeichnen (nur die eingebrannten Stellen, durchsichtiger Hintergrund).
 // design: { laser, text, motif, wood, sheet } aus core/laser.js (laserDesign), scale: Pixel pro mm
-export function drawEngraving(ctx, design, scale) {
+// part (nur beim Schild): 'text' oder 'frame' zeichnet nur die Buchstaben bzw. nur den Rahmen – so kann der Laser
+// erst die Schrift und danach den Rahmen außen herum lasern
+export function drawEngraving(ctx, design, scale, part = 'all') {
   const { sheet } = design;
   const burn = design.wood.burn;
   ctx.save();
@@ -98,35 +100,44 @@ export function drawEngraving(ctx, design, scale) {
   ctx.strokeStyle = burn;
   if (design.laser === 'text') {
     // Schild: Rahmen mit abgerundeten Ecken, Text so groß wie möglich in der Mitte
-    ctx.lineWidth = 4 * scale;
-    const r = 12 * scale;
-    const x = 14 * scale;
-    const y = 14 * scale;
-    const w = (sheet.x - 28) * scale;
-    const h = (sheet.y - 28) * scale;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-    ctx.stroke();
-    const text = design.text || ' ';
-    let size = 70;
-    ctx.font = `700 ${size * scale}px Georgia, "Times New Roman", serif`;
-    while (size > 14 && ctx.measureText(text).width > (sheet.x - 60) * scale) {
-      size -= 2;
-      ctx.font = `700 ${size * scale}px Georgia, "Times New Roman", serif`;
-    }
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, (sheet.x / 2) * scale, (sheet.y / 2 + 2) * scale);
+    if (part !== 'text') drawFrame(ctx, sheet, scale);
+    if (part !== 'frame') drawSignText(ctx, design, scale);
   } else {
     tracePolygons(ctx, motifPolygons(design.motif, sheet.x / 2, sheet.y / 2, 160), scale);
     ctx.fill('evenodd');
   }
   ctx.restore();
+}
+
+function drawFrame(ctx, sheet, scale) {
+  ctx.lineWidth = 4 * scale;
+  const r = 12 * scale;
+  const x = 14 * scale;
+  const y = 14 * scale;
+  const w = (sheet.x - 28) * scale;
+  const h = (sheet.y - 28) * scale;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function drawSignText(ctx, design, scale) {
+  const { sheet } = design;
+  const text = design.text || ' ';
+  let size = 70;
+  ctx.font = `700 ${size * scale}px Georgia, "Times New Roman", serif`;
+  while (size > 14 && ctx.measureText(text).width > (sheet.x - 60) * scale) {
+    size -= 2;
+    ctx.font = `700 ${size * scale}px Georgia, "Times New Roman", serif`;
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, (sheet.x / 2) * scale, (sheet.y / 2 + 2) * scale);
 }
 
 // Schnittbahn der ausgeschnittenen Figuren: Liste von geschlossenen Umrissen in mm (für die Vorschau)

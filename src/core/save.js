@@ -9,7 +9,7 @@ const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
-const VERSION = 6;
+const VERSION = 7;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -108,6 +108,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades: {
       tables: upgrades.tables, tablesOrdered: upgrades.tablesOrdered,
       shelfLevels: upgrades.shelfLevels, shelfOrdered: upgrades.shelfOrdered,
+      upperFloor: upgrades.upperFloor, upperFloorOrdered: upgrades.upperFloorOrdered,
+      elevator: upgrades.elevator, elevatorOrdered: upgrades.elevatorOrdered,
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
     clock: { minutes: clock.minutes },
@@ -165,6 +167,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     data.version = 5;
   }
   if (data?.version === 5) data.version = 6; // Version 5 kennt noch keine Ausstellungsregale – nichts umzuwandeln
+  if (data?.version === 6) data.version = 7; // Version 6 kennt noch keine zweite Etage – unten Standardwerte
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -193,6 +196,10 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades.tablesOrdered = data.upgrades.tablesOrdered ?? upgrades.tables;
     upgrades.shelfOrdered = data.upgrades.shelfOrdered ?? upgrades.shelfLevels;
     upgrades.deliveries = data.upgrades.deliveries ?? [];
+    upgrades.upperFloor = data.upgrades.upperFloor ?? false;
+    upgrades.upperFloorOrdered = data.upgrades.upperFloorOrdered ?? upgrades.upperFloor;
+    upgrades.elevator = data.upgrades.elevator ?? false;
+    upgrades.elevatorOrdered = data.upgrades.elevatorOrdered ?? upgrades.elevator;
   } else {
     const highestSlot = Math.max(-1, ...economy.printers.filter((p) => p.location === 'table').map((p) => p.slot));
     upgrades.tables = Math.max(1, Math.ceil((highestSlot + 1) / SLOTS_PER_TABLE));

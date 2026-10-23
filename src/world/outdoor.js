@@ -14,8 +14,8 @@ import { mergeStatic } from '../models/merge-static.js';
 
 const T = WALL_THICKNESS;
 const HALF = ROOM_SIZE / 2 + T;   // Außenkante der Halle
-const PARAPET = 0.3;              // Attika über dem Dach
-const ROOF = 0.15;                // Dachfläche über der Innendecke (sonst schauen die Deckenleuchten durch)
+export const PARAPET = 0.3;       // Attika über dem Dach
+export const ROOF = 0.15;                // Dachfläche über der Innendecke (sonst schauen die Deckenleuchten durch)
 
 // Straßenquerschnitt (Welt-x): Hecke, Gehweg, Fahrbahn, Gehweg gegenüber
 export const STREET = {
@@ -122,7 +122,7 @@ function flat(w, d, material, x, z, y = 0.005) {
   return mesh;
 }
 
-const facadeMaterials = () => ({
+export const facadeMaterials = () => ({
   render: new THREE.MeshStandardMaterial({ map: canvasTexture(512, 512, drawRender), roughness: 0.95 }),
   plinth: new THREE.MeshStandardMaterial({ color: 0x6f6c68, roughness: 0.9 }),
   coping: new THREE.MeshStandardMaterial({ color: 0x8e9196, metalness: 0.5, roughness: 0.4 }),
@@ -133,7 +133,8 @@ const facadeMaterials = () => ({
 
 // Fassadenstück von a nach b (Welt-xz), Außenseite zeigt nach normal. windows: Abstand entlang der Wand (Welt) und
 // Maße wie die Hallenfenster; door: Öffnung (Welt-Mittelpunkt entlang der Wand, Breite, Höhe)
-function facade(m, a, b, normal, height, { windows = [], door = null } = {}) {
+// windowY: Mitte der Fenster über der Unterkante (innen liegen sie auf 1,7 m – so verdecken sie sich gegenseitig)
+export function facade(m, a, b, normal, height, { windows = [], door = null, windowY = 1.7 } = {}) {
   const g = new THREE.Group();
   const len = Math.hypot(b.x - a.x, b.z - a.z);
   const along = new THREE.Vector3((b.x - a.x) / len, 0, (b.z - a.z) / len);
@@ -152,11 +153,12 @@ function facade(m, a, b, normal, height, { windows = [], door = null } = {}) {
   g.add(box(len + 0.04, 0.08, T + 0.12, m.coping, 0, height + 0.04, -T / 2 + 0.06));
   for (const t of windows) {
     const x = localX(t);
-    g.add(box(1.6, 1.4, 0.02, m.glass, x, 1.7, 0.01));
-    for (const [w, h, px, py] of [[1.74, 0.07, x, 2.435], [1.74, 0.07, x, 0.965], [0.07, 1.4, x - 0.835, 1.7], [0.07, 1.4, x + 0.835, 1.7], [0.05, 1.4, x, 1.7]]) {
+    const y = windowY;
+    g.add(box(1.6, 1.4, 0.02, m.glass, x, y, 0.01));
+    for (const [w, h, px, py] of [[1.74, 0.07, x, y + 0.735], [1.74, 0.07, x, y - 0.735], [0.07, 1.4, x - 0.835, y], [0.07, 1.4, x + 0.835, y], [0.05, 1.4, x, y]]) {
       g.add(box(w, h, 0.06, m.frame, px, py, 0.03));
     }
-    g.add(box(1.9, 0.05, 0.18, m.coping, x, 0.94, 0.09)); // Fensterbank
+    g.add(box(1.9, 0.05, 0.18, m.coping, x, y - 0.76, 0.09)); // Fensterbank
   }
   g.position.copy(center);
   g.rotation.y = rotY;
@@ -164,7 +166,7 @@ function facade(m, a, b, normal, height, { windows = [], door = null } = {}) {
 }
 
 // Flachdach mit Kies: Rechteck auf Höhe height
-function roof(m, x0, x1, z0, z1, height) {
+export function roof(m, x0, x1, z0, z1, height) {
   return flat(x1 - x0, z1 - z0, m.roof, (x0 + x1) / 2, (z0 + z1) / 2, height);
 }
 
@@ -256,8 +258,11 @@ export function createOutdoor({ collision, scene }) {
     facade(m, P(ENTRANCE.x0 - T, -eZ), P(ENTRANCE.x0 - T, eZ), N(-1, 0), top(ENTRANCE.height),
       { door: { t: eZ + FRONT_DOOR.z, w: FRONT_DOOR.w, h: FRONT_DOOR.h } }),
   );
+  // Hallendach eigenes Mesh (userData): mit zweiter Etage verschwindet es (world/upper-floor.js)
+  const hallRoof = roof(m, -HALF, HALF, -HALF, HALF, ROOM_HEIGHT + ROOF);
+  hallRoof.userData.hallRoof = true;
   group.add(
-    roof(m, -HALF, HALF, -HALF, HALF, ROOM_HEIGHT + ROOF),
+    hallRoof,
     roof(m, st.x0 - T, st.x1 + T, HALF, st.z1 + T, st.height + ROOF),
     roof(m, HALF, of.x1 + T, of.z0 - T, of.z1 + T, of.height + ROOF),
     roof(m, ENTRANCE.x0 - T, -HALF, -eZ, eZ, ENTRANCE.height + ROOF),
@@ -420,5 +425,5 @@ export function createOutdoor({ collision, scene }) {
     }
   }
 
-  return { group, sky, update, isOutside: (p) => !inside(p) };
+  return { group, sky, update, hallRoof, isOutside: (p) => !inside(p) };
 }

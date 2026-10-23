@@ -36,6 +36,8 @@ import { createPedestrians } from './world/pedestrians.js';
 import { createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
 import { createRoomCulling } from './world/room-culling.js';
+import { createUpperFloor } from './world/upper-floor.js';
+import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
@@ -289,13 +291,35 @@ function createTable(width, depth) {
 // Drucktische: der erste steht von Anfang an, weitere kauft man (hall.js)
 const hall = createHall({ createTable, collision, upgrades });
 scene.add(hall.group);
+const DELIVERED = {
+  table: '📦 Drucktisch geliefert – an der grünen Markierung in der Halle aufstellen',
+  shelf: '📦 Neue Regalebene im Abstellraum eingebaut',
+  floor: '🏗️ Zweite Etage fertig – die Treppe ist rechts hinten in der Halle',
+  elevator: '🛗 Fahrstuhl eingebaut – neben der Treppe, Ruftaster rechts an der Tür',
+};
 upgrades.onEvent = (type, d) => {
   if (type !== 'delivered') return;
-  hud.notify(d.kind === 'table'
-    ? '📦 Drucktisch geliefert – an der grünen Markierung in der Halle aufstellen'
-    : '📦 Neue Regalebene im Abstellraum eingebaut', 'good');
+  hud.notify(DELIVERED[d.kind], 'good');
   sound.play('pop');
 };
+
+// Zweite Etage mit Treppe und Fahrstuhl (Ausbau) – baut sich selbst, sobald sie geliefert ist
+const screenFade = createScreenFade();
+let playerLevel = 0;  // Stockwerk der Spielfigur: 0 = Halle, 1 = zweite Etage
+let groundY = 0;      // Bodenhöhe unter der Spielfigur (auf der Treppe dazwischen)
+let eyeHeight = EYE_HEIGHT;
+const upperFloor = createUpperFloor({ upgrades, collision, room, outdoor, onRide: rideElevator });
+scene.add(upperFloor.group);
+
+// Fahrstuhl: kurz abblenden, auf dem anderen Stockwerk vor der Tür wieder auftauchen – was man trägt, fährt mit
+function rideElevator(level) {
+  screenFade.run(level ? '🛗 Fahrstuhl fährt nach oben …' : '🛗 Fahrstuhl fährt nach unten …', () => {
+    const exit = upperFloor.elevatorExit(level);
+    playerLevel = level;
+    groundY = exit.y;
+    camera.position.set(exit.x, groundY + eyeHeight, exit.z);
+  });
+}
 
 // Computertisch rechts neben dem Druckertisch, mit Bildschirm oben und PC darunter
 const computerDesk = createTable(1.4, 0.7);
@@ -471,7 +495,7 @@ const touch = createTouchControls({
   onTap: (point) => interaction.clickAt(point),
   onButton: (id) => {
     if (id === 'take') liftAimedPrinter();
-    else if (id === 'throw') throwing.throwCarried();
+    else if (id === 'throw') throwCarried();
     else if (id === 'return') carry.returnToStorage();
     // wie das Mausrad: am Ausstellungsregal das nächste Teil, sonst die nächste Spule in der Hand
     else if (id === 'cycle' && !displayWall.cycle(1, interaction.current?.owner)) carry.cycle(1);
@@ -584,7 +608,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
+  targets: [room, upperFloor.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
 
 interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
@@ -613,7 +637,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
   if (e.code === 'KeyE' && !e.repeat && controls.isLocked) liftAimedPrinter();
-  if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwing.throwCarried();
+  if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwCarried();
   if (e.code === 'KeyM' && !e.repeat && !shop.isOpen()) {
     sound.toggleMute();
     hud.notify(sound.muted ? '🔇 Ton aus' : '🔊 Ton an', 'info');
@@ -625,12 +649,20 @@ window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear()); // sonst bleibt z. B. C nach einem Fensterwechsel „gedrückt“
 
+// Werfen nur in der Halle – von der zweiten Etage fiele der Drucker durch die Decke
+function throwCarried() {
+  if (playerLevel) hud.notify('Von hier oben lieber nichts werfen – erst runter in die Halle', 'info');
+  else throwing.throwCarried();
+}
+
 function updateMovement(dt) {
   if (!playing()) return;
   // Schleichen: nur solange C gedrückt ist (Tablet: Knopf an/aus) – Kamera gleitet weich nach unten bzw. wieder hoch
   const sneaking = isTablet() ? touch.sneak : keys.has('KeyC');
   const eye = sneaking ? SNEAK_EYE_HEIGHT : EYE_HEIGHT;
-  camera.position.y += (eye - camera.position.y) * Math.min(1, CROUCH_RATE * dt);
+  eyeHeight += (eye - eyeHeight) * Math.min(1, CROUCH_RATE * dt);
+  camera.position.y = groundY + eyeHeight;
+  if (screenFade.busy) return; // im Fahrstuhl
 
   const forward = isTablet() ? touch.move.y : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
   const right = isTablet() ? touch.move.x : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
@@ -646,8 +678,13 @@ function updateMovement(dt) {
   for (let i = 0; i < steps; i++) {
     controls.moveForward((forward / len) * speed * (moveDt / steps));
     controls.moveRight((right / len) * speed * (moveDt / steps));
-    collision.resolve(camera.position, PLAYER_RADIUS);
+    collision.resolve(camera.position, PLAYER_RADIUS, playerLevel);
+    // Treppe: Boden steigt mit, ab halber Höhe gilt die zweite Etage
+    const foot = upperFloor.footing(camera.position.x, camera.position.z, playerLevel);
+    playerLevel = foot.level;
+    groundY = foot.y;
   }
+  camera.position.y = groundY + eyeHeight;
 }
 
 const graphics = setupGraphics(renderer, scene, camera, quality);
@@ -661,7 +698,7 @@ interaction.targets.push(hallLights.group);
 // (jede Lampe zeichnet dafür die Szene sechsmal) ließ das Bild beim Kurvenlaufen ruckeln.
 const staleShadows = new Set();
 const culling = createRoomCulling(camera, {
-  hall: [room, hall.group, workshop.group, computerDesk],
+  hall: [room, upperFloor.group, hall.group, workshop.group, computerDesk],
   storage: [storage.group],
   office: [office.group],
   entrance: [entrance.group, receptionDesk.group],
@@ -682,6 +719,8 @@ function precompileShaders() {
   }, 50);
 }
 economy.subscribe(precompileShaders); // sofort und wenn neue Drucker, Teile, Spaghetti … dazukommen
+upgrades.subscribe(precompileShaders); // zweite Etage, Fahrstuhl
+upgrades.subscribe(() => graphics.refreshStaticShadows());
 economy.subscribe(() => { // z. B. neue Kartons im Lager
   graphics.refreshStaticShadows();
   for (const name of ['hall', 'storage', 'office', 'entrance']) staleShadows.add(name);

@@ -1,5 +1,7 @@
-// Druckermenü (Reiter ganz rechts im PC-Fenster): Drucker steuern – Vorlage wählen, Geschwindigkeit,
-// Start/Pause/Abbrechen, fertiges Teil entnehmen. Der Laser R1 hat eine eigene Karte (Platte, Text oder Motiv, Vorschau).
+// Druckermenü (PC-App): links eine kompakte Liste aller Drucker (Vorschaubild, Status, Fortschritt, Restzeit),
+// rechts die Details des gewählten Druckers. Läuft ein Druck, zeigt sie das Teil groß mit Fortschritt; ist der
+// Drucker bereit, wählt man Filament, Vorlage (Bildergalerie), Farben, Anzahl und Tempo und startet. Zeiten stehen in
+// echter Zeit. Der Laser R1 hat eine eigene Detailkarte (Platte, Text oder Motiv, Vorschau).
 import {
   FAILURES, LASER_MOTIFS, LASER_TEMPLATES, LASER_TEXT_MAX, LED_COLORS, PRINT_TEMPLATES, filamentById, filamentColorName,
   filamentLabel, templateById, speedById, speedModesFor, woodById,
@@ -33,9 +35,15 @@ export function formatMinutes(minutes) {
   return h ? `${h} h ${m} min` : `${m} min`;
 }
 
+// Spielminuten als echte Zeit („5 min“)
+export const realTime = (gameMinutes) => formatMinutes(gameMinutes / GAME_MINUTES_PER_SECOND / 60);
+
+const hexOf = (filamentId) => (filamentId ? filamentById(filamentId)?.hex ?? null : null);
+
 export function createPrinterMenu(economy) {
   const selectedTemplate = new Map(); // Drucker-ID → gewählte Vorlage (nur Anzeige-Zustand)
   const selectedCount = new Map();    // Drucker-ID → gewünschte Anzahl Teile auf der Platte
+  let selectedPrinter = null;         // Drucker-ID in der Detailansicht (nur Anzeige-Zustand)
 
   // Gewählte Anzahl, begrenzt auf das, was auf die Platte passt (mindestens 1)
   function countFor(p, template) {
@@ -73,14 +81,67 @@ export function createPrinterMenu(economy) {
     };
   }
 
-  function templateOptions(p, selectedId) {
+  const jobName = (job) => {
+    const count = job.pieces ?? job.count ?? 1;
+    return job.laser ? laserJobLabel(job) : `${count > 1 ? `${count} × ` : ''}${templateById(job.templateId).name}`;
+  };
+  const realLeft = (p) => realTime(economy.remainingMinutes(p));
+
+  // Kurzer Status für die Liste links
+  function rowStatus(p) {
+    if (p.location === 'shipping') return { text: `Unterwegs · ${Math.ceil(p.arriveIn)} s`, cls: 'idle' };
+    if (p.location === 'floor') return { text: 'Liegt auf dem Boden', cls: 'idle' };
+    if (p.location === 'storage') return { text: 'Im Abstellraum', cls: 'idle' };
+    if (p.location === 'carried') return { text: 'Wird getragen', cls: 'idle' };
+    const job = p.job;
+    if (!job && p.clogged) return { text: 'Düse verstopft', cls: 'failed' };
+    if (!job) return { text: 'Bereit', cls: 'ready' };
+    const pct = Math.floor(job.progress * 100);
+    if (job.status === 'done') return { text: 'Fertig – entnehmen', cls: 'done' };
+    if (job.status === 'failed') return { text: `Fehldruck bei ${pct} %`, cls: 'failed' };
+    if (job.pauseReason === 'filament') return { text: `Filament leer · ${pct} %`, cls: 'paused' };
+    if (job.pauseReason === 'waste') return { text: `Mülleimer voll · ${pct} %`, cls: 'paused' };
+    if (job.status === 'paused') return { text: `Pausiert · ${pct} %`, cls: 'paused' };
+    return { text: `${pct} % · ${realLeft(p)}`, cls: 'printing' };
+  }
+
+  // Vorschaubild einer Vorlage in Farben (eine Farbe pro Teil der Form; fehlende Farben grau)
+  function templateImage(template, hexes) {
+    const n = Math.max(1, colorCount(template));
+    return renderPartPreview(template, Array.from({ length: n }, (_, i) => hexes[i] ?? hexes[0] ?? null));
+  }
+
+  // Bild des Teils, das gerade gedruckt wird bzw. fertig ist
+  function jobImage(job) {
+    if (job.laser) return null;
+    return templateImage(templateById(job.templateId), partColors(job).map(hexOf));
+  }
+
+  // Farben, in denen eine Vorlage auf diesem Drucker gedruckt würde (für die Bilder in der Galerie)
+  function plannedHexes(p, template) {
+    const active = hexOf(economy.activeSpool(p)?.filamentId);
+    if (colorCount(template) < 2 || p.spools.length < 2) return [active];
+    return economy.colorSlots(p, template).map((slot) => hexOf(p.spools[slot]?.filamentId) ?? active);
+  }
+
+  // Vorlagen als Bildergalerie; was gerade nicht geht, ist abgedunkelt und nennt den Grund
+  function templateGallery(p, selectedId) {
     const speed = speedById(p.speedId).percent / 100;
-    return PRINT_TEMPLATES.map((t) => {
-      const problem = p.job ? null : economy.printProblem(p, t);
-      const name = isTwoColor(t) ? `🎨 ${t.name} (zweifarbig)` : isMultiColor(t) ? `🌈 ${t.name} (${t.colors} Farben)` : t.name;
-      const label = `${name} · ${Math.round(economy.jobGrams(p, t))} g · ${formatMinutes(economy.jobMinutes(p, t) / speed)} · ${t.materials.join('/')}${problem ? ` – ${problem}` : ''}`;
-      return `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${label}</option>`;
+    const tiles = PRINT_TEMPLATES.map((t) => {
+      const problem = economy.printProblem(p, t);
+      const image = templateImage(t, plannedHexes(p, t));
+      const colors = isTwoColor(t) ? '🎨 2 Farben' : isMultiColor(t) ? `🌈 ${t.colors} Farben` : '';
+      return `
+        <button class="pm-tile${t.id === selectedId ? ' chosen' : ''}${problem ? ' blocked' : ''}" data-pick-template="${t.id}"
+          title="${escapeHtml(problem ?? `${t.name}: ${t.materials.join('/')}`)}">
+          ${image ? `<img src="${image}" alt="">` : '<span class="pm-tile-noimg">🧩</span>'}
+          <span class="pm-tile-name">${t.name}</span>
+          <span class="pm-tile-meta">${Math.round(economy.jobGrams(p, t))} g · ${realTime(economy.jobMinutes(p, t) / speed)}</span>
+          <span class="pm-tile-meta">${colors || t.materials.join(' / ')}</span>
+          ${problem ? `<span class="pm-tile-problem">${escapeHtml(problem)}</span>` : ''}
+        </button>`;
     }).join('');
+    return `<div class="field">Druckvorlage<div class="pm-gallery">${tiles}</div></div>`;
   }
 
   function actions(p, template) {
@@ -113,7 +174,7 @@ export function createPrinterMenu(economy) {
     const risk = Math.round(economy.failureRisk(p, template, spoolNow, count) * 100);
     const speed = speedById(p.speedId).percent / 100;
     const total = count > 1
-      ? `<div class="risk info">Platte: ${count} × ${template.name} · ${Math.round(economy.jobGrams(p, template, count))} g · ${formatMinutes(economy.jobMinutes(p, template, count) / speed)}`
+      ? `<div class="risk info">Platte: ${count} × ${template.name} · ${Math.round(economy.jobGrams(p, template, count))} g · ${realTime(economy.jobMinutes(p, template, count) / speed)}`
         + ' – ein Fehldruck trifft alle Teile</div>'
       : '';
     const level = risk >= 30 ? 'high' : risk >= 12 ? 'mid' : 'low';
@@ -296,33 +357,74 @@ export function createPrinterMenu(economy) {
     cardEl.querySelector('[data-laser-actions]').innerHTML = laserActions(p, template, choice);
   }
 
-  function card(p) {
-    if (isLaser(p)) return laserCard(p);
-    const onTable = p.location === 'table';
-    const status = statusOf(p);
-    const templateId = p.job?.templateId ?? selectedTemplate.get(p.id) ?? PRINT_TEMPLATES[0].id;
-    const template = templateById(templateId);
+  // Filament: bei AMS die Fächer zum Auswählen, sonst die eine Spule
+  function filamentField(p) {
     const spoolLabel = (spool) => {
       if (!spool) return 'leer';
       const f = filamentById(spool.filamentId);
       const wet = spool.moisture >= WET ? ' · 💧 feucht' : '';
       return `<span class="dot" style="--c:${f.hex}"></span>${filamentLabel(f)} · ${Math.round(spool.grams)} g${wet}`;
     };
-    // AMS: Fach auswählen, aus dem gedruckt wird. Ohne AMS: nur die eine Spule anzeigen.
-    const canPick = onTable && !economy.isBusy(p) && !p.job;
-    const filament = p.spools.length > 1
-      ? `<div class="ams-slots">${p.spools.map((s, i) => `
+    if (p.spools.length > 1) {
+      const canPick = p.location === 'table' && !economy.isBusy(p) && !p.job;
+      return `<div class="field">Filament (AMS)<div class="ams-slots">${p.spools.map((s, i) => `
           <button data-ams-slot="${i}" class="${i === p.activeSlot ? 'active' : ''}" ${canPick ? '' : 'disabled'}>
             <small>Fach ${i + 1}</small>${spoolLabel(s)}
-          </button>`).join('')}</div>`
-      : `<dl class="specs"><dt>Filament</dt><dd>${p.spools[0] ? spoolLabel(p.spools[0]) : 'Keine Spule eingelegt'}</dd></dl>`;
+          </button>`).join('')}</div></div>`;
+    }
+    return `<dl class="specs"><dt>Filament</dt><dd>${p.spools[0] ? spoolLabel(p.spools[0]) : 'Keine Spule eingelegt'}</dd></dl>`;
+  }
+
+  function speedField(p) {
+    const onTable = p.location === 'table';
     const speeds = speedModesFor(p.model).map((s) => `
       <button data-speed="${s.id}" class="${s.id === p.speedId ? 'active' : ''}" ${onTable ? '' : 'disabled'}>
         ${s.name}<small>${s.percent} %</small>
       </button>`).join('');
+    return `<div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>`;
+  }
 
+  // Laufender, pausierter, fertiger oder fehlgeschlagener Druck: Teil groß, Fortschritt, Restzeit
+  function jobPanel(p) {
+    const job = p.job;
+    const image = jobImage(job);
+    const pct = Math.floor(job.progress * 100);
+    const left = job.status === 'printing' ? `noch ${realLeft(p)}` : rowStatus(p).text;
     return `
-      <div class="card control" data-printer="${p.id}">
+      <div class="pm-job ${rowStatus(p).cls}">
+        ${image ? `<img class="pm-job-image" src="${image}" alt="">` : '<div class="pm-job-image pm-tile-noimg">🔥</div>'}
+        <div class="pm-job-info">
+          <div class="pm-job-name">${colorDots(partColors(job))}${escapeHtml(jobName(job))}</div>
+          <div class="pm-job-pct" data-pct>${pct} %</div>
+          <div class="pm-job-left" data-remaining>${escapeHtml(left)}</div>
+          <div class="progress"><div class="bar" data-bar style="width:${job.progress * 100}%"></div></div>
+        </div>
+      </div>`;
+  }
+
+  // Detailansicht eines Druckers
+  function card(p) {
+    if (isLaser(p)) return laserCard(p);
+    const onTable = p.location === 'table';
+    const status = statusOf(p);
+    const templateId = p.job?.templateId ?? selectedTemplate.get(p.id) ?? PRINT_TEMPLATES[0].id;
+    const template = templateById(templateId);
+    const body = !onTable
+      ? ''
+      : p.job
+        ? `${jobPanel(p)}
+          <div class="card-foot actions">${actions(p, template)}</div>
+          ${filamentField(p)}
+          ${speedField(p)}`
+        : `${filamentField(p)}
+          ${templateGallery(p, templateId)}
+          ${colorField(p, template)}
+          ${countField(p, template)}
+          ${speedField(p)}
+          ${riskInfo(p, template)}
+          <div class="card-foot actions">${actions(p, template)}</div>`;
+    return `
+      <div class="card control pm-detail-card" data-printer="${p.id}">
         <div class="card-head">
           <div>
             <div class="card-title">${p.model.name}</div>
@@ -330,36 +432,54 @@ export function createPrinterMenu(economy) {
           </div>
         </div>
         <div class="status ${status.cls}" data-status>${escapeHtml(status.text)}</div>
-        <div class="progress"><div class="bar" data-bar style="width:${(p.job?.progress ?? 0) * 100}%"></div></div>
-        ${filament}
-        ${nozzleInfo(p)}
-        ${ledField(p)}
-        <label class="field">Druckvorlage
-          <select data-template ${onTable && !p.job ? '' : 'disabled'}>${templateOptions(p, templateId)}</select>
-        </label>
-        ${onTable && !p.job ? colorField(p, template) : ''}
-        ${onTable && !p.job ? countField(p, template) : ''}
-        <div class="field">Geschwindigkeit<div class="speeds">${speeds}</div></div>
-        ${onTable && !p.job ? riskInfo(p, template) : ''}
-        <div class="card-foot actions">${actions(p, template)}</div>
+        ${body}
+        ${onTable ? `${nozzleInfo(p)}${ledField(p)}` : ''}
       </div>`;
+  }
+
+  // Zeile in der Liste links
+  function row(p, selected) {
+    const status = rowStatus(p);
+    const image = p.job ? jobImage(p.job) : null;
+    const thumb = image
+      ? `<img src="${image}" alt="">`
+      : `<span>${isLaser(p) ? '🔥' : p.location === 'table' ? '🖨️' : '📦'}</span>`;
+    return `
+      <button class="pm-row ${status.cls}${selected ? ' selected' : ''}" data-select="${p.id}" data-row="${p.id}">
+        <span class="pm-row-thumb">${thumb}</span>
+        <span class="pm-row-text">
+          <span class="pm-row-name">${p.model.name}${p.location === 'table' ? ` <small>Platz ${p.slot + 1}</small>` : ''}</span>
+          <span class="pm-row-status" data-row-status>${escapeHtml(status.text)}</span>
+          <span class="progress"><span class="bar" data-row-bar style="width:${(p.job?.progress ?? 0) * 100}%"></span></span>
+        </span>
+      </button>`;
   }
 
   function render() {
     const parts = economy.partsList()
       .map((x) => `${colorDots(partColors(x))}${templateById(x.templateId).name} × ${x.count}`)
       .join(' ') || 'noch keine';
-    const gameSeconds = Math.round(GAME_MINUTES_PER_SECOND * 60);
-    const intro = `<p class="slots">Spielzeit: 1 echte Sekunde = ${gameSeconds} Sekunden im Spiel · Fertige Teile: <strong>${parts}</strong></p>`;
+    const intro = `<p class="slots">Fertige Teile: <strong>${parts}</strong> · Zeiten in echter Zeit</p>`;
     if (!economy.printers.length) {
       return `${intro}<p class="empty">Noch keine Drucker. Kauf einen im Drucker-Shop, hol den Karton aus dem Abstellraum und stell ihn auf den Druckertisch.</p>`;
     }
     const sorted = [...economy.printers].sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
-    return `${intro}<div class="grid control-grid">${sorted.map(card).join('')}</div>`;
+    const selected = sorted.find((p) => p.id === selectedPrinter) ?? sorted[0];
+    selectedPrinter = selected.id;
+    return `${intro}
+      <div class="pm-layout">
+        <nav class="pm-list" aria-label="Drucker">${sorted.map((p) => row(p, p === selected)).join('')}</nav>
+        <section class="pm-detail">${card(selected)}</section>
+      </div>`;
   }
 
   // Klicks im Menü. Zustandsänderungen laufen über economy und lösen dadurch ein Neuzeichnen aus.
   function handleClick(e) {
+    const select = e.target.closest('[data-select]')?.dataset.select;
+    if (select) {
+      selectedPrinter = Number(select);
+      return true; // nur Anzeige: neu zeichnen
+    }
     const cardEl = e.target.closest('[data-printer]');
     if (!cardEl) return;
     const id = Number(cardEl.dataset.printer);
@@ -367,6 +487,11 @@ export function createPrinterMenu(economy) {
     if (motif) {
       choiceFor(economy.printerById(id)).motif = motif;
       return true; // nur Anzeige: neu zeichnen
+    }
+    const pick = e.target.closest('[data-pick-template]')?.dataset.pickTemplate;
+    if (pick) {
+      selectedTemplate.set(id, pick);
+      return true;
     }
     const led = e.target.closest('[data-led]')?.dataset.led;
     if (led) {
@@ -413,10 +538,6 @@ export function createPrinterMenu(economy) {
       choiceFor(economy.printerById(id)).templateId = e.target.value;
       return true;
     }
-    if (e.target.closest('[data-template]')) {
-      selectedTemplate.set(id, e.target.value);
-      return true;
-    }
     if (e.target.closest('[data-count]')) {
       selectedCount.set(id, Number(e.target.value));
       return true;
@@ -426,6 +547,14 @@ export function createPrinterMenu(economy) {
 
   // Fortschritt laufender Drucke aktualisieren, ohne das ganze Menü neu aufzubauen
   function liveUpdate(container) {
+    for (const rowEl of container.querySelectorAll('[data-row]')) {
+      const p = economy.printerById(Number(rowEl.dataset.row));
+      if (!p?.job) continue;
+      const status = rowStatus(p);
+      rowEl.querySelector('[data-row-status]').textContent = status.text;
+      rowEl.className = `pm-row ${status.cls}${p.id === selectedPrinter ? ' selected' : ''}`;
+      rowEl.querySelector('[data-row-bar]').style.width = `${p.job.progress * 100}%`;
+    }
     for (const cardEl of container.querySelectorAll('[data-printer]')) {
       const p = economy.printerById(Number(cardEl.dataset.printer));
       if (!p?.job) continue;
@@ -434,6 +563,10 @@ export function createPrinterMenu(economy) {
       statusEl.textContent = status.text;
       statusEl.className = `status ${status.cls}`;
       cardEl.querySelector('[data-bar]').style.width = `${p.job.progress * 100}%`;
+      const pct = cardEl.querySelector('[data-pct]');
+      if (pct) pct.textContent = `${Math.floor(p.job.progress * 100)} %`;
+      const left = cardEl.querySelector('[data-remaining]');
+      if (left) left.textContent = p.job.status === 'printing' ? `noch ${realLeft(p)}` : rowStatus(p).text;
     }
   }
 

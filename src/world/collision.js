@@ -1,5 +1,6 @@
 // Einfache Kollision für die Spielfigur: Spieler als Kreis auf dem Boden (XZ-Ebene),
-// Hindernisse als achsenparallele Rechtecke { minX, maxX, minZ, maxZ }.
+// Hindernisse als achsenparallele Rechtecke { minX, maxX, minZ, maxZ, level? }. level: Stockwerk (0 = Erdgeschoss,
+// 1 = zweite Etage, siehe world/upper-floor.js) – ohne Angabe gilt das Hindernis im Erdgeschoss.
 import * as THREE from 'three';
 
 export class CollisionWorld {
@@ -28,8 +29,9 @@ export class CollisionWorld {
 
   // Schiebt position (Vector3, nur x/z) aus allen Hindernissen heraus. Entlang der Kante
   // bleibt die Bewegung erhalten, man rutscht also an Tischen und Wänden entlang.
-  resolve(position, radius) {
-    const all = [this.boxes, ...this.dynamic.values()].flat();
+  // level: Stockwerk, auf dem die Figur gerade läuft
+  resolve(position, radius, level = 0) {
+    const all = [this.boxes, ...this.dynamic.values()].flat().filter((b) => (b.level ?? 0) === level);
     for (let pass = 0; pass < 2; pass++) {
       for (const b of all) {
         const nearestX = THREE.MathUtils.clamp(position.x, b.minX, b.maxX);
