@@ -55,7 +55,8 @@ und ihnen nachschreiben, Ergebnisse gegenlesen, dem Nutzer berichten. **Er ände
   referenziert ist (`Fixes #n`).
 - Auf dem Mac ist die `gh`-CLI angemeldet (`gh issue create -R DerProCoder/3d-drucker-center …`); sie braucht kein
   lokales git. `git` direkt über `/Library/Developer/CommandLineTools/usr/bin/git` aufrufen – das normale `git` hängt
-  an einem defekten Xcode-Pfad. Auf dem Windows-Rechner ohne `gh` geht es über die REST-API.
+  an einem defekten Xcode-Pfad. Pushen mit der Anmeldung der `gh`-CLI (sonst fehlt das Passwort):
+  `git -c credential.helper= -c 'credential.helper=!/usr/local/bin/gh auth git-credential' push origin main`. Auf dem Windows-Rechner ohne `gh` geht es über die REST-API.
 
 **Auftrag an einen Subagent enthält immer**
 - Ziel in ein, zwei Sätzen und wie das Ergebnis aussehen soll.
