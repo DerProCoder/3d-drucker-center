@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { RECEPTION_WAGE } from '../core/staff.js';
 import { createPerson } from '../models/people.js';
 import { RECEPTION_SPOTS } from './reception.js';
-import { createNameTag } from './workers.js';
+import { createNameTag } from '../models/name-tag.js';
 
 const GREET_SECONDS = 1.6;   // winken
 const TYPE_SECONDS = 1.8;    // Auftrag in den Rechner tippen, dann ist er angenommen

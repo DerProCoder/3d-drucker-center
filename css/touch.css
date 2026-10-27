@@ -1,0 +1,290 @@
+/* Tablet-Steuerung und Anpassungen für Touch, Tablet und Handy. Die Media-Queries überschreiben Regeln aus
+   den vorher geladenen Dateien und müssen deshalb nach ihnen geladen werden (Reihenfolge siehe index.html). */
+
+/* ---------- Tablet-Steuerung (ui/touch-controls.js) ---------- */
+
+canvas { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+#start-overlay [hidden] { display: none !important; }
+
+#touch-ui { position: fixed; inset: 0; z-index: 12; pointer-events: none; -webkit-user-select: none; user-select: none; }
+#touch-ui.hidden { display: none; }
+
+/* Joystick erscheint dort, wo der Daumen aufsetzt */
+.touch-stick {
+  position: absolute;
+  width: 128px;
+  height: 128px;
+  margin: -64px 0 0 -64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.35);
+}
+.touch-stick.hidden { display: none; }
+.touch-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.touch-pause {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top, 0px));
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: #fff;
+  font-size: 1.3rem;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.touch-buttons {
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right, 0px));
+  bottom: calc(110px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+}
+.touch-btn {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: #fff;
+  font-family: inherit;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.touch-btn span { font-size: 1.6rem; line-height: 1; margin-top: 8px; }
+.touch-btn small { font-size: 0.62rem; opacity: 0.8; margin-bottom: 8px; }
+.touch-btn.hidden { display: none; }
+.touch-btn.on { background: var(--accent); border-color: var(--accent); }
+.touch-btn:active, .touch-pause:active { transform: scale(0.93); }
+
+/* Frage beim ersten Start: Über welches Gerät spielst du? */
+.title-device p { margin: 18px 0 12px; font-weight: 600; font-size: 1.05rem; }
+.title-device-choices { display: flex; gap: 14px; justify-content: center; }
+.title-device-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 150px;
+  padding: 16px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: 700 1.1rem var(--font-display);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.title-device-choices button span { font-size: 2rem; }
+.title-device-choices button small { font: 400 0.75rem 'Inter', system-ui, sans-serif; opacity: 0.7; }
+.title-device-choices button.suggested { border-color: var(--accent); box-shadow: 0 0 16px rgba(58, 160, 255, 0.35); }
+.title-device-choices button:hover { background: rgba(255, 255, 255, 0.12); }
+.title-quality + .title-quality { margin-top: 10px; }
+
+/* ---------- Touch, Tablet und Handy ---------- */
+
+/* Beim Spielen mit Touch-Steuerung sitzt rechts oben der Pause-Knopf: Meldungen rutschen darunter */
+body.touch-active #feed { top: calc(78px + env(safe-area-inset-top, 0px)); }
+.hud-label-text { white-space: nowrap; }
+
+/* Touch: größere Tippflächen, kein eigener Mauszeiger, keine Hover-Effekte, die hängen bleiben */
+@media (pointer: coarse) {
+  #shop, #shop * { cursor: auto !important; }
+  .buy, .secondary, .danger { min-height: 40px; padding: 8px 16px; }
+  .secondary.small { min-height: 32px; }
+  .speeds button, .ams-slots button { min-height: 44px; }
+  .color-options button { min-height: 36px; padding: 4px 10px; }
+  .cam-tab, .seg { min-height: 38px; }
+  .field select, .field input.laser-text { min-height: 42px; font-size: 16px; } /* 16px: iOS zoomt sonst hinein */
+  .shop-close { width: 46px; height: 40px; font-size: 1.15rem; }
+  .tech-specs summary { padding: 6px 0; }
+  .taskbar-app { width: 48px; height: 44px; }
+  .desktop-icon:hover { background: transparent; border-color: transparent; }
+  .desktop-icon:active { background: rgba(255, 255, 255, 0.16); }
+}
+
+/* PC-Fenster auf Tablets und Handys: über den ganzen Bildschirm statt schwebend */
+@media (max-width: 900px), (max-height: 600px) {
+  .shop-window, .shop-window.small {
+    top: env(safe-area-inset-top, 0px);
+    left: env(safe-area-inset-left, 0px);
+    right: env(safe-area-inset-right, 0px);
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    height: auto;
+    transform: none;
+    border-radius: 0;
+    border: 0;
+    animation: window-in-full 0.15s ease-out;
+  }
+  .taskbar { gap: 8px; padding-bottom: env(safe-area-inset-bottom, 0px); box-sizing: content-box; }
+  /* Apps nicht mittig über allem, sondern neben „PC verlassen“ und bei Bedarf waagrecht scrollbar */
+  .taskbar-apps {
+    position: static;
+    flex: 1;
+    min-width: 0;
+    transform: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .taskbar-apps::-webkit-scrollbar { display: none; }
+  .taskbar-app { flex: none; }
+  .taskbar-start { flex: none; margin: 0 4px; } /* bleibt: dreimal tippen öffnet das Entwicklermenü */
+  .shop-content { padding: 12px; }
+}
+@keyframes window-in-full { from { opacity: 0; transform: translateY(12px); } }
+
+/* Handy (schmal oder quer und niedrig): kompaktes Layout */
+@media (max-width: 700px), (max-height: 500px) {
+  /* HUD als schmale Leiste: Level, Kontostand, Uhrzeit und Aufträge in einer Zeile */
+  #hud {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    left: calc(8px + env(safe-area-inset-left, 0px));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    width: auto;
+    max-width: calc(100vw - 90px); /* rechts bleibt Platz für den Pause-Knopf */
+    box-sizing: border-box;
+    padding: 6px 12px 6px 6px;
+    border-radius: 12px;
+  }
+  .hud-level { margin: 0; gap: 0; }
+  .hud-level-badge { width: 30px; height: 30px; border-radius: 9px; font-size: 1.1rem; box-shadow: 0 0 10px rgba(110, 120, 255, 0.45); }
+  .hud-level-info { display: none; }
+  .hud-money { padding: 0; border: 0; }
+  .hud-money-value { font-size: 1.35rem; }
+  .hud-popup { top: 22px; font-size: 0.95rem; }
+  .hud-row { gap: 4px; font-size: 0.8rem; line-height: 1.2; }
+  .hud-label { opacity: 0.85; }
+  .hud-label-text, .hud-costs { display: none; }
+  .hud-warning { flex-basis: 100%; margin-top: 2px; padding: 4px 8px; font-size: 0.7rem; }
+
+  #feed {
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    right: calc(8px + env(safe-area-inset-right, 0px));
+    gap: 6px;
+    width: min(320px, calc(100vw - 16px));
+  }
+  body.touch-active #feed { top: calc(64px + env(safe-area-inset-top, 0px)); }
+  .feed-item { padding: 7px 10px; font-size: 0.78rem; border-radius: 8px; }
+
+  #interact-hint { top: calc(50% + 20px); padding: 5px 10px; font-size: 0.78rem; border-radius: 12px; }
+  /* Unten links: rechts stehen die Touch-Knöpfe */
+  #carry-info {
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    transform: none;
+    max-width: min(520px, calc(100vw - 170px));
+    text-align: left;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    border-radius: 12px;
+  }
+  #save-indicator { display: none; } /* kein Platz – gespeichert wird ohnehin alle paar Sekunden automatisch */
+
+  #levelup { top: 16%; padding: 14px 20px 12px; }
+  .levelup-level { font-size: 2.4rem; }
+  .levelup-title { font-size: 1.15rem; }
+  .levelup-perks { font-size: 0.75rem; }
+  #achievement { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); padding: 8px 14px 8px 10px; gap: 10px; }
+  .achievement-icon { font-size: 1.5rem; }
+  .achievement-name { font-size: 1.05rem; }
+
+  /* Touch-Steuerung: Knöpfe als 2er-Raster unten rechts statt hoher Säule */
+  .touch-pause { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); width: 46px; height: 46px; font-size: 1.1rem; }
+  .touch-buttons {
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    flex-direction: row-reverse;
+    flex-wrap: wrap-reverse;
+    justify-content: flex-start;
+    width: 128px;
+    gap: 8px;
+  }
+  .touch-btn { width: 60px; height: 60px; }
+  .touch-btn span { font-size: 1.35rem; margin-top: 6px; }
+  .touch-btn small { font-size: 0.56rem; margin-bottom: 6px; }
+  .touch-stick { width: 112px; height: 112px; margin: -56px 0 0 -56px; }
+
+  /* Titelbildschirm */
+  .title-card { padding: 20px 18px 16px; border-radius: 18px; }
+  .title-logo { font-size: clamp(2rem, min(9vw, 11vh), 3.4rem); }
+  .title-tagline { margin: 4px 0 14px; font-size: 0.85rem; }
+  .title-play { padding: 11px 16px; font-size: 1.15rem; }
+  .title-secondary { padding: 8px; font-size: 0.95rem; }
+  .title-quality { flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .title-quality + .title-quality { margin-top: 8px; }
+  .title-keys { gap: 6px 12px; margin-top: 12px; font-size: 0.72rem; }
+  .title-gpu { margin-top: 8px; }
+  .title-gpu.warn { padding: 8px 10px; line-height: 1.35; }
+  .title-save { margin-top: 10px; }
+  .title-device p { margin: 10px 0 8px; }
+  .title-device-choices { gap: 10px; }
+  .title-device-choices button { width: auto; flex: 1; max-width: 160px; padding: 10px 8px; }
+
+  /* PC: Taskleiste nur mit Aus-Symbol und Apps, ohne Uhr */
+  .taskbar { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); gap: 6px; }
+  .taskbar-power { flex: none; padding: 10px; }
+  .power-icon { width: 20px; height: 20px; }
+  .taskbar-power-text, .taskbar-clock { display: none; }
+
+  .desktop-icons {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: 62px;
+    flex-direction: row;
+    align-content: flex-start;
+    gap: 4px;
+    overflow-y: auto;
+  }
+  .desktop-icon { width: 84px; padding: 6px 2px; font-size: 0.78rem; }
+  .desktop-icon img { width: 42px; height: 42px; }
+
+  .shop-titlebar { padding: 4px 4px 4px 12px; }
+  .shop-title { font-size: 0.95rem; }
+  .shop-content { padding: 10px; }
+  .shop-content h3 { font-size: 0.98rem; }
+  .shop-content h3 .hint { display: block; margin: 2px 0 0; font-size: 0.78rem; }
+  .shop-content .slots { margin-bottom: 10px; font-size: 0.85rem; }
+  .grid { gap: 10px; }
+  .card { gap: 10px; padding: 12px; }
+  .specs { font-size: 0.82rem; }
+  .shop-toast { bottom: calc(62px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); box-sizing: border-box; text-align: center; }
+
+  /* Drucker im Shop: Bild klein links neben Name und Klasse statt bildschirmhoch */
+  .card.printer { display: grid; grid-template-columns: 110px 1fr; column-gap: 12px; }
+  .card.printer > .product-image { width: 110px; aspect-ratio: 1; align-self: start; }
+  .card.printer > :not(.product-image) { grid-column: 1 / -1; }
+  .card.printer > .card-head { grid-column: 2; align-self: center; }
+
+  .speeds { grid-template-columns: repeat(2, 1fr); }
+  .calc-display { min-height: 56px; font-size: 1.8rem; }
+}
+
+/* Handy quer: wenig Höhe – Bilder noch etwas kleiner */
+@media (max-height: 500px) {
+  .card.printer { grid-template-columns: 90px 1fr; }
+  .card.printer > .product-image { width: 90px; }
+}

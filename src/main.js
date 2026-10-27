@@ -40,6 +40,7 @@ import { createUpperFloor } from './world/upper-floor.js';
 import { createServerRoom } from './world/server-room.js';
 import { createRackPanel } from './ui/rack-panel.js';
 import { Servers } from './core/servers.js';
+import { ServerClimate } from './core/server-climate.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -48,6 +49,7 @@ import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
 import { createPerfOverlay } from './ui/perf-overlay.js';
 import { enableShadows } from './world/util.js';
+import { createZoom } from './world/zoom.js';
 import { mergeStatic } from './models/merge-static.js';
 import { setupGraphics, loadQuality, saveQuality, gpuInfo, antialias } from './world/graphics.js';
 
@@ -72,7 +74,8 @@ const staff = new Staff(economy);
 const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers };
+const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -413,10 +416,20 @@ const carry = new Carry(camera, economy, document.getElementById('carry-info'));
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
 // Serverschränke in der zweiten Etage – verkabelt wird hinten am Schrank, ein Klick auf den Schrank öffnet das Schrankfenster
-const serverRoom = createServerRoom({ economy, servers, carry, upgrades, collision, onOpenRack: openRack });
+const serverRoom = createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack: openRack });
 scene.add(serverRoom.group);
 servers.onEvent = (type, d) => {
   if (type === 'cables-delivered') hud.notify(`🔌 ${d.meters} m Kabel geliefert – im Vorrat`, 'good');
+};
+const CLIMATE_MESSAGES = {
+  hot: (name) => `🌡️ ${name} wird zu heiß – Lüfter im Schrankfenster hochdrehen!`,
+  cold: (name) => `❄️ ${name} wird zu kalt – Lüfter im Schrankfenster herunterdrehen!`,
+  broken: (name) => `🔥 ${name} ist überhitzt und defekt – im Schrankfenster reparieren`,
+  frozen: (name) => `🧊 ${name} ist eingefroren – aufwärmen lassen und im Schrankfenster neu starten`,
+};
+climate.onEvent = (type, d) => {
+  hud.notify(CLIMATE_MESSAGES[type](d.device.type.name), 'bad');
+  sound.play('warn');
 };
 // Ausstellungsregale an der Südwand
 const displayWall = createDisplayWall({ economy, carry, collision });
@@ -500,6 +513,7 @@ window.addEventListener('mousemove', (e) => {
     e.stopImmediatePropagation();
   }
 }, true);
+const zoom = createZoom(camera, controls, document.getElementById('zoom-info'));
 let device = loadDevice(); // 'pc' | 'tablet' | null – wird beim ersten Start gefragt
 const isTablet = () => device === 'tablet';
 const touch = createTouchControls({
@@ -608,6 +622,7 @@ const shop = createShop(economy, {
 const rackPanel = createRackPanel({
   economy,
   servers,
+  climate,
   onClose: () => {
     if (gameOver) return;
     title.showResume();
@@ -646,6 +661,7 @@ interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && controls.isLocked) interaction.click();
+  if (e.button === 1 && controls.isLocked) zoom.reset(); // mittlere Maustaste: zurück auf 1×
 });
 
 // E bzw. ✋: den Drucker, auf den man zielt, vom Tisch hochheben
@@ -655,10 +671,15 @@ function liftAimedPrinter() {
   if (printer && economy.liftPrinter(printer.id)) carry.holdPrinter(printer, { unboxed: true });
 }
 
-// Mausrad: welche Spule aus der Hand als Nächstes eingelegt wird
+// Mausrad: zoomen. Zielt man auf ein Ausstellungsregal, wählt es das nächste Teil, mit mehreren Spulen in der Hand
+// die Spule, die als Nächstes eingelegt wird – mit gedrückter Umschalttaste zoomt es immer.
 document.addEventListener('wheel', (e) => {
-  // Zielt man auf ein Ausstellungsregal, wählt das Rad das nächste Teil, sonst die Spule in der Hand
-  if (controls.isLocked && !displayWall.cycle(Math.sign(e.deltaY), interaction.current?.owner)) carry.cycle(Math.sign(e.deltaY));
+  if (!controls.isLocked) return;
+  const direction = Math.sign(e.deltaY);
+  if (e.shiftKey) zoom.wheel(e);
+  else if (displayWall.cycle(direction, interaction.current?.owner)) return;
+  else if (carry.spools.length > 1) carry.cycle(direction);
+  else zoom.wheel(e);
 });
 
 window.addEventListener('keydown', (e) => {
@@ -835,6 +856,7 @@ renderer.setAnimationLoop(() => {
       economy.advanceTime(gameMinutes);
       economy.advancePrints(gameMinutes);
       orders.advance(gameMinutes);
+      climate.advance(gameMinutes);
       gameClock.advance(gameMinutes);
       checkBankrupt();
     });

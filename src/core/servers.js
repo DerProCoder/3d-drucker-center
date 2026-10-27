@@ -11,6 +11,7 @@
 // Online-Server bringen zu jeder vollen Spielstunde Einnahmen; Strom kosten alle eingebauten Geräte
 // (economy.extraPowerPerHour, läuft mit der normalen Stromrechnung). Ohne Three.js und DOM.
 import { CABLE_ROLL, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
+import { meters } from './format.js';
 
 export const SERVER_SPOTS = 16; // Stellplätze für Schränke in der zweiten Etage
 const CABLE_SLACK = 0.3;        // m je Kabel für die Schlaufe an den Steckern
@@ -26,6 +27,8 @@ export class Servers {
     this.cableMeters = 0;   // Kabel im Vorrat in Metern
     this.deliveries = [];   // Kabelrollen unterwegs: { arriveIn (Sekunden), meters }
     this.onEvent = null;    // (type, data) => void – z. B. 'cables-delivered'
+    // Warum ein Gerät nicht arbeitet (defekt, eingefroren – core/server-climate.js setzt das), oder null
+    this.deviceProblem = () => null;
     economy.extraPowerPerHour = () => this.powerPerHour;
   }
 
@@ -53,8 +56,10 @@ export class Servers {
   // ---------- Kaufen ----------
 
   // Grund, warum man gerade nicht kaufen kann, oder null. upperFloor: ob die zweite Etage steht
-  buyProblem(price, upperFloor) {
+  // type: Karton, der in den Abstellraum muss (ohne type, z. B. Kabelrollen, zählt nur das Geld)
+  buyProblem(price, upperFloor, type = null) {
     if (!upperFloor) return 'Erst die zweite Etage bauen (Ausbau)';
+    if (type && !this.economy.roomForBox({ type })) return 'Abstellraum voll';
     if (!this.economy.canAfford(price)) return 'Zu wenig Geld';
     return null;
   }
@@ -242,7 +247,7 @@ export class Servers {
     const rack = this.economy.furnitureById(da.rackId);
     if (clips.some((c) => this.clipProblem(rack, c))) return 'Clip gehört nicht zu diesem Schrank';
     const length = this.cableLength(a, b, clips);
-    if (this.cableMeters < length) return `Zu wenig Kabel – braucht ${length.toLocaleString('de-DE')} m, im Server-Shop nachkaufen`;
+    if (this.cableMeters < length) return `Zu wenig Kabel – braucht ${meters(length)}, im Server-Shop nachkaufen`;
     return null;
   }
 
@@ -294,7 +299,7 @@ export class Servers {
     const neighbors = (device, ports) => ports.map((port) => this.peer({ id: device.id, port })).filter((p) => p?.device);
     for (const device of this.installed.filter((d) => d.type.kind === 'firewall')) {
       // WAN muss an einem Patchpanel hängen
-      if (this.peer({ id: device.id, port: 0 })?.device?.type.kind !== 'patch') continue;
+      if (this.deviceProblem(device) || this.peer({ id: device.id, port: 0 })?.device?.type.kind !== 'patch') continue;
       reached.add(device.id);
       const lan = Array.from({ length: device.type.ports - 1 }, (_, i) => i + 1);
       queue.push(...neighbors(device, lan).map((p) => p.device));
@@ -304,6 +309,7 @@ export class Servers {
       if (reached.has(device.id)) continue;
       // Nur Switches leiten weiter; Server sind Endgeräte, Patchpanel und Firewall auf LAN-Seite nicht
       if (device.type.kind !== 'server' && device.type.kind !== 'switch') continue;
+      if (this.deviceProblem(device)) continue; // defekt oder eingefroren: arbeitet nicht und leitet nicht weiter
       reached.add(device.id);
       if (device.type.kind === 'switch') {
         const all = Array.from({ length: device.type.ports }, (_, i) => i);
@@ -320,11 +326,15 @@ export class Servers {
   // Warum ein Server offline ist (für das Schrankfenster), oder null
   offlineReason(device, reached = this.reachable()) {
     if (device.type.kind !== 'server' || reached.has(device.id)) return null;
+    const problem = this.deviceProblem(device);
+    if (problem) return problem;
     const ports = Array.from({ length: device.type.ports }, (_, i) => i);
     if (!ports.some((port) => this.cableAt({ id: device.id, port }))) return 'kein Kabel';
     const firewalls = this.devicesIn(device.rackId).filter((d) => d.type.kind === 'firewall');
     if (!firewalls.length) return 'keine Firewall im Schrank';
     if (!firewalls.some((f) => this.peer({ id: f.id, port: 0 })?.device?.type.kind === 'patch')) return 'Firewall-WAN nicht am Patchpanel';
+    const down = this.devicesIn(device.rackId).find((d) => d.type.kind !== 'server' && this.deviceProblem(d));
+    if (down) return `${down.type.name} ${this.deviceProblem(down)}`;
     return 'keine Verbindung zum LAN der Firewall';
   }
 

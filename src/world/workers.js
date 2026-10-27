@@ -5,7 +5,7 @@
 // Aussehen und Animationen kommen aus models/people.js (echte Menschenfiguren, je nach Name Mann oder Frau).
 import * as THREE from 'three';
 import { ROOM_SIZE, STORAGE_DOOR } from './room.js';
-import { slotX, slotZ } from './workshop.js';
+import { slotX, slotZ } from './hall-layout.js';
 import { OFFICE_PATH, OFFICE_SPOTS, inOffice } from './office.js';
 import { ENTRANCE_PATH, inEntrance } from './entrance.js';
 import { RECEPTION_SPOTS } from './reception.js';
@@ -15,6 +15,7 @@ import { createSpool } from '../models/spool.js';
 import { createController } from '../models/office-furniture.js';
 import { createParcel } from '../models/reception-furniture.js';
 import { createPerson, peopleFor } from '../models/people.js';
+import { createNameTag } from '../models/name-tag.js';
 
 const WALK_SPEED = [1.3, 1.6];        // m/s – jeder Azubi hat sein eigenes Tempo
 const WALK_CLIP_SPEED = 1.45;         // bei diesem Tempo passt die Laufanimation genau
@@ -65,29 +66,6 @@ function route(from, to) {
   else if (inOffice(to)) points.push(...OFFICE_LANE.slice(1), officeAisle(to), to);
   else if (inEntrance(to)) points.push(ENTRANCE_PATH.inside, to);
   return points;
-}
-
-// Namensschild über dem Kopf, z. B. „Azubi Kevin“
-export function createNameTag(label) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'rgba(10, 12, 16, 0.7)';
-  ctx.beginPath();
-  ctx.roundRect(4, 8, 248, 48, 24);
-  ctx.fill();
-  ctx.fillStyle = '#7ef0a8';
-  ctx.font = '700 30px "Segoe UI", Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, 128, 33);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
-  tag.scale.set(0.6, 0.15, 1);
-  tag.raycast = () => {};
-  return tag;
 }
 
 // Unsichtbare Trefferbox: Anvisieren trifft sie statt der animierten Figur (das wäre viel teurer)

@@ -9,12 +9,14 @@
 // belegten Port zieht das Kabel ab.
 import * as THREE from 'three';
 import { SERVER_SPOTS } from '../core/servers.js';
+import { meters } from '../core/format.js';
 import { isServerHardware, portName } from '../core/server-catalog.js';
 import {
   CABLE_COLOR, FRONT_WIDTH, RACK_FOOTPRINT, UNIT, cableRoute, clipCount, clipPosition, createServerDevice, createServerRack, devicePlacement,
   portPositions,
   unitAtHeight,
 } from '../models/server-hardware.js';
+import { MAX_FAN_SPEED } from '../models/server-fans.js';
 import { FLOOR_Y } from './upper-floor.js';
 
 const PER_ROW = SERVER_SPOTS / 2;
@@ -79,7 +81,8 @@ function createCable(points, color) {
 
 // economy, servers (core/servers.js), carry: was man trägt, upgrades: ob die Etage steht,
 // collision: Schränke als Hindernis oben, onOpenRack(rackId): Schrankfenster öffnen
-export function createServerRoom({ economy, servers, carry, upgrades, collision, onOpenRack }) {
+// climate: core/server-climate.js – wie schnell sich die Lüfter drehen
+export function createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack }) {
   const group = new THREE.Group();
   group.position.y = FLOOR_Y;
   const markers = new THREE.Group();
@@ -186,7 +189,6 @@ export function createServerRoom({ economy, servers, carry, upgrades, collision,
     const device = economy.furnitureById(ref.id);
     return `${device.type.name} · ${device.type.kind === 'firewall' ? '' : 'Port '}${portName(device.type, ref.port)}`;
   };
-  const meters = (m) => `${m.toLocaleString('de-DE')} m`;
   const clipKey = (c) => `${c.side}:${c.index}`;
   const pickedRack = () => (picked ? economy.furnitureById(economy.furnitureById(picked.id).rackId) : null);
 
@@ -303,10 +305,14 @@ export function createServerRoom({ economy, servers, carry, upgrades, collision,
     };
   }
 
+  // Drehende Lüfter: { rotor, speed: () => Prozent }, beim Neuaufbau neu gesammelt
+  let fans = [];
+
   function buildRacks() {
     racks.traverse((o) => { if (!SHARED_GEOMETRY.has(o.geometry)) o.geometry?.dispose(); });
     racks.clear();
     portPos.clear();
+    fans = [];
     const reached = servers.reachable();
     const portWorld = new Map(); // `${id}:${port}` → Position im Schrank
     const rackGroups = new Map();
@@ -320,11 +326,17 @@ export function createServerRoom({ economy, servers, carry, upgrades, collision,
       door.mesh.rotation.y = -door.angle;
       door.mesh.userData.interaction = doorInteraction(rack);
       g.add(shell);
+      for (const which of ['top', 'bottom']) {
+        for (const rotor of shell.userData.fans[which]) fans.push({ rotor, speed: () => climate.rack(rack.id)[which] });
+      }
       for (const device of servers.devicesIn(rack.id)) {
         const mesh = createServerDevice(device.type, { online: servers.isOnline(device, reached) });
         const at = devicePlacement(rack.type, device.unit, device.type.units);
         mesh.position.copy(at);
         g.add(mesh);
+        // Defekte Geräte stehen still
+        const speed = () => (climate.device(device.id).status === 'broken' ? 0 : climate.device(device.id).fan);
+        for (const rotor of mesh.userData.fans) fans.push({ rotor, speed });
         portPositions(device.type).forEach((p, port) => portWorld.set(`${device.id}:${port}`, at.clone().add(new THREE.Vector3(p.x, p.y, p.z))));
       }
       // Unsichtbare Zielfläche genau in der Front der Höheneinheiten: Zielt man zum Einbauen in einen leeren Bereich,
@@ -395,10 +407,16 @@ export function createServerRoom({ economy, servers, carry, upgrades, collision,
     }
   }
 
+  // Lüfter drehen sich so schnell, wie sie eingestellt sind
+  function spinFans(dt) {
+    for (const fan of fans) fan.rotor.rotation.z -= (fan.speed() / 100) * MAX_FAN_SPEED * dt;
+  }
+
   function update(dt = 0) {
     group.visible = upgrades.upperFloor;
     if (!group.visible) return;
     animateDoors(dt);
+    spinFans(dt);
     const carrying = carryingRack();
     if (carrying !== lastCarrying || dirty) {
       lastCarrying = carrying;

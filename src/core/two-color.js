@@ -6,7 +6,7 @@
 // Spülabfall und noch etwas schneller als zwei feste Düsen. Verstopft eine, nimmt er eine Ersatzdüse.
 // Ohne AMS (nur ein Spulenhalter) geht es gar nicht. Beide Farben müssen verschieden sein.
 // Bewusst ohne Three.js und DOM.
-import { filamentById } from './catalog.js';
+import { filamentById, filamentColorName, filamentLabel } from './catalog.js';
 
 export const DUAL_NOZZLE_TIME = 1.1;     // Düsenwechsel dauert nur ein paar Sekunden
 export const SINGLE_NOZZLE_TIME = 1.8;   // Farbwechsel mit einer Düse in jeder Schicht
@@ -25,6 +25,20 @@ export const isMultiColor = (template) => colorCount(template) > 2;
 
 // Alle Farben eines Drucks oder fertigen Teils: [Grundfarbe, …]
 export const partColors = (x) => x.filamentIds ?? [x.filamentId, x.filamentId2].filter(Boolean);
+
+// Filamente, aus denen die Materialien eines Teils entstehen (models/printed-part.js): eine Sorte für einfarbige
+// Formen, sonst eine pro Farbe
+export function partFilaments(template, colors) {
+  if (colorCount(template) < 2 || colors.length < 2) return [filamentById(colors[0])];
+  return colors.map((id) => filamentById(id));
+}
+
+// „PLA Schwarz“, zweifarbig „PLA Schwarz + Matte Weiß“, mehrfarbig „PLA in 8 Farben“
+export function colorsLabel(colors) {
+  const label = filamentLabel(filamentById(colors[0]));
+  if (colors.length > 2) return `${filamentById(colors[0]).material} in ${colors.length} Farben`;
+  return colors.length === 2 ? `${label} + ${filamentColorName(filamentById(colors[1]))}` : label;
+}
 
 // Eine Düse mit AMS (P1P, P1S, P2S, H2S): beim Farbwechsel wird die alte Farbe in einen Mülleimer hinten am
 // Drucker ausgespült. Der Spülabfall (Anteil PURGE_SHARE vom Verbrauch zwei- und mehrfarbiger Drucke) sammelt sich

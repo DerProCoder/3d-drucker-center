@@ -44,7 +44,7 @@ function merge(geos) {
 }
 
 // Zweifarbige Teile: eine Geometrie mit zwei Gruppen – Gruppe 0 in der Grundfarbe, Gruppe 1 in der Akzentfarbe.
-// Das Mesh bekommt dafür zwei Materialien (siehe world/workshop.js).
+// Das Mesh bekommt dafür zwei Materialien (siehe models/printed-part.js).
 function twoTone(base, accent) {
   return mergeGeometries([merge(base), merge(accent)], true);
 }

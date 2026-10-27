@@ -9,7 +9,7 @@ import {
 } from '../core/catalog.js';
 import { DISPLAY_SPOTS, freeDisplaySpots } from '../core/display-shelf.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
-import { WOOD_STOCK_MAX } from '../core/economy.js';
+import { CARRY_ALL_MAX, WOOD_STOCK_MAX } from '../core/economy.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
@@ -19,8 +19,8 @@ import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { createSnakeApp } from './snake-app.js';
 import { createServerShop } from './server-shop.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
+import { euro } from '../core/format.js';
 
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 // Geschwindigkeitsbereich eines Druckers, z. B. „50–166 %“
 const speedRange = (model) => {
   const percents = speedModesFor(model).map((s) => s.percent);
@@ -214,6 +214,7 @@ export function createShop(economy, {
     const cards = PRINTERS.filter((p) => !p.kind).map((p) => { // der Laser steht im Holzshop
       let blocked = null;
       if (slots <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.roomForBox({ model: p })) blocked = 'Abstellraum voll';
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
       return `
         <div class="card printer">
@@ -250,6 +251,7 @@ export function createShop(economy, {
       const wall = isWallFurniture(f);
       let blocked = null;
       if ((wall ? wallSpots : rackSlots) <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.roomForBox({ type: f })) blocked = 'Abstellraum voll';
       else if (!economy.canAfford(f.price)) blocked = 'Zu wenig Geld';
       const owned = economy.furniture.filter((x) => x.type.id === f.id).length;
       return `
@@ -282,6 +284,7 @@ export function createShop(economy, {
     const lasers = PRINTERS.filter((p) => p.kind === 'laser').map((p) => {
       let blocked = null;
       if (slots <= 0) blocked = 'Kein Platz mehr';
+      else if (!economy.roomForBox({ model: p })) blocked = 'Abstellraum voll';
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
       return `
         <div class="card printer">
@@ -394,7 +397,7 @@ export function createShop(economy, {
     }
   }
 
-  // Entwicklermenü: unendlich Geld, Geld dazu, Lieferungen sofort
+  // Entwicklermenü: unendlich Geld, Geld dazu, Lieferungen sofort, alles tragen
   function renderDev() {
     const toggle = (id, on, label, text) => `
       <div class="card dev-option">
@@ -410,6 +413,7 @@ export function createShop(economy, {
       <div class="dev-list">
         ${toggle('unlimited', economy.unlimited, '💰 Unendlich Geld', 'Alles kaufen, ohne dass Geld abgeht. Miete und Strom werden auch nicht berechnet.')}
         ${toggle('instant', economy.instantDelivery, '🚀 Lieferung sofort', 'Pakete, Tische und Regalebenen kommen ohne Wartezeit an.')}
+        ${toggle('carry', economy.carryAll, '💪 Alles tragen', `Bis zu ${CARRY_ALL_MAX} Stück auf einmal in der Hand: Kartons (Serverschränke, Server, Drucker, Regale), Filamentspulen und Holzplatten.`)}
         <div class="card dev-option">
           <div class="card-head"><div><div class="card-title">💶 Taschengeld</div><div class="card-sub">1.000 € aufs Konto</div></div></div>
           <div class="card-foot"><span class="stock"></span><button class="buy" data-dev="money">+1.000 €</button></div>
@@ -431,6 +435,10 @@ export function createShop(economy, {
       }
       economy.notify();
       toast(economy.instantDelivery ? '🚀 Lieferungen kommen sofort' : 'Lieferungen dauern wieder');
+    } else if (id === 'carry') {
+      economy.carryAll = !economy.carryAll;
+      economy.notify();
+      toast(economy.carryAll ? `💪 Bis zu ${CARRY_ALL_MAX} Stück tragen` : 'Tragen wieder normal');
     } else if (id === 'money') {
       economy.earn(1000);
       toast('+1.000 € aufs Konto');

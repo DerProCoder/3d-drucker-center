@@ -1,0 +1,204 @@
+/* Pannen, Meldungen, Erfolge sowie Apps: Snake, Drucker-Cam, Ausbau, Entwicklermenü, Personal (Ladereihenfolge siehe index.html) */
+
+/* ---------- Pannen, Meldungen, Erfolge ---------- */
+
+.hud-warning {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(181, 57, 43, 0.85);
+  font-size: 0.75rem;
+  font-weight: 600;
+  animation: pulse-warning 1.4s ease-in-out infinite;
+}
+.hud-warning.hidden { display: none; }
+@keyframes pulse-warning { 50% { background: rgba(181, 57, 43, 0.55); } }
+
+/* Meldungen rechts oben */
+#feed {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100% - 32px));
+  pointer-events: none;
+}
+.feed-item {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-left: 4px solid var(--accent);
+  font-size: 0.85rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: feed-in 0.35s cubic-bezier(0.2, 0.9, 0.2, 1);
+  transition: opacity 0.5s, transform 0.5s;
+}
+.feed-item.good { border-left-color: var(--good); }
+.feed-item.bad { border-left-color: var(--bad); }
+.feed-item.leaving { opacity: 0; transform: translateX(30px); }
+@keyframes feed-in { from { opacity: 0; transform: translateX(40px); } }
+
+/* Erfolg freigeschaltet */
+#achievement {
+  position: fixed;
+  left: 50%;
+  bottom: 90px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px 12px 14px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(60, 45, 10, 0.92), rgba(30, 24, 8, 0.92));
+  border: 1px solid var(--gold);
+  box-shadow: 0 10px 40px rgba(255, 207, 74, 0.25);
+  transform: translate(-50%, 30px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s, transform 0.4s, visibility 0.4s;
+}
+#achievement.visible { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.achievement-icon { font-size: 2rem; line-height: 1; }
+.achievement-small { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--gold); }
+.achievement-name { font-family: var(--font-display); font-size: 1.3rem; font-weight: 700; }
+.achievement-text { font-size: 0.8rem; opacity: 0.75; }
+
+/* Erfolge-App */
+.card.achievement.locked { opacity: 0.45; }
+.card.achievement.unlocked { border-color: rgba(255, 207, 74, 0.5); }
+
+/* Druckermenü: Pannen und Risiko */
+.status.failed { color: #fff; background: #b5392b; }
+.risk { font-size: 0.8rem; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); }
+.risk.low { color: #7ee08a; }
+.risk.mid { color: #f2c419; }
+.risk.high { color: #ff8a7a; background: rgba(181, 57, 43, 0.18); }
+
+/* Aufträge: Eilauftrag, Sonderwunsch, Sterne, Spruch */
+.card.order.rush { border-color: rgba(242, 196, 25, 0.6); }
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.tag.rush { background: #f2c419; color: #2a2100; }
+.tag.special { background: #9b6bff; color: #fff; }
+.tag.regular { background: #2f8f4a; color: #fff; }
+.stars { color: var(--gold); letter-spacing: 1px; }
+.order-note { margin: 0; font-size: 0.85rem; font-style: italic; opacity: 0.8; }
+
+.accessory-icon { font-size: 1.8rem; }
+
+/* Titelbildschirm: verwendete Grafikkarte, Warnung bei Software-Rendering */
+.title-gpu { margin-top: 12px; font-size: 0.75rem; opacity: 0.55; }
+.title-gpu.warn { opacity: 1; padding: 10px 12px; border-radius: 10px; background: rgba(181, 57, 43, 0.3); border: 1px solid var(--bad); line-height: 1.5; }
+
+/* Snake */
+
+.snake { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+.snake-bar { display: flex; align-items: center; gap: 16px; font-variant-numeric: tabular-nums; }
+.snake-bar button { padding: 4px 12px; }
+.snake-modes { margin-left: auto; display: flex; }
+.snake-modes button:first-child { border-radius: 6px 0 0 6px; }
+.snake-modes button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.snake-modes button.active { background: #00ae42; border-color: #00ae42; color: #fff; }
+.snake-stage { position: relative; flex: 1; min-height: 160px; display: grid; place-items: center; }
+.snake-stage canvas { border-radius: 8px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.35); }
+.snake-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(10, 14, 12, 0.55);
+  border-radius: 8px;
+}
+.snake-overlay[hidden] { display: none; }
+.snake-overlay b { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.04em; }
+.snake-overlay small { opacity: 0.7; }
+/* Steuerkreuz nur auf Touch-Geräten */
+.snake-pad { display: none; }
+@media (pointer: coarse) {
+  .snake-pad { display: grid; grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(2, 50px); gap: 6px; justify-content: center; }
+  .snake-pad button {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: #343944;
+    color: #fff;
+    font-size: 1.2rem;
+    touch-action: manipulation;
+  }
+  .snake-pad button:active { background: #4a5160; }
+  .snake-pad [data-snake-dir="up"] { grid-column: 2; }
+  .snake-pad [data-snake-dir="left"] { grid-column: 1; grid-row: 2; }
+  .snake-pad [data-snake-dir="down"] { grid-column: 2; grid-row: 2; }
+  .snake-pad [data-snake-dir="right"] { grid-column: 3; grid-row: 2; }
+}
+/* Handy quer: Steuerkreuz neben statt unter das Spielfeld */
+@media (pointer: coarse) and (max-height: 500px) {
+  .snake { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; column-gap: 12px; }
+  .snake-bar { grid-column: 1 / -1; }
+  .snake-pad { align-self: center; }
+}
+
+/* Drucker-Cam */
+
+.cam { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+.cam-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cam-tab {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #cfd6e4;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.cam-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cam-empty { opacity: 0.6; }
+.cam-view {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+}
+.risk.info { color: #cfd6e4; }
+.wear.ok { color: #7ee08a; }
+.wear.warn { color: #f2c419; }
+.wear.bad { color: #ff8a7a; font-weight: 600; }
+/* Kleiner Knopf in einer Infozeile, z. B. „Leeren“ beim Mülleimer */
+.secondary.small { margin-left: 6px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+
+/* Ausbau-App */
+
+.upgrade .steps { display: flex; gap: 6px; }
+.upgrade .step { flex: 1; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); }
+.upgrade .step.owned { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.power-note { margin-top: 16px !important; }
+
+/* Entwicklermenü (geheim) */
+#shop .taskbar-start { cursor: var(--cursor-hand); }
+.dev-list { display: flex; flex-direction: column; gap: 10px; }
+.dev-option { gap: 8px; }
+
+/* Personal-App */
+.staff .staff-avatar { font-size: 1.8rem; line-height: 1; }
+.staff.hire { border-style: dashed; }

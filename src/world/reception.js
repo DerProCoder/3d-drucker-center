@@ -8,10 +8,9 @@ import {
 } from '../models/reception-furniture.js';
 import { createPlant } from '../models/office-furniture.js';
 import { ENTRANCE } from './entrance.js';
-import { canvasTexture } from './room.js';
+import { canvasTexture } from '../models/canvas-texture.js';
 import { mergeStatic } from '../models/merge-static.js';
-
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+import { euro } from '../core/format.js';
 
 // Lage im Eingangsbereich (Welt-Koordinaten). heading: Blickrichtung der Figur an diesem Platz.
 const COUNTER_POS = { x: -13.3, z: ENTRANCE.z0 + COUNTER.d / 2 + 0.55 };

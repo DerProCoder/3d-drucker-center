@@ -2,22 +2,8 @@
 // Blumen gibt es als Instanzen (viele gleiche Objekte in einem Zeichenaufruf) – wichtig für schwache Grafikkarten.
 // Ursprung jeweils mittig am Boden, Vorderseite nach +z.
 import * as THREE from 'three';
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-function canvasTexture(width, height, draw) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  draw(canvas.getContext('2d'), width, height);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
+import { box } from './mesh-helpers.js';
+import { canvasTexture } from './canvas-texture.js';
 
 let mats = null;
 function materials() {
@@ -106,13 +92,13 @@ function drawWindow(lit) {
 }
 
 const houseWindowMats = [false, true].map((lit) => new THREE.MeshStandardMaterial({
-  map: canvasTexture(64, 96, drawWindow(lit)), roughness: 0.3,
+  map: canvasTexture(64, 96, drawWindow(lit), 1, 1, { wrap: false, anisotropy: 1 }), roughness: 0.3,
 }));
 
 // Einfamilienhaus mit Satteldach. w: Breite (entlang x), d: Tiefe, h: Traufhöhe
 export function createHouse({ w = 10, d = 9, h = 6, wall = '#e8dcc8', roof = 0x8c3b2a }) {
   const house = new THREE.Group();
-  const wallMat = new THREE.MeshStandardMaterial({ map: canvasTexture(256, 256, drawFacade(wall)), roughness: 0.95 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: canvasTexture(256, 256, drawFacade(wall), 1, 1, { wrap: false, anisotropy: 1 }), roughness: 0.95 });
   house.add(box(w, h, d, wallMat, 0, h / 2, 0));
   house.add(box(w + 0.1, 0.5, d + 0.1, new THREE.MeshStandardMaterial({ color: 0x6d6a66, roughness: 0.9 }), 0, 0.25, 0)); // Sockel
   // Satteldach: Prisma entlang x

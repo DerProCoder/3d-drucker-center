@@ -1,14 +1,14 @@
 // Halle: Drucktische, die man nach und nach kauft. Wo der nächste Tisch hinkommt, liegt eine Markierung auf dem
 // Boden: erst zum Kaufen, dann „unterwegs“, und ist der Tisch geliefert, stellt ein Klick ihn dort auf.
 import * as THREE from 'three';
-import { TABLE_ROWS_Z } from './workshop.js';
+import { euroRound as euro } from '../core/format.js';
+import { TABLE_ROWS_Z } from './hall-layout.js';
 import { enableShadows } from './util.js';
 import { mergeStatic } from '../models/merge-static.js';
 
 const TABLE_W = 5.6;
 const TABLE_D = 0.8;
 const RISE_SECONDS = 0.6; // so lange fährt ein frisch aufgestellter Tisch aus dem Boden hoch
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
 // Farben der Markierung je nach Zustand
 const MARKER = {

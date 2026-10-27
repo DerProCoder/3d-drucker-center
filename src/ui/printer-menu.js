@@ -17,6 +17,7 @@ import {
 import { renderPartPreview } from './printer-preview.js';
 import { isLaser, laserDesign, laserJobLabel, laserProblem } from '../core/laser.js';
 import { drawSheetPreview } from '../models/laser-art.js';
+import { formatMinutes, realTime } from '../core/format.js';
 
 // Eigenen Text sicher in HTML einsetzen (Gravurtext im Eingabefeld)
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -28,15 +29,8 @@ export function colorDots(...filamentIds) {
     .map((id) => `<span class="dot" style="--c:${filamentById(id).hex}"></span>`).join('');
 }
 
-export function formatMinutes(minutes) {
-  const total = Math.ceil(minutes);
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return h ? `${h} h ${m} min` : `${m} min`;
-}
-
-// Spielminuten als echte Zeit („5 min“)
-export const realTime = (gameMinutes) => formatMinutes(gameMinutes / GAME_MINUTES_PER_SECOND / 60);
+// Zeitformatierer stehen in core/format.js; hier weitergereicht, damit bestehende Importe funktionieren
+export { formatMinutes, realTime };
 
 const hexOf = (filamentId) => (filamentId ? filamentById(filamentId)?.hex ?? null : null);
 

@@ -1,6 +1,7 @@
 // 3D-Modelle für den Empfang: Tresen mit Klingel und Bildschirm, Wartestuhl, Abholregal mit Fächern und das
 // verpackte Paket mit Namensetikett. Ursprung jeweils mittig am Boden, Vorderseite nach +z.
 import * as THREE from 'three';
+import { box } from './mesh-helpers.js';
 
 export const COUNTER = { w: 2.4, d: 0.6, h: 1.08 };
 export const PICKUP_SHELF = { w: 2.4, d: 0.42, h: 1.75, cols: 4, rows: 2 };
@@ -21,12 +22,6 @@ function materials() {
     brass: new THREE.MeshStandardMaterial({ color: 0xd4a53a, metalness: 0.9, roughness: 0.25 }),
   };
   return mats;
-}
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
 }
 
 // Tresen: Kundenseite nach +z mit grünem Lichtband, Arbeitsplatte, Bildschirm und Klingel

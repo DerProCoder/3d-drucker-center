@@ -2,7 +2,9 @@
 // Bank) und die Straße mit Gehwegen, Laternen, Häusern gegenüber und fahrenden Autos. Dazu Himmel und Dunst.
 // Der Spieler kann in den Garten und auf den Gehweg, aber nicht auf die Fahrbahn. Bewegung über Delta-Zeit.
 import * as THREE from 'three';
-import { ROOM_SIZE, ROOM_HEIGHT, WALL_THICKNESS, createWallGeometry, canvasTexture, speckle, rand } from './room.js';
+import { box } from '../models/mesh-helpers.js';
+import { ROOM_SIZE, ROOM_HEIGHT, WALL_THICKNESS, createWallGeometry } from './room.js';
+import { canvasTexture, speckle, rand } from '../models/canvas-texture.js';
 import { ENTRANCE, FRONT_DOOR } from './entrance.js';
 import { STORAGE_ROOM } from './storage-room.js';
 import { OFFICE_ROOM } from './office.js';
@@ -107,12 +109,6 @@ function drawSign(ctx, w, h) {
 }
 
 // ---------- Bauteile ----------
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 function flat(w, d, material, x, z, y = 0.005) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);

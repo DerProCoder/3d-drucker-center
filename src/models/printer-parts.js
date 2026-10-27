@@ -1,7 +1,7 @@
 // Detaillierte Einzelteile für Druckermodelle: Druckkopf, Druckplatte, Motoren, Schienen,
 // Touchscreen, Schläuche. Maße in Metern, angelehnt an echte Bauteile.
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { box, rbox, cylinder } from './mesh-helpers.js';
 
 // ---------- Materialien ----------
 
@@ -73,24 +73,8 @@ export function createMaterials() {
 
 // ---------- Grundformen ----------
 
-export function rbox(w, h, d, radius, material, x = 0, y = 0, z = 0) {
-  const r = Math.min(radius, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
-  const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-export function box(w, h, d, material, x = 0, y = 0, z = 0) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-function cylinder(rTop, rBottom, h, segments, material, x = 0, y = 0, z = 0) {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, h, segments), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
+// Liegen in models/mesh-helpers.js; hier weitergereicht, weil andere Druckermodelle sie von hier importieren
+export { box, rbox, cylinder };
 
 // Schriftzug als flache Fläche (z. B. „Bambu Lab“), Ursprung in der Mitte, zeigt nach +z.
 // height: Schrifthöhe in Metern, die Breite ergibt sich aus dem Text.

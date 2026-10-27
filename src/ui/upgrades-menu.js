@@ -2,8 +2,7 @@
 // Kosten pro Stunde.
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE, SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import { RENT_PER_HOUR } from '../core/economy.js';
-
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+import { euro } from '../core/format.js';
 
 export function createUpgradesMenu(upgrades, economy) {
   function steps(owned, max) {

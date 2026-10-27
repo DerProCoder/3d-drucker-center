@@ -3,7 +3,11 @@
 // Gerät: Ursprung Mitte der Frontplatte, Gehäuse nach hinten (−z). Die Ports sitzen auf der Rückseite;
 // portPositions liefert ihre Lage (für die Kabel in world/server-room.js).
 import * as THREE from 'three';
+import { box, mat } from './mesh-helpers.js';
+import { canvasTexture } from './canvas-texture.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createFan } from './server-fans.js';
+import { STATUS_LED, chassisMaterial, deviceBackMaterial, deviceFrontMaterial, grilleMaterial } from './server-textures.js';
 
 export const UNIT = 0.0445;        // eine Höheneinheit (HE) in Metern
 export const FRONT_WIDTH = 0.483;  // 19 Zoll
@@ -19,27 +23,17 @@ export const RACK_FOOTPRINT = { w: RACK_WIDTH, d: 0.8 };
 // Farbe der Netzwerkkabel (im Schrank, im Schrankfenster und auf der Kabelrolle)
 export const CABLE_COLOR = 0x2f7de1;
 
-const mat = (color, roughness = 0.6, metalness = 0.3) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
 const glow = (color) => new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.5) });
 const MATS = {
   steel: mat(0xa8adb4, 0.35, 0.8),
   dark: mat(0x1f2227, 0.5, 0.5),
-  panel: mat(0x2c3036, 0.45, 0.6),
   port: mat(0x0b0c0e, 0.8, 0.1),
   portRim: mat(0x9aa0a8, 0.4, 0.7),
-  red: mat(0xb8322a, 0.45, 0.4),
   white: mat(0xe8e8e4, 0.6, 0.1),
   clip: mat(0x3a3f47, 0.6, 0.2),
   ledGreen: glow(0x2bd96b),
   ledRed: glow(0xff3b30),
-  ledAmber: glow(0xffb020),
 };
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 const BACK_Z = -DEVICE_DEPTH - 0.004; // Rückseite des Gehäuses (Gerätekoordinaten)
 const HOLE_ROWS = [0.143, 0.5, 0.857]; // Lage der drei Vierkantlöcher in einer HE (Anteil von oben, wie beim 19-Zoll-Raster)
@@ -81,62 +75,215 @@ export function portPositions(type) {
   });
 }
 
-// Gerät für den Schrank. online: Status-LED grün (Server online) bzw. rot; andere Geräte leuchten grün
+// Gerät für den Schrank. online: Status-LED eines Servers grün (online) bzw. rot; die übrigen Leuchten sind aufgemalt
 export function createServerDevice(type, { online = true } = {}) {
   const g = new THREE.Group();
   const h = type.units * UNIT - 0.002;
-  // Server mit eigener Farbe (Kategorie, z. B. System X gelb): ganzes Gehäuse in dieser Farbe
-  const colored = type.kind === 'server' && type.color ? mat(type.color, 0.45, 0.3) : null;
-  const front = colored ?? { server: MATS.panel, switch: MATS.dark, firewall: MATS.red, patch: MATS.dark }[type.kind] ?? MATS.panel;
-  g.add(box(FRONT_WIDTH - 0.04, h, DEVICE_DEPTH, colored ?? MATS.dark, 0, 0, -DEVICE_DEPTH / 2 - 0.004)); // Gehäuse
-  g.add(box(FRONT_WIDTH, h, 0.006, front, 0, 0, -0.003)); // Frontplatte mit Ohren
-  // Befestigungslöcher in den Ohren: je Höheneinheit zwei links und zwei rechts (oberes und unteres Loch des Rasters)
-  for (let u = 0; u < type.units; u++) {
-    for (const f of [HOLE_ROWS[0], HOLE_ROWS[2]]) {
-      const y = (type.units / 2 - u - f) * UNIT;
-      for (const x of [-FRONT_WIDTH / 2 + 0.01, FRONT_WIDTH / 2 - 0.01]) g.add(box(0.006, 0.006, 0.002, MATS.port, x, y, 0.0005));
-    }
+  const caseWidth = FRONT_WIDTH - 0.04;
+  const ports = portPositions(type);
+  // Gehäuse: Blech ringsum (Server mit eigener Farbe, z. B. System X gelb, ganz in dieser Farbe), Rückwand mit
+  // Netzteilen, Karten und Lüftern; Frontplatte mit Ohren, Laufwerken usw. (Texturen aus models/server-textures.js)
+  const zinc = type.kind === 'server' && !type.color;
+  const sheet = chassisMaterial(type.color ?? (zinc ? 0x8a9098 : 0x2a2d32), !zinc);
+  const backMaterial = deviceBackMaterial(type, caseWidth, h, UNIT, ports.map((p) => ({ x: caseWidth / 2 - p.x, y: h / 2 - p.y })));
+  const body = new THREE.Mesh(new THREE.BoxGeometry(caseWidth, h, DEVICE_DEPTH), [sheet, sheet, sheet, sheet, sheet, backMaterial]);
+  body.position.z = -DEVICE_DEPTH / 2 - 0.004;
+  g.add(body);
+  const frontMaterial = deviceFrontMaterial(type, FRONT_WIDTH, h, UNIT);
+  g.add(box(FRONT_WIDTH, h, 0.006, frontMaterial, 0, 0, -0.003)); // Frontplatte mit Ohren
+  // Drehende Lüfter genau dort, wo die Texturen Lüfter zeigen: vorn (GPU-Server) und hinten (Netzteile, Switch,
+  // Firewall). userData.fans: die Rotoren, world/server-room.js dreht sie
+  const fans = [];
+  for (const f of frontMaterial.userData.fans ?? []) {
+    const fan = createFan(f.r, { guard: f.guard !== false });
+    fan.position.set(f.x - FRONT_WIDTH / 2, h / 2 - f.y, 0);
+    g.add(fan);
+    fans.push(fan.userData.rotor);
+  }
+  for (const f of backMaterial.userData.fans ?? []) {
+    const fan = createFan(f.r);
+    fan.position.set(caseWidth / 2 - f.x, h / 2 - f.y, BACK_Z);
+    fan.rotation.y = Math.PI;
+    g.add(fan);
+    fans.push(fan.userData.rotor);
+  }
+  g.userData.fans = fans;
+  // Lochgitter vor Lüftern ohne Drahtgitter (GPU-Server): Platte mit echten Löchern knapp vor den Rotoren
+  for (const grille of frontMaterial.userData.grilles ?? []) {
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(grille.w, grille.h), grilleMaterial(grille));
+    plate.position.set(grille.x + grille.w / 2 - FRONT_WIDTH / 2, h / 2 - grille.y - grille.h / 2, 0.0015);
+    g.add(plate);
   }
   // Ports hinten: dunkle Öffnung mit hellem Rand
-  for (const p of portPositions(type)) {
+  for (const p of ports) {
     g.add(box(0.014, 0.011, 0.004, MATS.portRim, p.x, p.y, BACK_Z - 0.0005), box(0.011, 0.008, 0.004, MATS.port, p.x, p.y, BACK_Z - 0.002));
   }
   if (type.kind === 'server') {
-    // Laufwerksschächte links, Status-LED
-    const bays = type.units >= 2 ? 4 : 2;
-    for (let i = 0; i < bays; i++) {
-      g.add(box(0.055, Math.min(h - 0.012, 0.03 * type.units), 0.004, MATS.steel, -FRONT_WIDTH / 2 + 0.06 + i * 0.062, 0, 0.002));
+    // Status-LED in ihrer Fassung im Bedienfeld
+    const statusLed = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.003, 16), online ? MATS.ledGreen : MATS.ledRed);
+    statusLed.rotation.x = Math.PI / 2;
+    statusLed.position.set(-FRONT_WIDTH / 2 + STATUS_LED.x, h / 2 - STATUS_LED.y, 0.0012);
+    g.add(statusLed);
+    // Ab 2 HE: Tragegriffe vor den Ohren
+    if (type.units >= 2) {
+      const span = h - 0.03;
+      for (const x of [-FRONT_WIDTH / 2 + 0.01, FRONT_WIDTH / 2 - 0.01]) {
+        g.add(box(0.007, span, 0.006, MATS.steel, x, 0, 0.018));
+        for (const y of [-span / 2 + 0.003, span / 2 - 0.003]) g.add(box(0.006, 0.006, 0.016, MATS.steel, x, y, 0.008));
+      }
     }
-    if (type.id === 'server-gpu') g.add(box(0.16, h * 0.55, 0.004, MATS.port, 0.02, h * 0.15, 0.002)); // Lüftungsgitter
-    g.add(box(0.008, 0.008, 0.004, online ? MATS.ledGreen : MATS.ledRed, -FRONT_WIDTH / 2 + 0.02, h / 2 - 0.012, 0.003));
-  } else if (type.kind === 'patch') {
-    g.add(box(0.2, 0.008, 0.003, MATS.white, -0.1, h / 2 - 0.009, 0.002)); // Beschriftungsstreifen
-  } else {
-    const leds = type.kind === 'firewall' ? [MATS.ledGreen, MATS.ledAmber] : [MATS.ledGreen, MATS.ledGreen];
-    leds.forEach((m, i) => g.add(box(0.006, 0.006, 0.004, m, -FRONT_WIDTH / 2 + 0.03 + i * 0.012, 0, 0.003)));
   }
   return g;
 }
 
-// Glastür vor dem Schrank: Rahmen, getönte Scheibe und Griff rechts. Ursprung am Scharnier (links vorn), die Tür
-// liegt in +x; rotation.y < 0 schwenkt sie nach vorn auf.
-function createRackDoor(H, shell) {
-  const door = new THREE.Group();
-  const frame = 0.025;
-  const t = 0.018;
-  const glass = new THREE.MeshPhysicalMaterial({
-    color: 0x9fc4d8, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false,
+// ---------- Schrankkorpus: Maße, Texturen und Materialien ----------
+
+const ROOF = 0.025;        // Dachblech
+const POST = 0.03;         // Eckpfosten (Breite in x); die Seitenwände sitzen innen bündig zwischen den Pfosten
+const PANEL = 0.026;       // Seitenwand
+const FOOT = 0.02;         // Stellfüße unter dem Sockel
+const DOOR_BOTTOM = 0.03;  // Unterkante der Tür über dem Boden
+const VENT_PITCH = 0.012;  // Lochabstand im Lochblech
+
+// Lochblech: helle Kachel mit zwei versetzten Löchern, wird über die Schrankfarbe eingefärbt
+let ventTexture = null;
+function getVentTexture() {
+  ventTexture ??= canvasTexture(32, 32, (ctx) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 32, 32);
+    ctx.fillStyle = '#1a1c20';
+    for (const [x, y] of [[8, 8], [24, 24]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   });
-  const pane = box(RACK_WIDTH - 2 * frame, H - 2 * frame, 0.004, glass, RACK_WIDTH / 2, H / 2, 0);
-  pane.castShadow = false;
-  door.add(
-    pane,
-    box(frame, H, t, shell, frame / 2, H / 2, 0),
-    box(frame, H, t, shell, RACK_WIDTH - frame / 2, H / 2, 0),
-    box(RACK_WIDTH, frame, t, shell, RACK_WIDTH / 2, frame / 2, 0),
-    box(RACK_WIDTH, frame, t, shell, RACK_WIDTH / 2, H - frame / 2, 0),
-    box(0.012, 0.16, 0.025, MATS.steel, RACK_WIDTH - frame / 2, H * 0.55, t / 2 + 0.012),
+  ventTexture.wrapS = ventTexture.wrapT = THREE.RepeatWrapping;
+  return ventTexture;
+}
+
+// HE-Nummerierung neben den vorderen Schienen: 1 oben, wie in der Anzeige im Spiel
+const numberMats = new Map();
+function numberMaterial(units) {
+  if (numberMats.has(units)) return numberMats.get(units);
+  const px = 32;
+  const material = new THREE.MeshStandardMaterial({
+    roughness: 0.6,
+    map: canvasTexture(px, units * px, (ctx, w, h) => {
+      ctx.fillStyle = '#1b1d21';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#d8dce0';
+      ctx.font = '700 17px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let u = 0; u < units; u++) {
+        ctx.fillText(String(u + 1), w / 2, (u + 0.5) * px);
+        ctx.fillRect(4, u * px, w - 8, 1); // Strich an der Grenze zweier HE
+      }
+    }, 1, 1, { wrap: false }),
+  });
+  numberMats.set(units, material);
+  return material;
+}
+
+const GLASS = new THREE.MeshPhysicalMaterial({
+  color: 0x9fc4d8, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, clearcoat: 1, depthWrite: false,
+});
+
+// Materialien je Schrankfarbe: Blech, dunklerer Rahmen und Lochblech
+const rackMats = new Map();
+function rackMaterials(color) {
+  if (rackMats.has(color)) return rackMats.get(color);
+  const materials = {
+    shell: mat(color, 0.55, 0.4),
+    frame: mat(new THREE.Color(color).multiplyScalar(0.6), 0.5, 0.5),
+    vent: new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.4, map: getVentTexture() }),
+  };
+  rackMats.set(color, materials);
+  return materials;
+}
+
+// Sammelt Geometrien je Material und fügt sie zu einem Mesh je Material zusammen (weniger Draw-Calls)
+function meshBuilder() {
+  const parts = new Map();
+  return {
+    add(material, ...geos) {
+      if (!parts.has(material)) parts.set(material, []);
+      parts.get(material).push(...geos);
+    },
+    build(group) {
+      for (const [material, geos] of parts) group.add(new THREE.Mesh(mergeGeometries(geos), material));
+    },
+  };
+}
+
+// Zylinder entlang axis ('x', 'y' oder 'z')
+function cylGeo(r, length, x, y, z, axis = 'y') {
+  const geo = new THREE.CylinderGeometry(r, r, length, 20);
+  if (axis === 'x') geo.rotateZ(Math.PI / 2);
+  if (axis === 'z') geo.rotateX(Math.PI / 2);
+  return geo.translate(x, y, z);
+}
+
+// Lochblech-Fläche w × h (zeigt nach +z), Texturkachel auf VENT_PITCH skaliert
+function ventGeo(w, h) {
+  const geo = new THREE.PlaneGeometry(w, h);
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / VENT_PITCH, uv.getY(i) * h / VENT_PITCH);
+  return geo;
+}
+
+// Glastür vor dem Schrank: Stahlrahmen mit Lochblech oben und unten, getönte Scheibe mit Dichtung, drei Scharniere
+// links und Schwenkgriff mit Schloss rechts. Ursprung am Scharnier (links vorn), die Tür liegt in +x;
+// rotation.y < 0 schwenkt sie nach vorn auf.
+function createRackDoor(H, m) {
+  const door = new THREE.Group();
+  const parts = meshBuilder();
+  const W = RACK_WIDTH;
+  const t = 0.02;
+  const side = 0.035;
+  const bottom = 0.07; // deckt den Sockel ab
+  const top = 0.055;   // deckt die oberen Querträger ab
+  const y0 = DOOR_BOTTOM;
+  const y1 = H - ROOF;
+  const h = y1 - y0;
+  parts.add(
+    m.shell,
+    boxGeo(side, h, t, side / 2, y0 + h / 2, 0),
+    boxGeo(side, h, t, W - side / 2, y0 + h / 2, 0),
+    boxGeo(W - 2 * side, bottom, t, W / 2, y0 + bottom / 2, 0),
+    boxGeo(W - 2 * side, top, t, W / 2, y1 - top / 2, 0),
   );
+  parts.add(
+    m.vent,
+    ventGeo(W - 2 * side - 0.03, bottom - 0.025).translate(W / 2, y0 + bottom / 2, t / 2 + 0.0005),
+    ventGeo(W - 2 * side - 0.1, top - 0.02).translate(W / 2 - 0.035, y1 - top / 2, t / 2 + 0.0005),
+  );
+  // Gummidichtung als dunkle Kante rund um die Scheibe
+  const gy0 = y0 + bottom;
+  const gy1 = y1 - top;
+  parts.add(
+    MATS.port,
+    boxGeo(0.004, gy1 - gy0, 0.002, side + 0.002, (gy0 + gy1) / 2, t / 2),
+    boxGeo(0.004, gy1 - gy0, 0.002, W - side - 0.002, (gy0 + gy1) / 2, t / 2),
+    boxGeo(W - 2 * side, 0.004, 0.002, W / 2, gy0 + 0.002, t / 2),
+    boxGeo(W - 2 * side, 0.004, 0.002, W / 2, gy1 - 0.002, t / 2),
+  );
+  // Scharniere
+  for (const f of [0.1, 0.5, 0.9]) parts.add(MATS.steel, cylGeo(0.007, 0.05, -0.004, y0 + f * h, 0));
+  // Schwenkgriff: Griffmulde, Hebel mit Lager oben, Schließzylinder darüber
+  const hx = W - side / 2;
+  const hy = y0 + h * 0.5;
+  parts.add(MATS.dark, boxGeo(0.026, 0.17, 0.006, hx, hy, t / 2 + 0.003), boxGeo(0.012, 0.014, 0.01, hx, hy + 0.035, t / 2 + 0.008));
+  parts.add(MATS.steel, boxGeo(0.015, 0.11, 0.008, hx, hy - 0.012, t / 2 + 0.016), cylGeo(0.0075, 0.006, hx, hy + 0.065, t / 2 + 0.008, 'z'));
+  parts.add(MATS.port, boxGeo(0.002, 0.007, 0.001, hx, hy + 0.065, t / 2 + 0.0112));
+  // Typenschild oben rechts
+  parts.add(MATS.steel, boxGeo(0.06, 0.02, 0.002, W - side - 0.04, y1 - top / 2, t / 2 + 0.001));
+  parts.build(door);
+
+  const pane = new THREE.Mesh(new THREE.BoxGeometry(W - 2 * side + 0.01, gy1 - gy0 + 0.01, 0.005), GLASS);
+  pane.position.set(W / 2, (gy0 + gy1) / 2, 0);
+  door.add(pane);
   return door;
 }
 
@@ -249,30 +396,95 @@ export function cableRoute(rackType, a, b, lane = 0, clips = []) {
   return points;
 }
 
-// Serverschrank: Seitenwände, Dach, Sockel, silberne Montageschienen, Kabelführung hinten und Glastür vorn; hinten offen
+// Serverschrank: Rahmen aus Eckpfosten und Querträgern, Sockel mit Stellfüßen, Seitenwände mit Griffmulden und
+// Schloss, Dach mit Lüftern, Lochblech, Kabeleinführung und Kranösen, silberne Montageschienen mit HE-Nummern,
+// Kabelführung hinten und Glastür vorn; hinten offen
 export function createServerRack(type) {
   const g = new THREE.Group();
   const H = rackHeight(type);
   const D = rackDepth(type);
-  const shell = mat(type.color ?? 0x23262c, 0.55, 0.4);
-  const side = 0.03;
-  g.add(
-    box(side, H, D, shell, -RACK_WIDTH / 2 + side / 2, H / 2, 0),
-    box(side, H, D, shell, RACK_WIDTH / 2 - side / 2, H / 2, 0),
-    box(RACK_WIDTH, RACK_TOP, D, shell, 0, H - RACK_TOP / 2, 0),
-    box(RACK_WIDTH, RACK_BASE, D, shell, 0, RACK_BASE / 2, 0),
-  );
+  const m = rackMaterials(type.color ?? 0x23262c);
+  const parts = meshBuilder();
+  const halfW = RACK_WIDTH / 2;
+  const top = H - ROOF;
+
+  // Sockel etwas eingerückt auf vier Stellfüßen
+  parts.add(m.frame, boxGeo(RACK_WIDTH - 0.02, RACK_BASE - FOOT, D - 0.02, 0, (RACK_BASE + FOOT) / 2, 0));
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      parts.add(MATS.dark, cylGeo(0.018, FOOT, sx * (halfW - 0.04), FOOT / 2, sz * (D / 2 - 0.045)));
+    }
+  }
+
+  // Rahmen: vier Eckpfosten, oben vorn und hinten ein Querträger
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      parts.add(m.frame, boxGeo(POST, top - RACK_BASE, 0.04, sx * (halfW - POST / 2), (RACK_BASE + top) / 2, sz * (D / 2 - 0.02)));
+    }
+  }
+  for (const sz of [-1, 1]) parts.add(m.frame, boxGeo(RACK_WIDTH - 2 * POST, 0.045, 0.04, 0, top - 0.0225, sz * (D / 2 - 0.02)));
+
+  // Seitenwände zwischen den Pfosten (innen bündig, außen etwas zurückgesetzt). Hohe Schränke haben je Seite zwei
+  // Wände übereinander, jede mit Griffmulde oben und unten und einem Schloss.
+  const panelH = top - RACK_BASE;
+  const panelD = D - 0.08;
+  const panels = type.units > 24 ? 2 : 1;
+  for (const sx of [-1, 1]) {
+    const outer = sx * (halfW - POST + PANEL);
+    parts.add(m.shell, boxGeo(PANEL, panelH, panelD, sx * (halfW - POST + PANEL / 2), RACK_BASE + panelH / 2, 0));
+    for (let p = 0; p < panels; p++) {
+      const py = RACK_BASE + p * panelH / panels;
+      const ph = panelH / panels;
+      for (const f of [0.12, 0.88]) parts.add(MATS.port, boxGeo(0.004, 0.03, 0.12, outer, py + f * ph, 0));
+      parts.add(MATS.steel, cylGeo(0.011, 0.006, outer + sx * 0.002, py + 0.88 * ph, 0.1, 'x'));
+      if (p > 0) parts.add(MATS.port, boxGeo(0.003, 0.004, panelD, outer, py, 0)); // Fuge zwischen zwei Wänden
+    }
+  }
+
+  // Dach: Lochblech mit zwei Lüftern, hinten die Kabeleinführung mit Bürstenleiste, an den Ecken Kranösen
+  parts.add(m.shell, boxGeo(RACK_WIDTH, ROOF, D, 0, H - ROOF / 2, 0));
+  const ventD = D - 0.22;
+  parts.add(m.vent, ventGeo(0.4, ventD).rotateX(-Math.PI / 2).translate(0, H + 0.0005, 0.02));
+  // Lüfter: oben zwei im Dach (Abluft), unten zwei auf dem Sockel im Schrank (Zuluft); userData.fans: { top, bottom }
+  // mit den Rotoren, world/server-room.js dreht sie
+  const fans = { top: [], bottom: [] };
+  for (const sz of [-1, 1]) {
+    for (const [which, y, z] of [['top', H + 0.0005, 0.02 + sz * ventD / 4], ['bottom', RACK_BASE + 0.0005, sz * D * 0.2]]) {
+      const fan = createFan(which === 'top' ? 0.065 : 0.06);
+      fan.rotation.x = -Math.PI / 2;
+      fan.position.set(0, y, z);
+      g.add(fan);
+      fans[which].push(fan.userData.rotor);
+    }
+  }
+  g.userData.fans = fans;
+  parts.add(MATS.port, boxGeo(0.36, 0.006, 0.03, 0, H + 0.003, -D / 2 + 0.05));
+  parts.add(MATS.steel, boxGeo(0.38, 0.003, 0.04, 0, H + 0.0015, -D / 2 + 0.05));
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const ex = sx * (halfW - 0.05);
+      const ez = sz * (D / 2 - 0.05);
+      parts.add(MATS.steel, new THREE.TorusGeometry(0.012, 0.0035, 8, 20).translate(ex, H + 0.021, ez), cylGeo(0.01, 0.006, ex, H + 0.003, ez));
+    }
+  }
+
+  // Montageschienen vorn (knapp hinter den Frontplatten) und hinten, damit der offene Rücken nicht leer aussieht.
+  // Vorn verbindet ein Profil die Schiene mit der Seitenwand, darauf die HE-Nummern.
   const railH = type.units * UNIT;
-  for (const x of [-FRONT_WIDTH / 2 + 0.006, FRONT_WIDTH / 2 - 0.006]) {
-    g.add(box(0.012, railH, 0.02, railMaterial(type.units), x, RACK_BASE + railH / 2, D / 2 - 0.072)); // knapp hinter den Frontplatten
+  const railY = RACK_BASE + railH / 2;
+  const profileW = halfW - POST - FRONT_WIDTH / 2;
+  for (const sx of [-1, 1]) {
+    const x = sx * (FRONT_WIDTH / 2 - 0.006);
+    parts.add(railMaterial(type.units), boxGeo(0.012, railH, 0.02, x, railY, D / 2 - 0.072), boxGeo(0.012, railH, 0.02, x, railY, -D / 2 + 0.04));
+    const px = sx * (FRONT_WIDTH / 2 + profileW / 2);
+    parts.add(m.frame, boxGeo(profileW, railH, 0.004, px, railY, D / 2 - 0.064));
+    parts.add(numberMaterial(type.units), new THREE.PlaneGeometry(0.014, railH).translate(px, railY, D / 2 - 0.0615));
   }
-  // Hintere Schienen, damit der offene Rücken nicht leer aussieht
-  for (const x of [-FRONT_WIDTH / 2 + 0.006, FRONT_WIDTH / 2 - 0.006]) {
-    g.add(box(0.012, railH, 0.02, railMaterial(type.units), x, RACK_BASE + railH / 2, -D / 2 + 0.04));
-  }
+
+  parts.build(g);
   g.traverse((o) => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
-  g.add(createCableManagers(type, shell));
-  const door = createRackDoor(H, shell);
+  g.add(createCableManagers(type, m.shell));
+  const door = createRackDoor(H, m);
   door.position.set(-RACK_WIDTH / 2, 0, D / 2 + 0.012);
   g.add(door);
   g.userData.door = door;

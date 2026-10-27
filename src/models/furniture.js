@@ -3,6 +3,7 @@
 // Dazu die Ersatzdüse selbst, z. B. für die Hand.
 // Ursprung: Mitte der Unterseite, Vorderseite zeigt nach +z (zum Spieler).
 import * as THREE from 'three';
+import { box } from './mesh-helpers.js';
 import { mergeStatic } from './merge-static.js';
 import { createServerHardwareModel } from './server-hardware.js';
 
@@ -26,12 +27,6 @@ function materials() {
     backPanel: new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.9 }),
   };
   return mats;
-}
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
 }
 
 // Filament-Regal: Metallrahmen mit zwei Holzböden. userData.spoolSpots: wo die Spulen liegen (Achse entlang x).

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   ROOM_HEIGHT, ROOM_SIZE, WALL_THICKNESS, ceilingMaterial, createCeilingLight, createHallWall, floorMaterial,
 } from './room.js';
+import { shadowBox as box } from '../models/mesh-helpers.js'; // Quader mit Schatten
 import { PARAPET, ROOF, facade, facadeMaterials, roof } from './outdoor.js';
 
 const HALF = ROOM_SIZE / 2;
@@ -22,14 +23,6 @@ const RAIL = 0.05;          // Dicke der Geländer (als Hindernis)
 const RAIL_HEIGHT = 1.0;
 const LIGHT_ON = 22;        // Helligkeit der Deckenspots oben, sobald die Etage steht
 const LIGHTS_X = [-6, 0, 6];
-
-const box = (w, h, d, material, x, y, z) => {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  return mesh;
-};
 
 // Rechteck (Halle) mit Loch (Treppe) als Fläche; flip: Unterseite (Decke der Halle) statt Oberseite
 function slabSurface(material, y, flip) {

@@ -1,6 +1,8 @@
 // Raum: Holzdielenboden, verputzte Wände mit Wandvertäfelung, Fenster mit hellblauem Himmel,
 // Decke mit Leuchten. Alle Texturen werden prozedural per Canvas erzeugt (keine Bilddateien nötig).
 import * as THREE from 'three';
+import { box } from '../models/mesh-helpers.js';
+import { canvasTexture, rand, speckle } from '../models/canvas-texture.js';
 import { mergeStatic } from '../models/merge-static.js';
 
 export const ROOM_SIZE = 20;      // m, quadratisch
@@ -17,28 +19,8 @@ const WINDOW_H = 1.4;
 
 // ---------- Prozedurale Texturen ----------
 
-export function canvasTexture(width, height, draw, repeatX = 1, repeatY = 1) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  draw(canvas.getContext('2d'), width, height);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeatX, repeatY);
-  texture.anisotropy = 8;
-  return texture;
-}
-
-export const rand = (min, max) => min + Math.random() * (max - min);
-
-export function speckle(ctx, w, h, count, alpha) {
-  for (let i = 0; i < count; i++) {
-    const v = Math.random() < 0.5 ? 0 : 255;
-    ctx.fillStyle = `rgba(${v},${v},${v},${rand(0, alpha)})`;
-    ctx.fillRect(Math.random() * w, Math.random() * h, rand(1, 3), rand(1, 3));
-  }
-}
+// Liegen in models/canvas-texture.js; hier weitergereicht für die bisherigen Importeure
+export { canvasTexture, rand, speckle };
 
 // Holzdielen: Spalten mit versetzten Stößen, jede Diele leicht anders gefärbt, mit Maserung
 function drawPlanks(ctx, w, h) {
@@ -141,12 +123,6 @@ function drawSky(ctx, w, h) {
 // ---------- Bauteile ----------
 
 const trimMaterial = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.5 });
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 // Fenster in lokalen Wandkoordinaten: Wand liegt bei z = 0, Raum ist auf +z
 function createWindow(skyMaterial, glassMaterial) {

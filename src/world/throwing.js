@@ -121,9 +121,9 @@ export function createThrowing({ camera, economy, carry, cat, onEvent }) {
       mesh.position.set(x, 0, z);
       mesh.rotation.y = rotY;
       mesh.userData.interaction = {
-        hint: () => (carry.isEmpty ? `Linksklick: ${printer.model.name} aufheben` : 'Hände voll – Q legt es zurück ins Lager'),
+        hint: () => ((boxed ? carry.canTakeBox : carry.isEmpty) ? `Linksklick: ${printer.model.name} aufheben` : 'Hände voll – Q legt es zurück ins Lager'),
         action: () => {
-          if (!carry.isEmpty || !economy.takePrinterFromFloor(printer.id)) return;
+          if (!(boxed ? carry.canTakeBox : carry.isEmpty) || !economy.takePrinterFromFloor(printer.id)) return;
           carry.holdPrinter(printer, { unboxed: !boxed });
         },
       };

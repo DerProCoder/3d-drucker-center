@@ -1,14 +1,16 @@
-// Was der Spieler gerade in der Hand hat: entweder einen Karton (Drucker oder Regal), bis zu MAX_SPOOLS
-// Filamentspulen, eine Ersatzdüse oder bis zu MAX_SHEETS Holzplatten für den Laser (als Stapel, die oberste wird
-// als Nächstes eingelegt). Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt wird.
-// Spule: { filamentId, grams, moisture } · Holzplatte: { woodId }
+// Was der Spieler gerade in der Hand hat: entweder Kartons (Drucker oder Einrichtung wie Regale und Server-Hardware),
+// bis zu MAX_SPOOLS Filamentspulen, eine Ersatzdüse oder bis zu MAX_SHEETS Holzplatten für den Laser (als Stapel,
+// die oberste wird als Nächstes eingelegt). Bei mehreren Spulen wählt das Mausrad aus, welche als Nächstes eingelegt
+// wird. Normal trägt man einen Karton; mit „Alles tragen“ (Entwicklermenü) bis zu CARRY_ALL_MAX Kartons, Spulen bzw.
+// Platten – die Kartons als Stapel, aufgestellt wird immer der oberste.
+// Spule: { filamentId, grams, moisture } · Holzplatte: { woodId } · Karton: { kind: 'printer' | 'furniture', id, unboxed }
 import * as THREE from 'three';
 import { SHEET_MM, filamentById, isWallFurniture, woodById } from '../core/catalog.js';
 import { createSpool } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
 import { createPrinterModel } from '../models/printer-model.js';
 import { createNozzle, furnitureSize } from '../models/furniture.js';
-import { spoolLabel } from '../core/economy.js';
+import { CARRY_ALL_MAX, spoolLabel } from '../core/economy.js';
 import { isServerHardware } from '../core/server-catalog.js';
 
 export const MAX_SPOOLS = 5;
@@ -19,9 +21,7 @@ export class Carry {
     this.camera = camera;
     this.economy = economy;
     this.infoEl = infoEl;
-    this.printerId = null;
-    this.unboxed = false;    // Drucker ohne Karton (vom Tisch oder Boden aufgehoben)
-    this.furnitureId = null; // Regalkarton
+    this.boxes = [];         // Kartons in der Hand, der letzte liegt oben (unboxed: Drucker ohne Karton, nur einzeln)
     this.nozzle = false;     // Ersatzdüse in der Hand
     this.sheets = [];        // Holzplatten in der Hand ({ woodId }), die letzte liegt oben
     this.spools = [];
@@ -31,15 +31,45 @@ export class Carry {
   }
 
   get isEmpty() {
-    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.sheets.length && !this.spools.length;
+    return !this.boxes.length && !this.nozzle && !this.sheets.length && !this.spools.length;
   }
 
+  // Wie viel man auf einmal tragen darf (Entwicklermenü „Alles tragen“ hebt die Grenzen an)
+  get maxBoxes() {
+    return this.economy.carryAll ? CARRY_ALL_MAX : 1;
+  }
+
+  get maxSpools() {
+    return this.economy.carryAll ? CARRY_ALL_MAX : MAX_SPOOLS;
+  }
+
+  get maxSheets() {
+    return this.economy.carryAll ? CARRY_ALL_MAX : MAX_SHEETS;
+  }
+
+  get topBox() {
+    return this.boxes[this.boxes.length - 1] ?? null;
+  }
+
+  // Oberster Drucker bzw. oberstes Einrichtungsstück im Kartonstapel (das wird als Nächstes aufgestellt) oder null
   get printer() {
-    return this.printerId === null ? null : this.economy.printerById(this.printerId);
+    return this.topBox?.kind === 'printer' ? this.economy.printerById(this.topBox.id) : null;
   }
 
   get furniture() {
-    return this.furnitureId === null ? null : this.economy.furnitureById(this.furnitureId);
+    return this.topBox?.kind === 'furniture' ? this.economy.furnitureById(this.topBox.id) : null;
+  }
+
+  // Oberster Drucker ohne Karton (vom Tisch oder Boden aufgehoben)
+  get unboxed() {
+    return !!this.topBox?.unboxed;
+  }
+
+  // Passt noch ein Karton obendrauf? Mit leeren Händen immer, sonst nur auf andere Kartons (bis maxBoxes)
+  get canTakeBox() {
+    if (this.isEmpty) return true;
+    return this.boxes.length < this.maxBoxes && !this.nozzle && !this.sheets.length && !this.spools.length
+      && !this.boxes.some((b) => b.unboxed);
   }
 
   get hasSpools() {
@@ -47,7 +77,7 @@ export class Carry {
   }
 
   get canTakeSpool() {
-    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.sheets.length && this.spools.length < MAX_SPOOLS;
+    return !this.boxes.length && !this.nozzle && !this.sheets.length && this.spools.length < this.maxSpools;
   }
 
   // Oberste Holzplatte in der Hand (die kommt als Nächstes in Laser oder Regal) oder null
@@ -56,18 +86,17 @@ export class Carry {
   }
 
   get canTakeSheet() {
-    return this.printerId === null && this.furnitureId === null && !this.nozzle && !this.spools.length && this.sheets.length < MAX_SHEETS;
+    return !this.boxes.length && !this.nozzle && !this.spools.length && this.sheets.length < this.maxSheets;
   }
 
   get selectedSpool() {
     return this.spools[this.selected] ?? null;
   }
 
-  // unboxed: der Drucker selbst statt seines Kartons (vom Tisch oder vom Boden aufgehoben)
+  // unboxed: der Drucker selbst statt seines Kartons (vom Tisch oder vom Boden aufgehoben) – nur mit leeren Händen
   holdPrinter(printer, { unboxed = false } = {}) {
-    if (!this.isEmpty) return;
-    this.printerId = printer.id;
-    this.unboxed = unboxed;
+    if (unboxed ? !this.isEmpty : !this.canTakeBox) return;
+    this.boxes.push({ kind: 'printer', id: printer.id, unboxed });
     this.refresh();
   }
 
@@ -87,24 +116,24 @@ export class Carry {
     return spool ?? null;
   }
 
-  // Gibt den Karton aus der Hand (der Drucker selbst wird von economy umgesetzt)
+  // Gibt den obersten Drucker aus der Hand (der Drucker selbst wird von economy umgesetzt)
   releasePrinter() {
     const printer = this.printer;
-    this.printerId = null;
-    this.unboxed = false;
+    if (printer) this.boxes.pop();
     this.refresh();
     return printer;
   }
 
   holdFurniture(item) {
-    if (!this.isEmpty) return;
-    this.furnitureId = item.id;
+    if (!this.canTakeBox) return;
+    this.boxes.push({ kind: 'furniture', id: item.id, unboxed: false });
     this.refresh();
   }
 
+  // Gibt das oberste Einrichtungsstück aus der Hand
   releaseFurniture() {
     const item = this.furniture;
-    this.furnitureId = null;
+    if (item) this.boxes.pop();
     this.refresh();
     return item;
   }
@@ -145,8 +174,12 @@ export class Carry {
 
   // Q oder Klick aufs Regal: alles wandert zurück in den Abstellraum
   returnToStorage() {
-    if (this.printerId !== null) this.economy.returnPrinterToStorage(this.releasePrinter().id);
-    if (this.furnitureId !== null) this.economy.returnFurnitureToStorage(this.releaseFurniture().id);
+    const boxes = this.boxes;
+    this.boxes = [];
+    for (const b of boxes) {
+      if (b.kind === 'printer') this.economy.returnPrinterToStorage(b.id);
+      else this.economy.returnFurnitureToStorage(b.id);
+    }
     if (this.nozzle) {
       this.economy.returnNozzle();
       this.releaseNozzle();
@@ -174,27 +207,37 @@ export class Carry {
       this.setInfo(`In der Hand: ${printer.model.name} · auf einen freien Platz stellen · F: werfen · Q: zurück ins Lager`);
       return;
     }
-    if (printer) {
-      const box = createPrinterBox(printer.model);
-      const { h, d } = box.userData.size;
-      box.position.set(0, -0.32 - h, -0.42 - d / 2); // vor dem Bauch, Oberkante knapp unter dem Blickfeld
-      this.show(box);
-      this.setInfo(`In der Hand: Karton ${printer.model.name} · F: werfen · Q: zurück ins Lager`);
-      return;
-    }
-    const furniture = this.furniture;
-    if (furniture) {
-      const box = createPrinterBox(furniture.type, furnitureSize(furniture.type), 'Einrichtung');
-      const { h, d } = box.userData.size;
-      box.position.set(0, -0.32 - h, -0.42 - d / 2);
-      this.show(box);
+    if (this.boxes.length) {
+      // Kartonstapel vor dem Bauch: der oberste mit der Oberkante knapp unter dem Blickfeld, die übrigen darunter
+      const stack = new THREE.Group();
+      let y = -0.32;
+      for (let i = this.boxes.length - 1; i >= 0; i--) {
+        const b = this.boxes[i];
+        const item = b.kind === 'printer' ? this.economy.printerById(b.id) : this.economy.furnitureById(b.id);
+        const crate = b.kind === 'printer'
+          ? createPrinterBox(item.model)
+          : createPrinterBox(item.type, furnitureSize(item.type), 'Einrichtung');
+        const { h, d } = crate.userData.size;
+        y -= h;
+        crate.position.set(0, y, -0.42 - d / 2);
+        stack.add(crate);
+      }
+      this.show(stack);
+      const n = this.boxes.length;
+      const count = n > 1 ? `${n}/${this.maxBoxes} Kartons, oben: ` : '';
+      const back = n > 1 ? 'Q: alle zurück ins Lager' : 'Q: zurück ins Lager';
+      if (printer) {
+        this.setInfo(`In der Hand: ${count}Karton ${printer.model.name} · F: werfen · ${back}`);
+        return;
+      }
+      const furniture = this.furniture;
       let todo = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand stellen' : 'auf einen freien Platz am Druckertisch stellen';
       if (isServerHardware(furniture.type)) {
         todo = furniture.type.kind === 'rack'
           ? 'in der zweiten Etage an einer grünen Markierung aufstellen'
           : 'in der zweiten Etage auf einen Serverschrank klicken, um es einzubauen';
       }
-      this.setInfo(`In der Hand: Karton ${furniture.type.name} – ${todo} · Q: zurück ins Lager`);
+      this.setInfo(`In der Hand: ${count}Karton ${furniture.type.name} – ${todo} · ${back}`);
       return;
     }
     if (this.nozzle) {
@@ -221,7 +264,7 @@ export class Carry {
       const n = this.sheets.length;
       this.setInfo(n === 1
         ? `In der Hand: ${top} – in den Laser R1 legen · Q: zurück auf den Stapel`
-        : `In der Hand: ${n}/${MAX_SHEETS} Holzplatten · oben: ${top} · Q: alle zurück auf den Stapel`);
+        : `In der Hand: ${n}/${this.maxSheets} Holzplatten · oben: ${top} · Q: alle zurück auf den Stapel`);
       return;
     }
     if (!this.spools.length) {
@@ -232,10 +275,10 @@ export class Carry {
     const stack = createSpoolStack(this.spools, this.selected);
     this.show(stack);
     const n = this.spools.length;
-    const free = MAX_SPOOLS - n;
+    const free = this.maxSpools - n;
     const room = free ? `noch ${free} frei` : 'Hände voll';
     const pick = n > 1 ? ` · Mausrad: Spule wählen` : '';
-    this.setInfo(`In der Hand: ${n}/${MAX_SPOOLS} Spulen (${room}) · Gewählt: ${spoolLabel(this.selectedSpool)}${pick} · Q: alle zurück ins Lager`);
+    this.setInfo(`In der Hand: ${n}/${this.maxSpools} Spulen (${room}) · Gewählt: ${spoolLabel(this.selectedSpool)}${pick} · Q: alle zurück ins Lager`);
   }
 
   show(mesh) {

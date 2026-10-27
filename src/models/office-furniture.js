@@ -1,6 +1,7 @@
 // 3D-Modelle fürs Büro der Azubis: Schreibtisch, Bürostuhl, Couch, TV-Lowboard, Fernseher, Spielkonsole mit
 // Controller und eine Zimmerpflanze. Ursprung jeweils mittig am Boden, Vorderseite zeigt nach +z.
 import * as THREE from 'three';
+import { box } from './mesh-helpers.js';
 
 export const DESK = { w: 3.2, d: 0.75, h: 0.75 };
 export const CHAIR_SEAT_HEIGHT = 0.48;
@@ -26,12 +27,6 @@ function materials() {
     blueLed: new THREE.MeshStandardMaterial({ color: 0x66aaff, emissive: 0x3388ff, emissiveIntensity: 2.5 }),
   };
   return mats;
-}
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
 }
 
 // Werkbank: Eichenplatte auf Stahlkufen, hinten eine Lochwand-Leiste

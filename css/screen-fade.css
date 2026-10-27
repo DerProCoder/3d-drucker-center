@@ -1,0 +1,19 @@
+/* Abblenden des Bildschirms (Ladereihenfolge siehe index.html) */
+
+/* Abblenden, z. B. während der Fahrstuhlfahrt (ui/screen-fade.js) */
+.screen-fade {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: #000;
+  color: #e8ecef;
+  font-size: 1.3rem;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+.screen-fade.dark { opacity: 1; }
+.screen-fade.hidden { display: none; }

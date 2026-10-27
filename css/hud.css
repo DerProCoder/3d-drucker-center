@@ -1,0 +1,226 @@
+/* HUD im Spiel: Anzeigen, Hinweise, Zoom, Leistungsanzeige, Speichern-Symbol, Level-Up (Ladereihenfolge siehe index.html) */
+
+/* ---------- HUD ---------- */
+
+#hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  width: 260px;
+  padding: 14px 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.hud-level { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+
+.hud-level-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 18px rgba(110, 120, 255, 0.55);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.hud-level-info { flex: 1; min-width: 0; }
+.hud-level-title { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; letter-spacing: 0.02em; }
+.hud-xp { height: 6px; margin: 4px 0 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.hud-xp-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 8px var(--accent);
+  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hud-xp-text { font-size: 0.7rem; opacity: 0.6; }
+
+.hud-money {
+  position: relative;
+  padding: 8px 0 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hud-money-value {
+  display: inline-block;
+  color: var(--good);
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(75, 224, 138, 0.45);
+}
+.hud-money-value.negative { color: var(--bad); text-shadow: 0 0 16px rgba(255, 93, 93, 0.45); }
+.hud-money-value.flash-plus { animation: flash-plus 0.6s; }
+.hud-money-value.flash-minus { animation: flash-minus 0.6s; }
+@keyframes flash-plus { 30% { transform: scale(1.12); color: #b6ffd1; } }
+@keyframes flash-minus { 30% { transform: translateX(-3px); color: var(--bad); } 60% { transform: translateX(3px); } }
+
+.hud-money-popups { position: absolute; left: 0; top: 0; right: 0; }
+.hud-popup {
+  position: absolute;
+  right: 0;
+  top: 8px;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  animation: popup 1.6s ease-out forwards;
+}
+.hud-popup.plus { color: var(--good); }
+.hud-popup.minus { color: var(--bad); }
+@keyframes popup {
+  0% { opacity: 0; transform: translateY(8px) scale(0.8); }
+  15% { opacity: 1; transform: translateY(0) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-34px) scale(1); }
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 0.85rem;
+  line-height: 1.8;
+}
+.hud-label { opacity: 0.7; }
+.hud-value { font-weight: 600; }
+
+#interact-hint {
+  position: fixed;
+  left: 50%;
+  top: calc(50% + 28px);
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+}
+
+#carry-info {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  font-size: 0.9rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Zoomstufe (Mausrad): nur kurz beim Zoomen neben dem Fadenkreuz, sonst unsichtbar */
+#zoom-info {
+  position: fixed;
+  left: calc(50% + 16px);
+  top: calc(50% + 12px);
+  padding: 2px 8px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+#zoom-info.visible { opacity: 1; }
+
+/* Leistungsanzeige (F3) */
+#perf-overlay {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 50;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 6px;
+  font: 12px/1.45 Consolas, monospace;
+  color: #b6f5c8;
+  white-space: pre;
+  pointer-events: none;
+}
+
+#carry-info.hidden,
+#interact-hint.hidden,
+#perf-overlay.hidden,
+#shop.hidden { display: none; }
+
+/* Speichern-Symbol unten rechts */
+#save-indicator {
+  position: fixed;
+  right: 18px;
+  bottom: 64px; /* über der Taskleiste des PCs */
+  z-index: 30;
+  padding: 6px 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+#save-indicator.visible { opacity: 0.9; transform: none; }
+
+/* Level-Up-Banner mit Konfetti */
+#levelup {
+  position: fixed;
+  left: 50%;
+  top: 22%;
+  z-index: 40;
+  min-width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 22px 36px 20px;
+  transform: translateX(-50%);
+  text-align: center;
+  background: linear-gradient(135deg, rgba(58, 160, 255, 0.92), rgba(155, 107, 255, 0.92));
+  border-radius: 18px;
+  box-shadow: 0 0 60px rgba(120, 120, 255, 0.6), 0 20px 50px rgba(0, 0, 0, 0.4);
+  visibility: hidden;
+  pointer-events: none;
+}
+#levelup.visible { visibility: visible; animation: levelup 4.2s cubic-bezier(0.2, 0.9, 0.2, 1) forwards; }
+@keyframes levelup {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.5); }
+  10% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+  16%, 85% { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.95); }
+}
+.levelup-small { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.85; }
+.levelup-level { font-family: var(--font-display); font-size: 3.4rem; font-weight: 700; line-height: 1; text-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); }
+.levelup-title { font-family: var(--font-display); font-size: 1.5rem; font-weight: 700; }
+.levelup-perks { margin-top: 8px; font-size: 0.85rem; opacity: 0.9; }
+
+.confetti {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: hsl(var(--h), 90%, 60%);
+  opacity: 0;
+}
+#levelup.visible .confetti { animation: confetti 1.8s ease-out forwards; animation-delay: calc(var(--d) * 0.25s); }
+@keyframes confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0); }
+  100% { opacity: 0; transform: translate(calc(var(--x) * 340px), calc(160px + var(--d) * 120px)) rotate(calc(var(--x) * 720deg)); }
+}

@@ -1,23 +1,20 @@
 // Reiter „Aufträge“ im PC-Fenster: Überblick über die Kundenaufträge mit Frist und Lohn. Angenommen, verpackt und
 // abgeholt wird am Empfang (world/reception.js) – hier kann man nur noch ablehnen.
 import { filamentById, filamentColorName, filamentLabel, templateById } from '../core/catalog.js';
-import { GAME_MINUTES_PER_SECOND } from '../core/economy.js';
 import { CHANGER_TIME, DUAL_NOZZLE_TIME, SINGLE_NOZZLE_TIME, isMultiColor, isTwoColor } from '../core/two-color.js';
-import { colorDots, formatMinutes } from './printer-menu.js';
-
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+import { euro, formatMinutes, realTime } from '../core/format.js';
+import { colorDots } from './printer-menu.js';
 
 // Fristen unter dieser Restzeit (Spielminuten) werden rot markiert
 const URGENT_MINUTES = 60;
 
 export function createOrdersMenu(orders, economy) {
-  const real = (gameMinutes) => formatMinutes(gameMinutes / GAME_MINUTES_PER_SECOND / 60);
   function deadlineText(order) {
-    if (order.stage === 'counter') return `Wartet am Empfang auf die Annahme (geht in ca. ${real(order.waitLeft)} wieder)`;
+    if (order.stage === 'counter') return `Wartet am Empfang auf die Annahme (geht in ca. ${realTime(order.waitLeft)} wieder)`;
     if (order.stage === 'packed') {
-      return order.pickupIn > 0 ? `Liegt im Abholregal – Kunde kommt in ca. ${real(order.pickupIn)}` : 'Liegt im Abholregal – Kunde ist unterwegs';
+      return order.pickupIn > 0 ? `Liegt im Abholregal – Kunde kommt in ca. ${realTime(order.pickupIn)}` : 'Liegt im Abholregal – Kunde ist unterwegs';
     }
-    return `Frist: noch ${formatMinutes(order.minutesLeft)} (echt ca. ${real(order.minutesLeft)})`;
+    return `Frist: noch ${formatMinutes(order.minutesLeft)} (echt ca. ${realTime(order.minutesLeft)})`;
   }
   const urgentClass = (order) => (order.stage === 'packed' ? 'done' : order.stage === 'counter' ? 'idle' : order.minutesLeft < URGENT_MINUTES ? 'urgent' : 'idle');
 

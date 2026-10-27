@@ -1,0 +1,82 @@
+/* Schrankfenster (Ladereihenfolge siehe index.html) */
+
+/* ---------- Schrankfenster (ui/rack-panel.js) ---------- */
+#rack-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(5, 8, 14, 0.45);
+  color: #e6e8ec;
+  user-select: none;
+}
+#rack-panel.hidden { display: none; }
+.rack-window { width: min(820px, calc(100% - 32px)); transform: translate(-50%, -50%); animation: none; }
+.rack-help { margin: 0 0 12px; font-size: 0.85rem; opacity: 0.75; }
+.rack-message { margin: 0 0 12px; padding: 6px 10px; border-radius: 5px; background: #20406a; font-size: 0.88rem; }
+.rack-device {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  min-height: calc(var(--units) * 22px);
+  border-radius: 6px;
+  border-left: 4px solid #555c69;
+  background: #262a31;
+}
+.rack-device.server { border-left-color: #3aa0ff; }
+.rack-device.switch { border-left-color: #2bb673; }
+.rack-device.firewall { border-left-color: #e0503f; }
+.rack-device.patch { border-left-color: #c9ccd1; }
+.rack-device-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.9rem; }
+.rack-move { display: flex; gap: 4px; margin-left: auto; }
+.rack-move button:disabled { opacity: 0.3; cursor: default; }
+.rack-gap {
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  border: 1px dashed rgba(75, 224, 138, 0.45);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #4be08a;
+}
+.rack-units { min-width: 64px; font-size: 0.75rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+.rack-kind { font-size: 0.78rem; opacity: 0.55; }
+.rack-status { padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.rack-status.on { background: rgba(43, 182, 115, 0.2); color: #7ee08a; }
+.rack-status.off { background: rgba(224, 80, 63, 0.2); color: #ff8a7a; }
+.rack-ports { display: flex; flex-wrap: wrap; gap: 4px; }
+.rack-port {
+  min-width: 34px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  background: #121418;
+  color: #aab;
+  font: 600 0.72rem inherit;
+  text-align: center;
+  cursor: default;
+}
+.rack-port.wan { border-color: rgba(224, 80, 63, 0.7); }
+.rack-port.cabled { border-color: var(--cable); background: color-mix(in srgb, var(--cable) 35%, #121418); color: #fff; }
+/* Klima: Schranklüfter oben im Fenster, je Gerät Temperatur und Lüfter (core/server-climate.js) */
+.rack-climate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #1c2027;
+  font-size: 0.85rem;
+}
+.rack-climate-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 0.8rem; }
+.rack-fan { display: inline-flex; align-items: center; gap: 6px; }
+.rack-fan input { width: 110px; accent-color: #3aa0ff; }
+.rack-fan-value { min-width: 38px; font-variant-numeric: tabular-nums; opacity: 0.8; }
+.rack-temp { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rack-temp.cold { color: #8fd3ff; }
+.rack-temp.cool { color: #b9e4ff; }
+.rack-temp.ok { color: #7ee08a; }
+.rack-temp.warm { color: #ffc35a; }
+.rack-temp.hot { color: #ff6a5a; }

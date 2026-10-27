@@ -3,6 +3,7 @@
 //   units: Höheneinheiten (HE) – im Schrank so viele Plätze, bei Geräten so viele belegt
 //   ports: Netzwerkanschlüsse hinten · series: Kategorie eines Servers (SERVER_SERIES) · income: Einnahmen pro Spielstunde, solange der Server online ist
 //   power: Strom pro Spielstunde in Euro, solange das Gerät im Schrank steckt
+//   drives: 'small' – Server mit 2,5-Zoll-Laufwerken hochkant (Frontblende), sonst je nach Größe
 // Firewall: Port 1 ist WAN (zum Patchpanel, also ins Internet), die übrigen sind LAN (zu Switches und Servern).
 
 // Kabelführung hinten im Schrank: links und rechts eine Leiste mit einem Clip alle clipEvery HE
@@ -19,6 +20,7 @@ export const SERVER_RACKS = [
 export const SERVER_SERIES = [
   { id: 'standard', name: 'Standard' },
   { id: 'system-x', name: 'System X', color: 0xf2c419 },
+  { id: 'risc', name: 'RISC', color: 0x10204a }, // sparsam: wenig Strom für die Einnahmen, dafür teurer
 ];
 
 export const SERVER_DEVICES = [
@@ -27,6 +29,8 @@ export const SERVER_DEVICES = [
   { id: 'server-gpu', kind: 'server', series: 'standard', name: 'GPU-Server', units: 4, ports: 2, income: 85, power: 7, price: 4200 },
   { id: 'systemx-s', kind: 'server', series: 'system-x', name: 'System X S', units: 1, ports: 2, income: 16, power: 1.5, price: 850 },
   { id: 'systemx-l', kind: 'server', series: 'system-x', name: 'System X L', units: 2, ports: 2, income: 40, power: 3.2, price: 2000 },
+  { id: 'risc-s', kind: 'server', series: 'risc', name: 'RISC S', units: 1, ports: 2, income: 18, power: 0.8, price: 1100, drives: 'small' },
+  { id: 'risc-l', kind: 'server', series: 'risc', name: 'RISC L', units: 2, ports: 2, income: 46, power: 1.8, price: 2700, drives: 'small' },
   { id: 'switch-8', kind: 'switch', name: 'Switch 8 Ports', units: 1, ports: 8, power: 0.2, price: 150 },
   { id: 'switch-24', kind: 'switch', name: 'Switch 24 Ports', units: 1, ports: 24, power: 0.4, price: 450 },
   { id: 'firewall', kind: 'firewall', name: 'Firewall', units: 1, ports: 4, power: 0.3, price: 500 },

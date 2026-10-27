@@ -2,16 +2,18 @@
 // Gekaufte Spulen liegen im Schwerlastregal, Drucker stehen als Karton in der Lieferzone, Holzplatten für den Laser
 // liegen auf einer Palette an der Rückwand.
 import * as THREE from 'three';
+import { box } from '../models/mesh-helpers.js';
 import { SHEET_MM, WOODS, filamentById } from '../core/catalog.js';
 import { WET, spoolLabel } from '../core/economy.js';
 import { createSpool, createSpoolBatch } from '../models/spool.js';
 import { createPrinterBox } from '../models/printer-box.js';
-import { MAX_SHEETS, MAX_SPOOLS } from './carry.js';
 import { furnitureSize } from '../models/furniture.js';
 import { SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
+import { stackBoxes } from '../core/storage-stack.js';
 import {
-  ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry, canvasTexture, speckle, rand,
+  ROOM_SIZE, WALL_THICKNESS, STORAGE_DOOR, createWallGeometry,
 } from './room.js';
+import { canvasTexture, speckle, rand } from '../models/canvas-texture.js';
 import { enableShadows } from './util.js';
 import { mergeStatic } from '../models/merge-static.js';
 
@@ -48,7 +50,19 @@ const WOOD_PALLET = {
 
 const ZONE = { x0: -3.1, x1: -2.05, z0: 10.55, z1: 14.2 };
 const BOX_X = (ZONE.x0 + ZONE.x1) / 2;
+// Ein Kartonstapel je Platz (core/storage-stack.js), jeder bis knapp unter das Rohr an der Decke (Unterkante 2,41 m)
 const BOX_SPOTS_Z = [11.0, 11.9, 12.8, 13.7];
+const BOX_CEILING = HEIGHT - 0.2;
+
+// Karton für einen Drucker ({ model }) bzw. für Einrichtung ({ type }); die Höhe wird je Modell bzw. Typ gemerkt
+const makeCrate = (entry) => (entry.model ? createPrinterBox(entry.model) : createPrinterBox(entry.type, furnitureSize(entry.type), 'Einrichtung'));
+const crateHeights = new Map();
+function crateHeight(entry) {
+  const key = entry.model ? `printer:${entry.model.id}` : `furniture:${entry.type.id}`;
+  if (!crateHeights.has(key)) crateHeights.set(key, makeCrate(entry).userData.size.h);
+  return crateHeights.get(key);
+}
+const stackCrates = (entries) => stackBoxes(entries.map((entry) => ({ entry, h: crateHeight(entry) })), BOX_CEILING, BOX_SPOTS_Z.length);
 
 // ---------- Texturen ----------
 
@@ -106,12 +120,6 @@ function drawBlocks(ctx, w, h) {
 }
 
 // ---------- Einrichtung ----------
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 function createShelf() {
   const shelf = new THREE.Group();
@@ -247,6 +255,8 @@ function woodSign(wood, count) {
 // upgrades: Ausbau-Stand – bestimmt, wie viele Regalebenen es gibt
 export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const group = new THREE.Group();
+  // Kaufen geht nur, solange der neue Karton noch auf einen Stapel passt
+  economy.storageFits = (entries) => stackCrates(entries).overflow === 0;
 
   const floorMat = new THREE.MeshStandardMaterial({
     map: canvasTexture(512, 512, drawConcrete('#8e8c87'), W / 2, (D + WALL_THICKNESS) / 2),
@@ -400,9 +410,9 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
         if (carry.printer || carry.furniture) return 'Hände voll – erst den Karton abstellen (Q)';
         if (carry.nozzle) return 'Hände voll – erst die Ersatzdüse zurücklegen (Q)';
         if (carry.sheet) return 'Hände voll – erst die Holzplatten zurücklegen (Q)';
-        if (!carry.canTakeSpool) return `Hände voll – höchstens ${MAX_SPOOLS} Spulen (Q legt alle zurück)`;
+        if (!carry.canTakeSpool) return `Hände voll – höchstens ${carry.maxSpools} Spulen (Q legt alle zurück)`;
         const wet = spool.moisture >= WET ? ' 💧 feucht – lieber erst trocknen' : '';
-        const count = ` · danach ${carry.spools.length + 1}/${MAX_SPOOLS} in der Hand`;
+        const count = ` · danach ${carry.spools.length + 1}/${carry.maxSpools} in der Hand`;
         return `Linksklick: ${spoolLabel(spool)} nehmen${count}${wet}`;
       },
       action: () => {
@@ -417,10 +427,10 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   function woodInteraction(wood) {
     return {
       hint: () => {
-        if (carry.sheet && !carry.canTakeSheet) return `Hände voll – höchstens ${MAX_SHEETS} Holzplatten (Q legt alle zurück)`;
+        if (carry.sheet && !carry.canTakeSheet) return `Hände voll – höchstens ${carry.maxSheets} Holzplatten (Q legt alle zurück)`;
         if (!carry.canTakeSheet) return 'Hände voll – Q legt alles zurück ins Lager';
         const count = economy.woodCount(wood.id);
-        const inHand = carry.sheets.length ? ` · danach ${carry.sheets.length + 1}/${MAX_SHEETS} in der Hand` : '';
+        const inHand = carry.sheets.length ? ` · danach ${carry.sheets.length + 1}/${carry.maxSheets} in der Hand` : '';
         return count ? `Linksklick: ${wood.name} nehmen (${count} da)${inHand}` : `${wood.name} – leer, Nachschub im Holzshop`;
       },
       action: () => {
@@ -433,18 +443,18 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
 
   function boxInteraction(printer) {
     return {
-      hint: () => (carry.isEmpty ? `Linksklick: ${printer.model.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
+      hint: () => (carry.canTakeBox ? `Linksklick: ${printer.model.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
       action: () => {
-        if (carry.isEmpty && economy.takePrinterFromStorage(printer.id)) carry.holdPrinter(printer);
+        if (carry.canTakeBox && economy.takePrinterFromStorage(printer.id)) carry.holdPrinter(printer);
       },
     };
   }
 
   function furnitureBoxInteraction(item) {
     return {
-      hint: () => (carry.isEmpty ? `Linksklick: Karton ${item.type.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
+      hint: () => (carry.canTakeBox ? `Linksklick: Karton ${item.type.name} aufheben` : 'Hände voll – Q legt alles zurück ins Lager'),
       action: () => {
-        if (carry.isEmpty && economy.takeFurnitureFromStorage(item.id)) carry.holdFurniture(item);
+        if (carry.canTakeBox && economy.takeFurnitureFromStorage(item.id)) carry.holdFurniture(item);
       },
     };
   }
@@ -504,25 +514,19 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
     });
 
     const boxColliders = [];
-    // Kartons in der Lieferzone: Drucker und Regale
-    const crates = [
-      ...economy.printers.map((p) => ({ item: p, make: () => createPrinterBox(p.model), interaction: boxInteraction(p) })),
-      ...economy.furniture.map((f) => ({
-        item: f, make: () => createPrinterBox(f.type, furnitureSize(f.type), 'Einrichtung'), interaction: furnitureBoxInteraction(f),
-      })),
-    ];
-    for (const { item, make, interaction } of crates) {
-      const spot = item.storageSpot;
-      if (item.location !== 'storage' || spot === null || spot >= BOX_SPOTS_Z.length) continue;
-      const crate = make();
-      crate.position.set(BOX_X, 0, BOX_SPOTS_Z[spot]);
-      crate.userData.interaction = interaction;
+    // Kartons in der Lieferzone: Drucker und Einrichtung, in Lieferreihenfolge auf die Stapel verteilt
+    const stored = [...economy.printers, ...economy.furniture]
+      .filter((item) => item.location === 'storage')
+      .sort((a, b) => (a.storageSpot ?? Infinity) - (b.storageSpot ?? Infinity));
+    for (const { box: { entry: item }, column, y } of stackCrates(stored).placed) {
+      const z = BOX_SPOTS_Z[column];
+      const crate = makeCrate(item);
+      crate.position.set(BOX_X, y, z);
+      crate.userData.interaction = item.model ? boxInteraction(item) : furnitureBoxInteraction(item);
       contents.add(crate);
+      if (y > 0) continue; // nur die unterste Lage braucht eine Kollision
       const { w, d: depth } = crate.userData.size;
-      boxColliders.push({
-        minX: BOX_X - w / 2, maxX: BOX_X + w / 2,
-        minZ: BOX_SPOTS_Z[spot] - depth / 2, maxZ: BOX_SPOTS_Z[spot] + depth / 2,
-      });
+      boxColliders.push({ minX: BOX_X - w / 2, maxX: BOX_X + w / 2, minZ: z - depth / 2, maxZ: z + depth / 2 });
     }
     if (economy.hasDryer) boxColliders.push(DRYER.collider);
     collision.setDynamic('storage-boxes', boxColliders);

@@ -1,7 +1,6 @@
 // App „Personal“ im PC-Fenster: Azubis und die Empfangskraft einstellen und entlassen, sehen, was sie gerade tun.
 import { HIRE_FEE, MAX_WORKERS, RECEPTION_HIRE_FEE, RECEPTION_WAGE, WAGE_PER_HOUR } from '../core/staff.js';
-
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+import { euro } from '../core/format.js';
 
 // getStatus(workerId) → Text, was der Mitarbeiter gerade tut (aus world/workers.js)
 export function createStaffMenu(staff, getStatus) {

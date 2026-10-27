@@ -2,7 +2,9 @@
 // draußen in den Garten. Die Schiebetür öffnet sich, sobald jemand davorsteht (Spieler oder Figuren).
 // Die Einrichtung des Empfangs (Tresen, Wartebank, Abholregal) kommt aus world/reception.js.
 import * as THREE from 'three';
-import { ROOM_SIZE, WALL_THICKNESS, ENTRANCE_DOOR, createWallGeometry, canvasTexture, speckle } from './room.js';
+import { box } from '../models/mesh-helpers.js';
+import { ROOM_SIZE, WALL_THICKNESS, ENTRANCE_DOOR, createWallGeometry } from './room.js';
+import { canvasTexture, speckle } from '../models/canvas-texture.js';
 import { enableShadows } from './util.js';
 import { mergeStatic } from '../models/merge-static.js';
 
@@ -70,12 +72,6 @@ function drawMat(ctx, w, h) {
 }
 
 // ---------- Bauteile ----------
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 // Schiebetür: zwei Glasflügel in Alurahmen, fahren zur Seite auf. Lokal: Tür in der yz-Ebene, Mitte bei z = 0.
 function createSlidingDoor() {

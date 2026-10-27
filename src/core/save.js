@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -9,7 +9,7 @@ const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
-const VERSION = 10;
+const VERSION = 11;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -32,7 +32,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -66,6 +66,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       money: economy.money,
       unlimited: economy.unlimited,
       instantDelivery: economy.instantDelivery,
+      carryAll: economy.carryAll,
       pendingCosts: economy.pendingCosts,
       nextPrinterId: economy.nextPrinterId,
       nextLooseId: economy.nextLooseId,
@@ -119,6 +120,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       ? { workers: staff.workers.map((w) => ({ ...w })), nextId: staff.nextId, receptionist: staff.receptionist ? { ...staff.receptionist } : null }
       : undefined,
     servers: servers?.toJSON(),
+    climate: climate?.toJSON(), // Lüfter und Temperaturen im Serverraum (core/server-climate.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -154,7 +156,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -185,12 +187,14 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   // Version 9 merkt sich noch nicht, durch welche Clips ein Kabel läuft – servers.load legt es wie bisher durch
   // die nächsten Clips rechts (Servers.defaultClips)
   if (data?.version === 9) data.version = 10;
+  if (data?.version === 10) data.version = 11; // Version 10 kennt noch kein Serverklima – Lüfter starten bei 50 %
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
   economy.money = e.money;
   economy.unlimited = !!e.unlimited;
   economy.instantDelivery = !!e.instantDelivery;
+  economy.carryAll = !!e.carryAll;
   // Spieluhr: eigener Eintrag (ab #5) oder früher in economy.time gespeichert
   clock.minutes = data.clock?.minutes ?? e.time ?? clock.minutes;
   economy.pendingCosts = e.pendingCosts ?? 0;
@@ -260,6 +264,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
 
   servers?.load(data.servers);
+  climate?.load(data.climate);
   economy.notify();
   orders.notify();
   progress.notify();

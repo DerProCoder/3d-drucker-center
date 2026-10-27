@@ -63,7 +63,8 @@ Beim ersten Start fragt das Spiel: **Über welches Gerät spielst du?** – **PC
 | W A S D | Laufen |
 | C (gedrückt halten) | Schleichen: geduckt und langsamer, solange C gedrückt ist |
 | Linksklick | Benutzen, aufheben, abstellen, einlegen, Teil entnehmen, Kater streicheln |
-| Mausrad | Bei mehreren Spulen in der Hand: wählen, welche als Nächstes eingelegt wird |
+| Mausrad | Zoomen von 0,5× bis 10× (die Stufe blendet sich dabei kurz neben dem Fadenkreuz ein) – praktisch für die Ports hinten im Serverschrank. Bei mehreren Spulen in der Hand bzw. am Ausstellungsregal wählt das Rad stattdessen die Spule bzw. das Teil; mit gedrückter Umschalttaste zoomt es immer |
+| Mittlere Maustaste | Zoom zurück auf 1× |
 | E | Aufgestellten Drucker hochheben (nicht während er druckt) |
 | F | Getragenen Drucker oder Druckerkarton werfen |
 | Q | Alles in der Hand zurück ins Lager legen |
@@ -100,7 +101,7 @@ Dein Ziel: Kundenaufträge erfüllen und damit Geld verdienen.
 
 1. **Auftrag annehmen:** Kunden kommen über den Gartenweg zum **Empfang** (Tür „EMPFANG“ in der Westwand) und stellen sich an den Tresen; wer warten muss, setzt sich auf die Stühle. Zielst du auf den Tresen oder den Kunden davor, siehst du, was er will (Teil, Anzahl, Material und meist Farbe) und was er zahlt – Linksklick nimmt den Auftrag an, dann läuft die Frist. Wer zu lange wartet (etwa 6 Minuten), geht wieder, ohne dass es Ärger gibt. Am PC rechts neben dem Druckertisch zeigt die App **Aufträge** alle Aufträge mit Frist; dort kannst du auch ablehnen. Auf dem Desktop öffnet ein Klick eine App, **PC verlassen** unten links (oder `Esc`) bringt dich zurück ins Spiel.
 2. **Einkaufen:** Im **Filament-Shop** kaufst du Spulen und Zubehör, im **Drucker-Shop** einen Bambu Lab A1 mini, A1, den **A2L** (350 €, wie der A1, aber mit großem Bauraum 325 × 325 × 325 mm und kann auch TPU), P1P, P1S, P2S, den **X1 Carbon** (850 €), den Klassiker mit einer Düse, AMS, KI-Kamera und Micro-Lidar, das die erste Schicht prüft (20 % weniger Fehldrucke), den **X2D** (950 €) mit zwei Düsen und KI-Kamera das Flaggschiff **H2D** (1.400 €) – ebenfalls mit zwei Düsen und KI-Kamera, dazu ein großer Bauraum (325 × 325 × 325 mm, mehr Teile pro Platte), Fenster vorne, an der Seite und im Dach und ein großes Touch-Display –, den **H2S** (1.800 €), ebenso groß und mit KI-Kamera, aber mit nur einer Düse, dafür mit **Turbo-Stufe bis 200 %** sowie präziserer Mechanik und starker Bauteilkühlung (nur halb so viele Fehldrucke), den **X1E** (2.200 €), so groß wie der X2D mit zwei Düsen, AMS und KI-Kamera, dazu der schnellste Drucker mit der **Hyper-Stufe bis 300 %** und 25 % weniger Fehldrucken, den **H2D Pro** (2.000 €), einen H2D mit zwei Düsen und KI-Kamera, dazu mit der **Turbo-Stufe bis 200 %**, oder den **H2C** (2.500 €): so groß wie der H2D, mit **Düsenwechsler** (8 Düsen), zwei AMS übereinander und einer LED-Leiste am Sockel. Unter **Technische Daten** klappst du bei jedem Gerät das echte Datenblatt auf (Bauraum, Temperaturen, Geschwindigkeit, Maße, Gewicht, Leistung, Startpreis …). Du startest klein: mit **150 €**, einem **A1 mini**, der schon auf dem ersten Drucktisch steht, und **einer Rolle weißem PLA**, die schon im Drucker eingelegt ist – erfüll die ersten Aufträge und spar auf Filament in weiteren Farben und bessere Drucker.
-3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
+3. **Abholen:** Alles wird in den **Abstellraum** geliefert – die Tür mit dem Schild „LAGER“ liegt hinter dir, wenn das Spiel startet. Drucker stehen als Karton in der gelben Lieferzone, Spulen liegen im Regal. Die Lieferzone hat 4 Plätze; weitere Kartons werden darauf gestapelt (5–8 auf die ersten vier und so weiter), bis die Stapel an die Decke stoßen – dann zeigt der Shop „Abstellraum voll“. Hohe Kartons wie der große 42-HE-Schrank passen nur auf den Boden, davon gehen also höchstens 4 hinein. Du kannst bis zu **5 Spulen** auf einmal tragen; unten in der Mitte steht, wie viele du in der Hand hast und wie viele noch passen.
 4. **Aufstellen:** Karton anklicken, zum Druckertisch tragen, auf den Tisch schauen (eine grüne Vorschau zeigt den Platz) und klicken.
 5. **Filament einlegen:** Spule im Regal nehmen und auf den Drucker klicken (mit mehreren Spulen in der Hand wählt das Mausrad aus, welche) – so füllst du ein AMS in einem Gang. A1, A1 mini und A2L haben einen Spulenhalter für eine Spule, P1P, P1S, P2S, X1 Carbon, X2D und H2D ein **AMS** auf dem Dach mit 4 Fächern – so kannst du vier Farben gleichzeitig bereithalten. Der H2C hat zwei AMS übereinander, also 8 Fächer. Nicht jeder Drucker kann jedes Material drucken – der Hinweis unter dem Fadenkreuz sagt es dir.
 6. **Drucken:** Am PC die App **Druckermenü** öffnen. Links stehen alle Drucker mit Status, Fortschritt und Restzeit (in echter Zeit); ein Klick zeigt rechts die Details. Dort die Druckvorlage aus der Bildergalerie und die Geschwindigkeit wählen – bei AMS-Druckern auch das Fach, aus dem gedruckt wird – und den Druck starten. Das Teil entsteht Schicht für Schicht auf dem Drucker: In jeder Schicht fährt die Düse erst die Außenwände ab und füllt dann das Innere mit einem **schrägen Gitter** (Rauten unter 45°, 10 mm Linienabstand). Unterseite und Oberseite – auch Absätze mitten im Teil, etwa der Sockel des Handyhalters – druckt sie geschlossen: dichte schräge Bahnen hin und her, Lage für Lage abwechselnd nach links und rechts. Alles Linie für Linie, immer zur nächstgelegenen, mit schnellen Leerfahrten dazwischen. Schaust du von oben in das halbfertige Teil, siehst du die Gitterwände im Inneren Schicht für Schicht mitwachsen; ist das Teil fertig, ist es außen geschlossen. Unter **Anzahl auf der Platte** druckst du mehrere Teile auf einmal – so viele, wie mit etwas Abstand auf die Druckplatte passen (z. B. 15 Schlüsselanhänger auf dem A1 mini). Jedes weitere Teil braucht nur 90 % der Zeit, aber ein Fehldruck ruiniert die ganze Platte.
@@ -235,7 +236,8 @@ Platz kostet Geld – Tische, Regalebenen, eine zweite Etage und einen Fahrstuhl
 - **Drucktische:** Am Anfang hast du einen Tisch mit 4 Druckerplätzen und 3 Regalplätzen dazwischen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen. Der Tisch wird geliefert (blaue Markierung, eine Minute); danach wird die Markierung grün und ein Klick darauf stellt den Tisch auf.
 - **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es ebenfalls in der App **Ausbau**; sie werden nach der Lieferung automatisch eingebaut.
 - **Zweite Etage (2.000 €):** Eine ganze Etage über der Halle, genauso groß, erstmal leer. Nach dem Bau führt eine Treppe rechts hinten in der Halle (an der Ostwand) nach oben. Was du in der Hand trägst, nimmst du mit. Von oben kann man nichts werfen.
-- **Serverraum (in der zweiten Etage):** In der PC-App **Server-Shop** gibt es Serverschränke (12, 24 und 42 Höheneinheiten), Server in Kategorien (Standard und die gelben **System X**: S mit 1 HE, L mit 2 HE), Switches, eine Firewall, Patchpanels und die **Kabelrolle (100 m)**. Alles kommt als Karton in den Abstellraum, Kabel direkt in den Vorrat. Schrank nach oben tragen und an einer grünen Markierung aufstellen; die Schränke haben vorn eine Glastür (Klick öffnet bzw. schließt sie) und sind hinten offen – dort sitzen die Ports der Geräte und hängen die Kabel. Bei offener Tür mit einem Gerätekarton in der Hand auf den Schrank klicken baut das Gerät ein – auf der Höhe, auf die man zielt (ein grüner Rahmen zeigt vorher die Höheneinheiten). Im Schrankfenster lassen sich Geräte mit ▲ / ▼ verschieben, freie Höheneinheiten stehen dort als grüne Lücken. **Verkabeln geht hinten am Schrank:** ersten Port anvisieren und anklicken (er leuchtet gelb), dann den zweiten – ein blaues Kabel verbindet beide und hängt frei. Wer es ordentlich mag, klickt zwischen den beiden Ports einen oder mehrere **Clips** der Kabelführung links und rechts an (sie leuchten gelb, nochmal klicken nimmt einen wieder heraus); dann läuft das Kabel durch diese Clips – zwischen zwei Clips derselben Seite durch alle Clips dazwischen. Jedes Kabel verbraucht so viel von der Rolle, wie es lang ist (ca. 0,3–2 m). Klick auf einen belegten Port zieht das Kabel ab, das Stück kommt zurück in den Vorrat. Mit leeren Händen öffnet ein Klick auf den Schrank das Schrankfenster mit allen Geräten und wer woran hängt. Ein Server ist **online**, wenn er am Switch (oder direkt am LAN der Firewall) hängt, der Switch am **LAN** der Firewall und der **WAN**-Port der Firewall am **Patchpanel**. Online-Server bringen jede Spielstunde Geld, alle eingebauten Geräte kosten Strom (läuft mit der Stromrechnung).
+- **Serverraum (in der zweiten Etage):** In der PC-App **Server-Shop** gibt es Serverschränke (12, 24 und 42 Höheneinheiten), Server in Kategorien (Standard, die gelben **System X** und die sparsamen dunkelblauen **RISC**-Server – je S mit 1 HE und L mit 2 HE; RISC verbraucht weniger Strom, kostet aber mehr), Switches, eine Firewall, Patchpanels und die **Kabelrolle (100 m)**. Alles kommt als Karton in den Abstellraum, Kabel direkt in den Vorrat. Schrank nach oben tragen und an einer grünen Markierung aufstellen; die Schränke haben vorn eine Glastür (Klick öffnet bzw. schließt sie) und sind hinten offen – dort sitzen die Ports der Geräte und hängen die Kabel. Bei offener Tür mit einem Gerätekarton in der Hand auf den Schrank klicken baut das Gerät ein – auf der Höhe, auf die man zielt (ein grüner Rahmen zeigt vorher die Höheneinheiten). Im Schrankfenster lassen sich Geräte mit ▲ / ▼ verschieben, freie Höheneinheiten stehen dort als grüne Lücken. **Verkabeln geht hinten am Schrank:** ersten Port anvisieren und anklicken (er leuchtet gelb), dann den zweiten – ein blaues Kabel verbindet beide und hängt frei. Wer es ordentlich mag, klickt zwischen den beiden Ports einen oder mehrere **Clips** der Kabelführung links und rechts an (sie leuchten gelb, nochmal klicken nimmt einen wieder heraus); dann läuft das Kabel durch diese Clips – zwischen zwei Clips derselben Seite durch alle Clips dazwischen. Jedes Kabel verbraucht so viel von der Rolle, wie es lang ist (ca. 0,3–2 m). Klick auf einen belegten Port zieht das Kabel ab, das Stück kommt zurück in den Vorrat. Mit leeren Händen öffnet ein Klick auf den Schrank das Schrankfenster mit allen Geräten und wer woran hängt. Ein Server ist **online**, wenn er am Switch (oder direkt am LAN der Firewall) hängt, der Switch am **LAN** der Firewall und der **WAN**-Port der Firewall am **Patchpanel**. Online-Server bringen jede Spielstunde Geld, alle eingebauten Geräte kosten Strom (läuft mit der Stromrechnung).
+- **Temperatur im Serverraum:** Im Schrankfenster stehen oben die Luft im Schrank und zwei Regler für die Schranklüfter: **Zuluft unten** holt kalte Luft von der Klimaanlage (je mehr, desto kälter der ganze Schrank), **Abluft oben** zieht die Abwärme ab. Oben im Schrank wird es am wärmsten. Jedes Gerät (außer Patchpanels) zeigt seine Temperatur und hat einen eigenen Lüfterregler. Gut sind **20–60 °C**. Über 75 °C nimmt ein Gerät Schaden und ist irgendwann **defekt** (Reparieren kostet 30 % vom Kaufpreis). Unter 10 °C **friert es ein** – erst Lüfter herunterdrehen, warten, bis es wieder warm ist, dann neu starten. Defekte oder eingefrorene Geräte arbeiten nicht: Server sind offline, Switches und Firewalls leiten nichts weiter. Viele Server oder der GPU-Server brauchen mehr Lüfter, ein fast leerer Schrank mit allen Lüftern auf 100 % wird zu kalt. Lüfter kosten etwas Strom. Alle Lüfter drehen sich sichtbar so schnell, wie sie eingestellt sind – vorn am GPU-Server, hinten an Netzteilen, Switches und Firewalls, im Schrankdach und unten auf dem Sockel; defekte Geräte stehen still.
 - **Fahrstuhl (3.000 €, erst nach der Etage):** Kommt neben die Treppe. Am Ruftaster rechts neben der Tür klicken – der Fahrstuhl bringt dich samt allem, was du trägst, aufs andere Stockwerk.
 - **Lieferzeit:** Alles, was als Paket kommt – Drucker, Regale, Tische, Regalebenen – ist nach dem Kauf **eine Minute** unterwegs. Im Druckermenü und in der App **Ausbau** siehst du die Restzeit, bei Ankunft gibt es eine Meldung.
 
@@ -263,19 +265,38 @@ Platz kostet Geld – Tische, Regalebenen, eine zweite Etage und einen Fahrstuhl
 ## Projektaufbau
 
 ```
-index.html          Einstieg, Import-Map für Three.js
-css/style.css       HUD, Shop- und Menüfenster
+index.html          Einstieg, Import-Map für Three.js, lädt die CSS-Dateien in fester Reihenfolge
+css/                Gestaltung, je Bereich eine Datei, in fester Reihenfolge geladen (wie hier und in index.html);
+                    screen-fade.css und rack-panel.css folgen nach touch.css wie im alten style.css
+  style.css           Grundlagen: Farb-Variablen, Seite, Fadenkreuz
+  hud.css             HUD im Spiel: Anzeigen, Zoom, Leistungsanzeige, Speichern-Symbol, Level-Up
+  desktop.css         PC-Desktop: Fenster, Mauszeiger, Shop-Karten, Notizen, Rechner
+  printer-menu.css    Druckermenü
+  title.css           Titel- und Pausenbildschirm
+  apps.css            Meldungen, Erfolge und Apps (Snake, Drucker-Cam, Ausbau, Entwicklermenü, Personal)
+  touch.css           Tablet-Steuerung, Anpassungen für Touch/Tablet/Handy (steht nach hud.css … apps.css,
+                      damit sie deren Regeln überschreibt; neue Bereichsdateien davor einbinden, wenn sie für sie gelten soll)
+  screen-fade.css     Abblenden des Bildschirms (z. B. Fahrstuhl)
+  rack-panel.css      Schrankfenster mit Klima
 serve.ps1           Lokaler Webserver für Windows
 assets/people/      Menschenfiguren als GLB (Quaternius), auf die nötigen Animationen gekürzt
 .github/workflows/  pages.yml: veröffentlicht main automatisch auf GitHub Pages
 src/
-  main.js           Verdrahtet alles: Szene, Steuerung, Spielschleife
+  main.js           Verdrahtet alles: Szene, Steuerung, Ereignisse, Spielschleife; baut derzeit auch Computertisch und
+                    Spielerbewegung (soll später ausgelagert werden)
   core/             Spiellogik, ohne Three.js und ohne DOM
-    catalog.js        Drucker (mit technischen Daten), Bambu-Filamentsorten und -farben, Druckvorlagen mit Preisen und Werten
-    economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß
+    format.js         Gemeinsame Anzeige-Formatierer: Euro (euro, euroRound), Kabellänge (meters), Zeiten (formatMinutes, realTime)
+    catalog.js        Sammelstelle: reicht die Teilkataloge weiter (Import bleibt ../core/catalog.js)
+    filament-catalog.js  Filamentsorten und -farben, Holzplatten für den Laser
+    printer-catalog.js   Drucker und Laser mit technischen Daten, Geschwindigkeitsstufen, LED-Farben
+    print-templates.js   Druck- und Laservorlagen, Lasermotive, Fehldruckarten
+    furniture-catalog.js Einrichtung, Zubehör und Ersatzteile
+    economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß, Holz und Laser,
+                      Einrichtung und Regale, Lieferung und Abstellraum, Ersatzteile
     orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Stufen (am Empfang, angenommen, im Regal)
     reception.js      Empfang: annehmen, ins Abholregal packen (feste Fächer), abholen und bezahlen
-    two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse
+    two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse;
+                      außerdem Farbbeschriftung (colorsLabel) und Filamente eines Teils (partFilaments)
     laser.js          Laser R1: Holzplatte im Gerät, Laseraufträge (Text, Logo, Ausschneiden)
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
@@ -286,20 +307,24 @@ src/
     snake-autopilot.js  Auto-Modus für Snake: Rundweg über alle Felder mit sicheren Abkürzungen
     server-catalog.js Server-Hardware: Schränke, Server, Switches, Firewall, Patchpanels, Kabelrolle
     servers.js        Serverraum: Schränke aufstellen, Geräte einbauen, Kabel, wer online ist, Einnahmen
+    server-climate.js Serverklima: Lüfter je Schrank und Gerät, Temperaturen, Überhitzen und Einfrieren
     display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
+    storage-stack.js  Kartons im Abstellraum stapeln: 4 Stapel bis unter die Decke, ob ein neuer Karton noch passt
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
     room.js           Halle mit Boden, Wänden, Fenstern, Licht
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
+    hall-layout.js    Hallen-Maße: Drucktisch-Reihen und Drucker-/Regalplätze
     upper-floor.js    Zweite Etage: Zwischendecke, Treppe, Fahrstuhl, Stockwerk der Spielfigur, Fassade oben
     server-room.js    Serverraum oben: Stellplätze, Schränke mit Geräten und Kabeln, Verkabeln Port für Port
     hall-lights.js    Lichtschalter der Halle: Deckenleuchten aus, Raum dunkel, Glow-Filament leuchtet
     display-wall.js   Ausstellungsregale an der Südwand: Aufstellen, Teile ausstellen (Mausrad wählt), zurücknehmen
+    zoom.js           Zoom mit dem Mausrad (Blickfeld der Kamera, langsamere Maus beim Reinzoomen)
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
     purge.js          Farbwechsel mit einer Düse: Kopf fährt zum Spültrichter, spült aus, streift ab, druckt weiter
     laser.js          Laser R1: Holzplatte mit Gravur bzw. Schnittlinien, Laserkopf und Strahl
-    storage-room.js   Abstellraum mit Regal, Holzpalette und Lieferzone
+    storage-room.js   Abstellraum mit Regal, Holzpalette und Lieferzone (Kartons gestapelt)
     entrance.js       Eingangsbereich hinter der Westwand mit automatischer Glas-Schiebetür
     outdoor.js        Fassaden und Dach, Garten, Straße mit Gehwegen, Häuser, Autos, Himmel
     pedestrians.js    Passanten auf den Gehwegen
@@ -317,7 +342,14 @@ src/
     graphics.js       Tone-Mapping, Spiegelungen, Bloom, Umgebungsverdeckung, Staub, Schatten, automatische Auflösung
     util.js           Kleine 3D-Helfer (Schatten)
   models/           Reine 3D-Modelle, ohne Spiellogik
-    printer-model.js, printer-parts.js   Drucker
+    mesh-helpers.js   Grundformen für Modelle: box, shadowBox, rbox, cylinder und Standardmaterial mat
+    canvas-texture.js Prozedurale Canvas-Texturen (canvasTexture) und Zeichenhelfer rand/speckle
+    printer-model.js  Weiche für die Druckermodelle, Abmessungen, Schläuche zum Druckkopf
+    printer-a1.js     Bettschubser A1 mini, A1 und A2L
+    printer-cube.js   Würfeldrucker P1P bis H2C mit Spülrutsche
+    printer-model-helpers.js  Gemeinsame Teile der Druckermodelle (Schriftzug, Schläuche, Kamera)
+    printer-parts.js  Einzelteile der Drucker: Druckkopf, Druckplatte, Motoren, Schienen, Touchscreen
+    printed-part.js   Materialien gedruckter Teile (ein- und mehrfarbig) und Fehldruck-Spaghetti
     nozzle-changer.js Düsenwechsler des H2C: Wechselkopf, Düsenhalter, LED-Leiste
     laser-model.js    Laser R1: Gehäuse mit Laserschutzfenster, Wabenbett, Laserkopf
     laser-art.js      Was der Laser auf die Platte bringt: Motive, Text, Gravurzeilen, Schnittbahn
@@ -325,12 +357,16 @@ src/
     print-shapes.js   Formen der Druckvorlagen und Düsenbahn je Schicht
     infill.js         Füllung: Gitter innen, geschlossene Ober-/Unterseiten, kürzester Weg der Düse, Füllwände im Inneren
     spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend – im Dunkeln heller –, durchscheinend), ganze Regale als Instanzen
-    furniture.js      Regale am Drucktisch, Ausstellungsregal und Ersatzdüse
+    furniture.js      Regale am Drucktisch, Ausstellungsregal und Ersatzdüse; auch Karton-/Vorschaumodelle der
+                      Server-Hardware
     server-hardware.js  Serverschrank und Geräte (Server, Switch, Firewall, Patchpanel) mit Ports
+    server-fans.js    Drehende Lüfter (Rotor mit Schutzgitter) für Server-Geräte und Schränke
+    server-textures.js  Gezeichnete Texturen der Geräte: Frontblenden, Rückwände, Gehäuseblech
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
     merge-static.js   Unbewegliche Einzelteile pro Material zu einem Mesh verschmelzen (weniger Draw Calls)
     people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
+    name-tag.js       Namensschild über dem Kopf von Figuren (Azubis, Empfang)
     reception-furniture.js  Tresen, Wartestuhl, Abholregal, Paket mit Etikett
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
   ui/               HTML-Overlays und PC-Apps

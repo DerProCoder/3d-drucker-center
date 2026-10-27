@@ -108,12 +108,17 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   Ausstellungsregale an der Südwand (location 'wall').
 // Lose Teile: hat der Kater vom Tisch geworfen, liegen auf dem Boden { id, templateId, filamentId, x, z, rotY }
 export const DELIVERY_SECONDS = 60; // so lange (echte Sekunden) ist ein bestelltes Paket unterwegs
+export const CARRY_ALL_MAX = 10;    // Entwicklermenü „Alles tragen“: so viele Kartons, Spulen bzw. Holzplatten in der Hand
 
 export class Economy {
   constructor() {
     this.money = START_MONEY;
     this.unlimited = false;          // Entwicklermenü: unendlich Geld
     this.instantDelivery = false;    // Entwicklermenü: Pakete kommen sofort
+    this.carryAll = false;           // Entwicklermenü: bis zu 10 Kartons, Spulen, Platten auf einmal tragen
+    // Passt eine Liste Kartons ([{ model } | { type }]) in den Abstellraum? Setzt world/storage-room.js, das die
+    // Kartongrößen kennt (core/storage-stack.js stapelt). Ohne Rückruf ist immer Platz.
+    this.storageFits = null;
     this.wagesPerHour = 0;           // Lohn fürs Personal (setzt core/staff.js)
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
@@ -260,7 +265,7 @@ export class Economy {
 
   // Gibt den neuen Drucker zurück oder null, wenn das Geld nicht reicht
   buyPrinter(model) {
-    if (!this.withdraw(model.price)) return null;
+    if (!this.roomForBox({ model }) || !this.withdraw(model.price)) return null;
     const printer = this.addPrinter(model);
     this.ship(printer);
     this.notify();
@@ -898,7 +903,7 @@ export class Economy {
 
 
   buyFurniture(type) {
-    if (!this.withdraw(type.price)) return null;
+    if (!this.roomForBox({ type }) || !this.withdraw(type.price)) return null;
     const item = {
       id: this.nextFurnitureId++, type, location: 'storage', slot: null, storageSpot: this.freeStorageSpot(),
       spools: type.id === 'filament-rack' ? Array(type.capacity).fill(null) : null,
@@ -1161,6 +1166,16 @@ export class Economy {
     let shelfSlot = 0;
     while (used.has(shelfSlot)) shelfSlot++;
     this.shelf.push({ filamentId, grams, moisture, shelfSlot });
+  }
+
+  // Kartons, die im Abstellraum Platz brauchen: dort abgestellt, noch unterwegs oder gerade in der Hand
+  get boxedItems() {
+    return [...this.printers, ...this.furniture].filter((x) => ['storage', 'shipping', 'carried'].includes(x.location));
+  }
+
+  // Passt noch ein Karton ({ model } für Drucker, { type } für Einrichtung) dazu, ohne dass der Stapel an die Decke stößt?
+  roomForBox(box) {
+    return !this.storageFits || this.storageFits([...this.boxedItems, box]);
   }
 
   // Erster freier Kartonplatz in der Lieferzone

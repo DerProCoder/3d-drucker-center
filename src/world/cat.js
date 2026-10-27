@@ -3,9 +3,10 @@
 // Trifft ihn ein geworfener Drucker, kippt er (Cartoon-Stil) um; kurz darauf läuft ein neuer Kater zu.
 // Bewegung über Delta-Zeit. Das Herunterwerfen selbst erledigt economy.knockPartOff.
 import * as THREE from 'three';
-import { TABLE_ROWS_Z, rackX, rackZ, slotX, slotZ } from './workshop.js';
+import { TABLE_ROWS_Z, rackX, rackZ, slotX, slotZ } from './hall-layout.js';
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
 import { furnitureSize } from '../models/furniture.js';
+import { rand } from '../models/canvas-texture.js';
 
 const NAME = 'Kater Düsentrieb';
 const WALK_SPEED = 0.7;     // m/s
@@ -17,8 +18,6 @@ const TABLE_SEAT_Z = 0.15;  // hier sitzt er auf dem Tisch (relativ zur Tischmit
 const SEAT_OFFSET_X = 0.55; // rechts neben dem Stellplatz, zwischen zwei Druckern
 const KO_SECONDS = 20;     // so lange liegt er nach einem Treffer, dann läuft ein neuer Kater zu
 const RESPAWN = { x: -5, z: 9.2 }; // an der Tür zum Abstellraum
-
-const rand = (min, max) => min + Math.random() * (max - min);
 
 function createCatModel() {
   const cat = new THREE.Group();

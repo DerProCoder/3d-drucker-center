@@ -2,6 +2,7 @@
 // Fernseher und Konsole. Ohne Arbeit sitzen die Azubis hier (world/workers.js nutzt OFFICE_SPOTS und OFFICE_PATH).
 // Die Tür bleibt zu, bis jemand eingestellt ist.
 import * as THREE from 'three';
+import { box } from '../models/mesh-helpers.js';
 import { filamentById, PRINTERS } from '../core/catalog.js';
 import { createPrinterModel, printerSize } from '../models/printer-model.js';
 import { createSpool } from '../models/spool.js';
@@ -10,7 +11,8 @@ import {
   CHAIR_SEAT_HEIGHT, COUCH, DESK, LOWBOARD,
   createConsole, createController, createCouch, createDesk, createLowboard, createOfficeChair, createPlant, createTv,
 } from '../models/office-furniture.js';
-import { ROOM_SIZE, WALL_THICKNESS, OFFICE_DOOR, createWallGeometry, canvasTexture, speckle, rand } from './room.js';
+import { ROOM_SIZE, WALL_THICKNESS, OFFICE_DOOR, createWallGeometry } from './room.js';
+import { canvasTexture, speckle, rand } from '../models/canvas-texture.js';
 import { enableShadows } from './util.js';
 import { mergeStatic } from '../models/merge-static.js';
 
@@ -169,12 +171,6 @@ function drawOff(ctx, w, h) {
 }
 
 // ---------- Bauteile ----------
-
-function box(w, h, d, material, x, y, z) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
 
 function wallPicture(width, height, pxW, pxH, draw) {
   const material = new THREE.MeshStandardMaterial({ map: canvasTexture(pxW, pxH, draw), roughness: 0.6 });

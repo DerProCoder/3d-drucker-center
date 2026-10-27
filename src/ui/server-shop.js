@@ -3,9 +3,8 @@
 import { CABLE_ROLL, SERVER_DEVICES, SERVER_RACKS, SERVER_SERIES } from '../core/server-catalog.js';
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
+import { euro, meters } from '../core/format.js';
 
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
-const meters = (m) => `${m.toLocaleString('de-DE')} m`;
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
 
@@ -16,7 +15,7 @@ export function createServerShop({ economy, servers, upgrades }) {
   const image = (id, name) => (images.has(id) ? `<img class="product-image" src="${images.get(id)}" alt="${name}">` : '');
 
   function card(type) {
-    const problem = servers.buyProblem(type.price, upgrades.upperFloor);
+    const problem = servers.buyProblem(type.price, upgrades.upperFloor, type);
     const specs = [
       type.kind === 'rack' ? `<dt>Platz</dt><dd>${type.units} Höheneinheiten (HE)</dd>` : `<dt>Größe</dt><dd>${type.units} HE</dd>`,
       type.ports ? `<dt>Ports</dt><dd>${type.ports}${type.kind === 'firewall' ? ' (1 × WAN, Rest LAN)' : ''}</dd>` : '',
@@ -76,7 +75,7 @@ export function createServerShop({ economy, servers, upgrades }) {
   function handleClick(e) {
     const id = e.target.closest('[data-server-buy]')?.dataset.serverBuy;
     const type = [...SERVER_RACKS, ...SERVER_DEVICES].find((t) => t.id === id);
-    if (type && !servers.buyProblem(type.price, upgrades.upperFloor) && servers.buyHardware(type)) {
+    if (type && !servers.buyProblem(type.price, upgrades.upperFloor, type) && servers.buyHardware(type)) {
       return `${type.name} bestellt – kommt in ${economy.deliverySeconds} s in den Abstellraum`;
     }
     if (e.target.closest('[data-server-cables]') && !servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor) && servers.buyCables()) {

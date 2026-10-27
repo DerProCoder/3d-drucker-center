@@ -2,77 +2,29 @@
 // beheben (Fehldruck wegräumen, Düse freistechen oder tauschen). Filament-Regal und Ersatzteilregal belegen je
 // einen eigenen Platz zwischen zwei Druckern. Dazu Statussymbole über den Druckern und vom Kater heruntergeworfene Teile auf dem Boden.
 import * as THREE from 'three';
-import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
+import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { isServerHardware } from '../core/server-catalog.js';
-import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
+import { colorsLabel, partColors, partFilaments, waitingFilament } from '../core/two-color.js';
 import { INFILL_CHUNKS, getInfillChunk, getPrintShape, outlinePoint, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
 import { animateNozzles } from '../models/printer-parts.js';
-import { createSpool, createSpoolBatch, finishProps } from '../models/spool.js';
+import { createSpool, createSpoolBatch } from '../models/spool.js';
 import { createFurnitureModel, createNozzle, furnitureSize } from '../models/furniture.js';
 import { enableShadows } from './util.js';
-import { MAX_SHEETS } from './carry.js';
 import { mergeStatic } from '../models/merge-static.js';
 import { isChangingTool, updateToolChanger } from './tool-changer.js';
 import { isPurging, updatePurge } from './purge.js';
 import { animateLaser, syncLaserWorkpiece } from './laser.js';
 import { isLaser, laserJobLabel } from '../core/laser.js';
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE } from '../core/upgrades.js';
+import { rackX, rackZ, slotX, slotZ } from './hall-layout.js';
+import { createSpaghetti, partMaterial, partMaterials } from '../models/printed-part.js';
 
-export const PRINTER_SLOTS_X = [-2.1, -0.7, 0.7, 2.1]; // Stellplätze auf einem Drucktisch (Welt-x)
-export const RACK_SLOTS_X = [-1.4, 0, 1.4];            // Regalplätze in den Lücken zwischen den Druckern
-export const TABLE_ROWS_Z = [0, -2.6, -5.2, -7.8];      // Drucktische hintereinander (Welt-z), der erste vorne
 const HEAD_SPEED = 0.08;     // m/s – sichtbares Tempo der Düse auf der Bahn (bei 100 % Druckstufe)
 const MAX_HEAD_SPEED = 0.4;  // m/s – mehr gilt als Sprung (z. B. neue Schicht), nicht als Bewegung
 
-// Weltposition eines Drucker- bzw. Regalplatzes. Plätze sind über alle Tische durchnummeriert.
-export const slotX = (slot) => PRINTER_SLOTS_X[slot % SLOTS_PER_TABLE];
-export const slotZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / SLOTS_PER_TABLE)];
-export const rackX = (slot) => RACK_SLOTS_X[slot % RACKS_PER_TABLE];
-export const rackZ = (slot) => TABLE_ROWS_Z[Math.floor(slot / RACKS_PER_TABLE)];
-
 // ---------- Hilfsmodelle ----------
-
-function partMaterial(filament, clip = null) {
-  return new THREE.MeshStandardMaterial({
-    color: filament.hex,
-    ...finishProps(filament, 0.45), // matt, Seidenglanz, leuchtend oder durchscheinend je nach Sorte
-    side: THREE.DoubleSide, // an der Schnittkante sieht man ins Innere
-    clippingPlanes: clip ? [clip] : [],
-  });
-}
-
-// Material(ien) für ein gedrucktes Teil: zwei- und mehrfarbige Formen haben eine Geometrie-Gruppe pro Farbe.
-// colors: alle Farben [Grundfarbe, …] (siehe partColors)
-export function partMaterials(template, colors, clip = null) {
-  if (colorCount(template) < 2 || colors.length < 2) return partMaterial(filamentById(colors[0]), clip);
-  return colors.map((id) => partMaterial(filamentById(id), clip));
-}
-
-// „PLA Schwarz“, zweifarbig „PLA Schwarz + Matte Weiß“, mehrfarbig „PLA in 8 Farben“
-export function colorsLabel(colors) {
-  const label = filamentLabel(filamentById(colors[0]));
-  if (colors.length > 2) return `${filamentById(colors[0]).material} in ${colors.length} Farben`;
-  return colors.length === 2 ? `${label} + ${filamentColorName(filamentById(colors[1]))}` : label;
-}
-
-// Filament-Spaghetti: wirre Schlaufen über dem Druckbett, Ursprung auf der Plattenmitte
-function createSpaghetti(filament, height, spread) {
-  const material = new THREE.MeshStandardMaterial({ color: filament.hex, roughness: 0.5 });
-  const group = new THREE.Group();
-  for (let n = 0; n < 7; n++) {
-    const points = [];
-    for (let i = 0; i < 14; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * spread;
-      points.push(new THREE.Vector3(Math.cos(a) * r, 0.002 + Math.random() * height, Math.sin(a) * r));
-    }
-    const curve = new THREE.CatmullRomCurve3(points);
-    group.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 120, 0.0008, 5), material));
-  }
-  return group;
-}
 
 // Schwebendes Symbol über dem Drucker (Textur wird pro Symbol einmal gezeichnet)
 const badgeTextures = new Map();
@@ -331,7 +283,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     const shape = getPrintShape(template);
     const filament = filamentById(job.filamentId);
     const clip = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-    const material = partMaterials(template, partColors(job), clip);
+    const material = partMaterials(partFilaments(template, partColors(job)), clip);
     const rig = model.userData.printRig;
     const part = new THREE.Group();
     part.position.copy(rig.plateCenter);
@@ -430,7 +382,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
       if (loose.has(part.id)) continue;
       const template = templateById(part.templateId);
       const colors = colorsLabel(partColors(part));
-      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterials(template, partColors(part)));
+      const mesh = new THREE.Mesh(getPrintShape(template).geometry, partMaterials(partFilaments(template, partColors(part))));
       mesh.position.set(part.x, 0, part.z);
       mesh.rotation.y = part.rotY;
       mesh.castShadow = true;
@@ -545,7 +497,7 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
     return {
       hint: () => {
         if (!carry.canTakeSheet) return rackInteraction.hint();
-        const count = carry.sheets.length ? ` (${carry.sheets.length + 1}/${MAX_SHEETS} in der Hand)` : '';
+        const count = carry.sheets.length ? ` (${carry.sheets.length + 1}/${carry.maxSheets} in der Hand)` : '';
         return `Linksklick: ${woodById(rack.sheets[index].woodId).name} nehmen${count}`;
       },
       action: () => {

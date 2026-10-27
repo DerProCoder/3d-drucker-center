@@ -2,8 +2,8 @@
 // Spieluhr, laufende Kosten und offene Aufträge. Dazu die Level-Up-Einblendung, Meldungen (Pannen, Lieferungen …),
 // Erfolge und das Speichern-Symbol.
 import { BANKRUPT_AT } from '../core/economy.js';
+import { euro } from '../core/format.js';
 
-const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
 
 // clock: Spieluhr (game-clock.js)

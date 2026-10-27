@@ -4,11 +4,12 @@
 import * as THREE from 'three';
 import { furnitureById, isLaserTemplate, templateById } from '../core/catalog.js';
 import { DISPLAY_SPOTS, displayableParts, isDisplayShelf, putOnDisplay, takeFromDisplay, wallSlotUsed } from '../core/display-shelf.js';
+import { colorsLabel, partFilaments } from '../core/two-color.js';
 import { createFurnitureModel, furnitureSize } from '../models/furniture.js';
 import { getPrintShape } from '../models/print-shapes.js';
 import { createLaserPieceGeometry } from '../models/laser-model.js';
+import { partMaterials } from '../models/printed-part.js';
 import { ROOM_SIZE } from './room.js';
-import { colorsLabel, partMaterials } from './workshop.js';
 import { enableShadows } from './util.js';
 
 const HALF = ROOM_SIZE / 2;
@@ -119,7 +120,7 @@ export function createDisplayWall({ economy, carry, collision }) {
     const size = box.getSize(new THREE.Vector3());
     // Große Teile (z. B. Vase) passen verkleinert ins Fach
     const scale = Math.min(1, cell.w / size.x, cell.d / size.z, cell.h / size.y);
-    const mesh = new THREE.Mesh(geometry, partMaterials(template, part.filamentIds));
+    const mesh = new THREE.Mesh(geometry, partMaterials(partFilaments(template, part.filamentIds)));
     mesh.scale.setScalar(scale);
     const center = box.getCenter(new THREE.Vector3());
     mesh.position.set(spot.x - center.x * scale, spot.y - box.min.y * scale, spot.z - center.z * scale);
