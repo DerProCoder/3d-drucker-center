@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -9,7 +9,7 @@ const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
-const VERSION = 7;
+const VERSION = 10;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -32,7 +32,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -41,8 +41,10 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: ['table', 'wall', 'shipping'].includes(f.location) ? f.location : 'storage',
-    slot: f.location === 'table' || f.location === 'wall' ? f.slot : null,
+    location: ['table', 'wall', 'shipping', 'server', 'rack'].includes(f.location) ? f.location : 'storage',
+    slot: ['table', 'wall', 'server'].includes(f.location) ? f.slot : null,
+    rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
+    unit: f.location === 'rack' ? f.unit : undefined,
     storageSpot: f.location === 'storage' ? f.storageSpot : null,
     arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
@@ -116,6 +118,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     staff: staff
       ? { workers: staff.workers.map((w) => ({ ...w })), nextId: staff.nextId, receptionist: staff.receptionist ? { ...staff.receptionist } : null }
       : undefined,
+    servers: servers?.toJSON(),
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -151,7 +154,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -168,6 +171,20 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
   if (data?.version === 5) data.version = 6; // Version 5 kennt noch keine Ausstellungsregale – nichts umzuwandeln
   if (data?.version === 6) data.version = 7; // Version 6 kennt noch keine zweite Etage – unten Standardwerte
+  if (data?.version === 7) data.version = 8; // Version 7 kennt noch keine Server – unten Standardwerte
+  // Version 8 zählt Patchkabel (10er-Packs) statt Meter von der Kabelrolle: je Patchkabel 1 m gutschreiben,
+  // die Länge gesteckter Kabel rechnet core/servers.js beim Laden aus
+  if (data?.version === 8) {
+    const s = data.servers;
+    if (s) {
+      s.cableMeters = s.cableStock ?? 0;
+      for (const d of s.deliveries ?? []) d.meters ??= 10;
+    }
+    data.version = 9;
+  }
+  // Version 9 merkt sich noch nicht, durch welche Clips ein Kabel läuft – servers.load legt es wie bisher durch
+  // die nächsten Clips rechts (Servers.defaultClips)
+  if (data?.version === 9) data.version = 10;
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -242,6 +259,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     achievements.unlocked = new Set(data.achievements.unlocked);
   }
 
+  servers?.load(data.servers);
   economy.notify();
   orders.notify();
   progress.notify();

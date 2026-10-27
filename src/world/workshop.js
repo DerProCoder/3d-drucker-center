@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentColorName, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
+import { isServerHardware } from '../core/server-catalog.js';
 import { colorCount, partColors, waitingFilament } from '../core/two-color.js';
 import { INFILL_CHUNKS, getInfillChunk, getPrintShape, outlinePoint, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
@@ -135,7 +136,8 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         used: (i) => economy.tableSlotUsed(i),
       };
     }
-    if (carry.furniture && !isWallFurniture(carry.furniture.type)) { // Ausstellungsregale gehören an die Wand
+    // Ausstellungsregale gehören an die Wand, Server-Hardware in die zweite Etage (world/server-room.js)
+    if (carry.furniture && !isWallFurniture(carry.furniture.type) && !isServerHardware(carry.furniture.type)) {
       return {
         name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), perTable: RACKS_PER_TABLE, x: rackX, z: rackZ,
         used: (i) => economy.rackSlotUsed(i),

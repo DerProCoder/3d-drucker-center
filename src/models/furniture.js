@@ -4,6 +4,7 @@
 // Ursprung: Mitte der Unterseite, Vorderseite zeigt nach +z (zum Spieler).
 import * as THREE from 'three';
 import { mergeStatic } from './merge-static.js';
+import { createServerHardwareModel } from './server-hardware.js';
 
 const RACK = { w: 0.5, d: 0.3, h: 0.56, levels: [0.03, 0.29], perLevel: 4 };
 const PARTS = { w: 0.42, d: 0.26, h: 0.34, cols: 4, rows: 3 };
@@ -146,7 +147,7 @@ const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPart
 };
 
 export function createFurnitureModel(type) {
-  const g = BUILDERS[type.id]();
+  const g = BUILDERS[type.id]?.() ?? createServerHardwareModel(type); // Server-Hardware: Schrank bzw. Gerät
   g.traverse((o) => {
     o.castShadow = true;
     o.receiveShadow = true;

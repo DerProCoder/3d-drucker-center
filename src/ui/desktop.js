@@ -335,8 +335,24 @@ function iconCam(ctx, x, y, s) {
   ctx.fill();
 }
 
+// Server-Shop: dunkler Schrank mit drei Servern und grünen Lämpchen
+function iconServer(ctx, x, y, s) {
+  ctx.fillStyle = '#3a4250';
+  roundRect(ctx, x, y, s, s, s * 0.12);
+  ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    const ry = y + s * (0.16 + i * 0.25);
+    ctx.fillStyle = '#1b1f26';
+    ctx.fillRect(x + s * 0.16, ry, s * 0.68, s * 0.18);
+    ctx.fillStyle = '#2bd96b';
+    ctx.fillRect(x + s * 0.22, ry + s * 0.06, s * 0.06, s * 0.06);
+    ctx.fillStyle = '#8a93a3';
+    ctx.fillRect(x + s * 0.5, ry + s * 0.07, s * 0.28, s * 0.04);
+  }
+}
+
 const ICONS = {
-  trophy: iconTrophy,
+  trophy: iconTrophy, server: iconServer,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
   wood: iconWood, snake: iconSnake,

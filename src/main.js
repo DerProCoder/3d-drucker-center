@@ -37,6 +37,9 @@ import { createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
 import { createRoomCulling } from './world/room-culling.js';
 import { createUpperFloor } from './world/upper-floor.js';
+import { createServerRoom } from './world/server-room.js';
+import { createRackPanel } from './ui/rack-panel.js';
+import { Servers } from './core/servers.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -68,7 +71,8 @@ const gameClock = new GameClock();
 const staff = new Staff(economy);
 const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff };
+const servers = new Servers(economy); // Serverraum in der zweiten Etage
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -77,7 +81,10 @@ if (saveFound) {
 }
 const hud = createHud(economy, orders, progress, gameClock);
 // Zu jeder vollen Spielstunde Miete und Strom abbuchen
-gameClock.onNewHour = () => economy.payHourlyBill();
+gameClock.onNewHour = () => {
+  economy.payHourlyBill();
+  servers.payHour(); // Einnahmen der Online-Server
+};
 const sound = createSound();
 progress.onLevelUp = (level, title) => {
   hud.showLevelUp(level, title);
@@ -405,6 +412,12 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
+// Serverschränke in der zweiten Etage – verkabelt wird hinten am Schrank, ein Klick auf den Schrank öffnet das Schrankfenster
+const serverRoom = createServerRoom({ economy, servers, carry, upgrades, collision, onOpenRack: openRack });
+scene.add(serverRoom.group);
+servers.onEvent = (type, d) => {
+  if (type === 'cables-delivered') hud.notify(`🔌 ${d.meters} m Kabel geliefert – im Vorrat`, 'good');
+};
 // Ausstellungsregale an der Südwand
 const displayWall = createDisplayWall({ economy, carry, collision });
 scene.add(displayWall.group);
@@ -532,7 +545,7 @@ function onStarted() {
 }
 
 function onStopped() {
-  if (!shop.isOpen()) {
+  if (!uiOpen()) {
     title.show(true);
     autosave.save(); // beim Pausieren gleich sichern
   }
@@ -579,6 +592,7 @@ const shop = createShop(economy, {
   staffStatus: (id) => workers.statusOf(id),
   cam: printerCam,
   upgrades,
+  servers,
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
   freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
@@ -589,6 +603,23 @@ const shop = createShop(economy, {
     startPlaying();
   },
 });
+
+// Schrankfenster: wie der PC – Maus frei, beim Schließen zurück ins Spiel
+const rackPanel = createRackPanel({
+  economy,
+  servers,
+  onClose: () => {
+    if (gameOver) return;
+    title.showResume();
+    startPlaying();
+  },
+});
+function openRack(rackId) {
+  rackPanel.open(rackId);
+  stopPlaying();
+}
+// Ist gerade ein Fenster offen (PC oder Schrank)? Dann läuft die Zeit weiter und es gibt kein Pausenmenü
+const uiOpen = () => shop.isOpen() || rackPanel.isOpen();
 
 const pcInteraction = {
   hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
@@ -608,7 +639,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, upperFloor.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
+  targets: [room, upperFloor.group, serverRoom.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
 
 interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
@@ -633,12 +664,13 @@ document.addEventListener('wheel', (e) => {
 window.addEventListener('keydown', (e) => {
   // Esc im PC: zurück ins Spiel · nochmal Esc auf dem Hinweis „Klicken, um weiterzuspielen“: Pausenmenü
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
+  else if (e.code === 'Escape' && rackPanel.isOpen()) rackPanel.close();
   else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
   if (e.code === 'KeyE' && !e.repeat && controls.isLocked) liftAimedPrinter();
   if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwCarried();
-  if (e.code === 'KeyM' && !e.repeat && !shop.isOpen()) {
+  if (e.code === 'KeyM' && !e.repeat && !uiOpen()) {
     sound.toggleMute();
     hud.notify(sound.muted ? '🔇 Ton aus' : '🔊 Ton an', 'info');
   }
@@ -698,7 +730,7 @@ interaction.targets.push(hallLights.group);
 // (jede Lampe zeichnet dafür die Szene sechsmal) ließ das Bild beim Kurvenlaufen ruckeln.
 const staleShadows = new Set();
 const culling = createRoomCulling(camera, {
-  hall: [room, upperFloor.group, hall.group, workshop.group, computerDesk],
+  hall: [room, upperFloor.group, serverRoom.group, hall.group, workshop.group, computerDesk],
   storage: [storage.group],
   office: [office.group],
   entrance: [entrance.group, receptionDesk.group],
@@ -796,7 +828,7 @@ renderer.setAnimationLoop(() => {
   perf.begin();
   const dt = Math.min(frameClock.getDelta(), 0.1);
   // Zeit, Drucke und Auftragsfristen laufen auch bei offenem PC-Fenster weiter – nur die Pause hält sie an
-  const paused = !playing() && !shop.isOpen();
+  const paused = !playing() && !uiOpen();
   if (!gameOver && !paused) {
     safely('Spielzeit', () => {
       const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
@@ -808,6 +840,7 @@ renderer.setAnimationLoop(() => {
     });
   }
   safely('Drucker', () => workshop.animate(dt));
+  safely('Serverraum', () => serverRoom.update(dt));
   safely('Ausstellungsregal', () => displayWall.update());
   safely('Licht', () => hallLights.update(dt, camera.position));
   safely('Kater', () => cat.update(dt));
@@ -826,6 +859,7 @@ renderer.setAnimationLoop(() => {
   safely('Lieferungen', () => {
     economy.advanceDeliveries(dt);
     upgrades.advance(dt);
+    servers.advance(dt);
   });
   safely('HUD', () => hud.update());
   safely('Geräusche', () => printerSounds(dt));

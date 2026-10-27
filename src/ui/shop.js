@@ -17,6 +17,7 @@ import { createUpgradesMenu } from './upgrades-menu.js';
 import { createStaffMenu } from './staff-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { createSnakeApp } from './snake-app.js';
+import { createServerShop } from './server-shop.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
@@ -32,6 +33,7 @@ const APPS = [
   { id: 'filaments', name: 'Filament-Shop', icon: 'spool', live: true },
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'wood', name: 'Holzshop', icon: 'wood', live: true },
+  { id: 'servers', name: 'Server-Shop', icon: 'server', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
@@ -58,7 +60,7 @@ const appById = (id) => APPS.find((a) => a.id === id);
 const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
 
 export function createShop(economy, {
-  orders, achievements, cam, upgrades, staff, staffStatus, freePrinterSlots, freeShelfSpace, onClose,
+  orders, achievements, cam, upgrades, staff, staffStatus, servers, freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
@@ -109,6 +111,7 @@ export function createShop(economy, {
   const notes = createNotesApp();
   const calc = createCalcApp();
   const snake = createSnakeApp();
+  const serverShop = createServerShop({ economy, servers, upgrades });
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -366,7 +369,7 @@ export function createShop(economy, {
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
-      cam: cam.render, dev: renderDev,
+      cam: cam.render, dev: renderDev, servers: serverShop.render,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
     const typing = document.activeElement?.closest?.('[data-keep-focus]');
@@ -494,7 +497,8 @@ export function createShop(economy, {
     if (app === 'orders') ordersMenu.liveUpdate(contentEl);
     if (app === 'staff') staffMenu.liveUpdate(contentEl);
     // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
-    if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)) {
+    if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)
+      || (app === 'servers' && servers.deliveries.length)) {
       if ((liveTicks = (liveTicks + 1) % 4) === 0) render();
     }
   }, 250);
@@ -510,6 +514,11 @@ export function createShop(economy, {
     }
     if (app === 'staff') {
       const message = staffMenu.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
+    if (app === 'servers') {
+      const message = serverShop.handleClick(e);
       if (message) toast(message);
       return;
     }

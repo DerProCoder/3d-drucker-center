@@ -9,6 +9,7 @@ import { createPrinterBox } from '../models/printer-box.js';
 import { createPrinterModel } from '../models/printer-model.js';
 import { createNozzle, furnitureSize } from '../models/furniture.js';
 import { spoolLabel } from '../core/economy.js';
+import { isServerHardware } from '../core/server-catalog.js';
 
 export const MAX_SPOOLS = 5;
 export const MAX_SHEETS = 5;
@@ -187,8 +188,13 @@ export class Carry {
       const { h, d } = box.userData.size;
       box.position.set(0, -0.32 - h, -0.42 - d / 2);
       this.show(box);
-      const where = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand' : 'auf einen freien Platz am Druckertisch';
-      this.setInfo(`In der Hand: Karton ${furniture.type.name} – ${where} stellen · Q: zurück ins Lager`);
+      let todo = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand stellen' : 'auf einen freien Platz am Druckertisch stellen';
+      if (isServerHardware(furniture.type)) {
+        todo = furniture.type.kind === 'rack'
+          ? 'in der zweiten Etage an einer grünen Markierung aufstellen'
+          : 'in der zweiten Etage auf einen Serverschrank klicken, um es einzubauen';
+      }
+      this.setInfo(`In der Hand: Karton ${furniture.type.name} – ${todo} · Q: zurück ins Lager`);
       return;
     }
     if (this.nozzle) {

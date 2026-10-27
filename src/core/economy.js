@@ -128,6 +128,7 @@ export class Economy {
     this.nextLooseId = 1;
     this.listeners = new Set();
     this.onEvent = null;             // (type, data) => void – für Sound, Meldungen und Erfolge
+    this.extraPowerPerHour = null;   // () => Strom weiterer Geräte pro Stunde (Server, core/servers.js)
     this.random = Math.random;       // austauschbar, damit sich Pannen im Test erzwingen lassen
   }
 
@@ -137,7 +138,8 @@ export class Economy {
   get powerPerHour() {
     return this.printers
       .filter((p) => p.location === 'table')
-      .reduce((sum, p) => sum + p.model.powerPerHour * (p.job?.status === 'printing' ? 1 : IDLE_POWER_SHARE), 0);
+      .reduce((sum, p) => sum + p.model.powerPerHour * (p.job?.status === 'printing' ? 1 : IDLE_POWER_SHARE), 0)
+      + (this.extraPowerPerHour?.() ?? 0);
   }
 
   get costPerHour() {

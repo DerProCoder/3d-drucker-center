@@ -1,4 +1,5 @@
 // Alles, was man im Shop kaufen kann. Reine Daten, damit Preise und Werte an einer Stelle stehen.
+import { serverHardwareById } from './server-catalog.js';
 
 // Bambu-Lab-Filamentsorten. finish bestimmt das Aussehen von Spule und Druckteil (siehe models/spool.js,
 // world/workshop.js), payBonus, wie viel mehr Kunden für Aufträge in dieser Sorte zahlen. special: Effektsorte –
@@ -499,7 +500,8 @@ export const FURNITURE = [
   },
 ];
 
-export const furnitureById = (id) => FURNITURE.find((f) => f.id === id);
+// Auch Server-Hardware (Schränke, Server, Switches …) läuft als Einrichtung – siehe server-catalog.js
+export const furnitureById = (id) => FURNITURE.find((f) => f.id === id) ?? serverHardwareById(id);
 export const isWallFurniture = (type) => type.placement === 'wall';
 
 // Ersatzteile: werden direkt ins Ersatzteilregal geliefert

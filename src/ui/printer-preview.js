@@ -9,6 +9,11 @@ const HEIGHT = 300;
 // Gibt eine Map Modell-ID → Bild-URL (PNG mit transparentem Hintergrund) zurück. Klappt das Rendern nicht
 // (z. B. kein weiterer WebGL-Kontext frei), fehlen die Bilder – der Shop zeigt die Drucker dann ohne Bild.
 export function renderPrinterPreviews(models) {
+  return renderPreviews(models.map((model) => ({ id: model.id, name: model.name, make: () => createPrinterModel(model) })));
+}
+
+// Produktbilder für beliebige Modelle: entries = [{ id, name, make: () => Object3D }] → Map id → Bild-URL
+export function renderPreviews(entries) {
   const images = new Map();
   let renderer;
   try {
@@ -31,16 +36,16 @@ export function renderPrinterPreviews(models) {
 
   const camera = new THREE.PerspectiveCamera(30, WIDTH / HEIGHT, 0.01, 20);
 
-  for (const model of models) {
+  for (const entry of entries) {
     try {
-      renderPreview(model);
+      renderPreview(entry);
     } catch (err) {
-      console.warn(`Druckerbild für ${model.name} konnte nicht erzeugt werden:`, err);
+      console.warn(`Produktbild für ${entry.name} konnte nicht erzeugt werden:`, err);
     }
   }
 
-  function renderPreview(model) {
-    const printer = createPrinterModel(model);
+  function renderPreview({ id, make }) {
+    const printer = make();
     scene.add(printer);
 
     // Kamera schräg von vorne rechts oben, Abstand passend zur Modellgröße
@@ -53,7 +58,7 @@ export function renderPrinterPreviews(models) {
 
     try {
       renderer.render(scene, camera);
-      images.set(model.id, renderer.domElement.toDataURL('image/png'));
+      images.set(id, renderer.domElement.toDataURL('image/png'));
     } finally {
       scene.remove(printer);
     }

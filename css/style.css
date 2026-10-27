@@ -492,6 +492,7 @@ canvas { display: block; }
 .shop-content section + section { margin-top: 22px; }
 .shop-content h3 { margin: 0 0 10px; font-size: 1.05rem; }
 .shop-content h3 .hint { margin-left: 8px; font-weight: 400; font-size: 0.85rem; opacity: 0.6; }
+.server-series { margin: 14px 0 8px; padding-left: 8px; border-left: 4px solid var(--series, #3aa0ff); font-size: 0.95rem; }
 .shop-content .slots { margin: 0 0 14px; opacity: 0.85; }
 
 .grid {
@@ -1535,3 +1536,62 @@ body.touch-active #feed { top: calc(78px + env(safe-area-inset-top, 0px)); }
 }
 .screen-fade.dark { opacity: 1; }
 .screen-fade.hidden { display: none; }
+
+/* ---------- Schrankfenster (ui/rack-panel.js) ---------- */
+#rack-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(5, 8, 14, 0.45);
+  color: #e6e8ec;
+  user-select: none;
+}
+#rack-panel.hidden { display: none; }
+.rack-window { width: min(820px, calc(100% - 32px)); transform: translate(-50%, -50%); animation: none; }
+.rack-help { margin: 0 0 12px; font-size: 0.85rem; opacity: 0.75; }
+.rack-message { margin: 0 0 12px; padding: 6px 10px; border-radius: 5px; background: #20406a; font-size: 0.88rem; }
+.rack-device {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  min-height: calc(var(--units) * 22px);
+  border-radius: 6px;
+  border-left: 4px solid #555c69;
+  background: #262a31;
+}
+.rack-device.server { border-left-color: #3aa0ff; }
+.rack-device.switch { border-left-color: #2bb673; }
+.rack-device.firewall { border-left-color: #e0503f; }
+.rack-device.patch { border-left-color: #c9ccd1; }
+.rack-device-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.9rem; }
+.rack-move { display: flex; gap: 4px; margin-left: auto; }
+.rack-move button:disabled { opacity: 0.3; cursor: default; }
+.rack-gap {
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  border: 1px dashed rgba(75, 224, 138, 0.45);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #4be08a;
+}
+.rack-units { min-width: 64px; font-size: 0.75rem; opacity: 0.6; font-variant-numeric: tabular-nums; }
+.rack-kind { font-size: 0.78rem; opacity: 0.55; }
+.rack-status { padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.rack-status.on { background: rgba(43, 182, 115, 0.2); color: #7ee08a; }
+.rack-status.off { background: rgba(224, 80, 63, 0.2); color: #ff8a7a; }
+.rack-ports { display: flex; flex-wrap: wrap; gap: 4px; }
+.rack-port {
+  min-width: 34px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  background: #121418;
+  color: #aab;
+  font: 600 0.72rem inherit;
+  text-align: center;
+  cursor: default;
+}
+.rack-port.wan { border-color: rgba(224, 80, 63, 0.7); }
+.rack-port.cabled { border-color: var(--cable); background: color-mix(in srgb, var(--cable) 35%, #121418); color: #fff; }

@@ -235,6 +235,7 @@ Platz kostet Geld – Tische, Regalebenen, eine zweite Etage und einen Fahrstuhl
 - **Drucktische:** Am Anfang hast du einen Tisch mit 4 Druckerplätzen und 3 Regalplätzen dazwischen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen. Der Tisch wird geliefert (blaue Markierung, eine Minute); danach wird die Markierung grün und ein Klick darauf stellt den Tisch auf.
 - **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es ebenfalls in der App **Ausbau**; sie werden nach der Lieferung automatisch eingebaut.
 - **Zweite Etage (2.000 €):** Eine ganze Etage über der Halle, genauso groß, erstmal leer. Nach dem Bau führt eine Treppe rechts hinten in der Halle (an der Ostwand) nach oben. Was du in der Hand trägst, nimmst du mit. Von oben kann man nichts werfen.
+- **Serverraum (in der zweiten Etage):** In der PC-App **Server-Shop** gibt es Serverschränke (12, 24 und 42 Höheneinheiten), Server in Kategorien (Standard und die gelben **System X**: S mit 1 HE, L mit 2 HE), Switches, eine Firewall, Patchpanels und die **Kabelrolle (100 m)**. Alles kommt als Karton in den Abstellraum, Kabel direkt in den Vorrat. Schrank nach oben tragen und an einer grünen Markierung aufstellen; die Schränke haben vorn eine Glastür (Klick öffnet bzw. schließt sie) und sind hinten offen – dort sitzen die Ports der Geräte und hängen die Kabel. Bei offener Tür mit einem Gerätekarton in der Hand auf den Schrank klicken baut das Gerät ein – auf der Höhe, auf die man zielt (ein grüner Rahmen zeigt vorher die Höheneinheiten). Im Schrankfenster lassen sich Geräte mit ▲ / ▼ verschieben, freie Höheneinheiten stehen dort als grüne Lücken. **Verkabeln geht hinten am Schrank:** ersten Port anvisieren und anklicken (er leuchtet gelb), dann den zweiten – ein blaues Kabel verbindet beide und hängt frei. Wer es ordentlich mag, klickt zwischen den beiden Ports einen oder mehrere **Clips** der Kabelführung links und rechts an (sie leuchten gelb, nochmal klicken nimmt einen wieder heraus); dann läuft das Kabel durch diese Clips – zwischen zwei Clips derselben Seite durch alle Clips dazwischen. Jedes Kabel verbraucht so viel von der Rolle, wie es lang ist (ca. 0,3–2 m). Klick auf einen belegten Port zieht das Kabel ab, das Stück kommt zurück in den Vorrat. Mit leeren Händen öffnet ein Klick auf den Schrank das Schrankfenster mit allen Geräten und wer woran hängt. Ein Server ist **online**, wenn er am Switch (oder direkt am LAN der Firewall) hängt, der Switch am **LAN** der Firewall und der **WAN**-Port der Firewall am **Patchpanel**. Online-Server bringen jede Spielstunde Geld, alle eingebauten Geräte kosten Strom (läuft mit der Stromrechnung).
 - **Fahrstuhl (3.000 €, erst nach der Etage):** Kommt neben die Treppe. Am Ruftaster rechts neben der Tür klicken – der Fahrstuhl bringt dich samt allem, was du trägst, aufs andere Stockwerk.
 - **Lieferzeit:** Alles, was als Paket kommt – Drucker, Regale, Tische, Regalebenen – ist nach dem Kauf **eine Minute** unterwegs. Im Druckermenü und in der App **Ausbau** siehst du die Restzeit, bei Ankunft gibt es eine Meldung.
 
@@ -283,12 +284,15 @@ src/
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
     snake.js          Mini-Spiel Snake: Raster, Schlange, Spulen als Futter, Tempo
     snake-autopilot.js  Auto-Modus für Snake: Rundweg über alle Felder mit sicheren Abkürzungen
+    server-catalog.js Server-Hardware: Schränke, Server, Switches, Firewall, Patchpanels, Kabelrolle
+    servers.js        Serverraum: Schränke aufstellen, Geräte einbauen, Kabel, wer online ist, Einnahmen
     display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
     room.js           Halle mit Boden, Wänden, Fenstern, Licht
     hall.js           Kaufbare Drucktische mit Bodenmarkierung
     upper-floor.js    Zweite Etage: Zwischendecke, Treppe, Fahrstuhl, Stockwerk der Spielfigur, Fassade oben
+    server-room.js    Serverraum oben: Stellplätze, Schränke mit Geräten und Kabeln, Verkabeln Port für Port
     hall-lights.js    Lichtschalter der Halle: Deckenleuchten aus, Raum dunkel, Glow-Filament leuchtet
     display-wall.js   Ausstellungsregale an der Südwand: Aufstellen, Teile ausstellen (Mausrad wählt), zurücknehmen
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
@@ -322,6 +326,7 @@ src/
     infill.js         Füllung: Gitter innen, geschlossene Ober-/Unterseiten, kürzester Weg der Düse, Füllwände im Inneren
     spool.js          Filamentspule, Aussehen je Sorte (matt, Seidenglanz, leuchtend – im Dunkeln heller –, durchscheinend), ganze Regale als Instanzen
     furniture.js      Regale am Drucktisch, Ausstellungsregal und Ersatzdüse
+    server-hardware.js  Serverschrank und Geräte (Server, Switch, Firewall, Patchpanel) mit Ports
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
     merge-static.js   Unbewegliche Einzelteile pro Material zu einem Mesh verschmelzen (weniger Draw Calls)
@@ -331,6 +336,8 @@ src/
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
     screen-fade.js    Bildschirm kurz abblenden (Fahrstuhlfahrt)
+    server-shop.js    PC-App Server-Shop
+    rack-panel.js     Schrankfenster: Geräte, Ports, Kabel stecken
     touch-controls.js Tablet-Steuerung: Joystick, Umschauen per Wischen, Antippen, Knöpfe; gewähltes Gerät
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm, Geräteabfrage (PC oder Tablet)
     shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger
