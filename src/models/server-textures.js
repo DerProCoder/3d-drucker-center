@@ -419,7 +419,7 @@ function switchFront(s, type, unitH) {
   perforate(s, vx + 0.0015, 0.0065, vw - 0.003, s.h - 0.013, { shape: 'round', size: 0.0011, pitch: 0.0032 });
 }
 
-// Firewall: rote Blende, Name, Leuchten, Display mit Tasten, Lüftungsschlitze
+// Firewall: rote Blende, Name mit Portzahl, Leuchten, Display mit Tasten, Port-LEDs, Lüftungsschlitze
 function firewallFront(s, type, unitH) {
   const base = '#a8291f';
   fill(s, 0, 0, s.w, s.h, base, 128);
@@ -429,7 +429,9 @@ function firewallFront(s, type, unitH) {
   const iw = s.w - 2 * EAR - 0.008;
   fill(s, ix, 0.004, iw, s.h - 0.008, '#1a1b1e', 120, 0.0015);
   edge(s, ix, 0.004, iw, s.h - 0.008, false);
-  text(s, type.name.toUpperCase(), ix + 0.006, 0.0135, 0.0075, '#f2f2f0');
+  // Groß nur „FIREWALL“, die Portzahl klein rechts daneben (der volle Typname wäre zu lang für den Platz vor dem Display)
+  text(s, 'FIREWALL', ix + 0.006, 0.0135, 0.0075, '#f2f2f0');
+  text(s, `${type.ports} PORTS`, ix + 0.076, 0.0152, 0.0038, '#c9cdd3', { align: 'right' });
   fill(s, ix + 0.006, 0.0195, 0.07, 0.0014, base);
   for (const [i, [name, color]] of [['PWR', GREEN], ['ALARM', AMBER], ['HA', GREEN]].entries()) {
     led(s, ix + 0.009 + i * 0.017, 0.0275, 0.0012, color, i < 2);
@@ -449,7 +451,16 @@ function firewallFront(s, type, unitH) {
     fill(s, dx + 0.08 + (i % 2) * 0.008, 0.0105 + Math.floor(i / 2) * 0.0115, 0.0065, 0.0085, '#3a3e45', 190, 0.001);
     edge(s, dx + 0.08 + (i % 2) * 0.008, 0.0105 + Math.floor(i / 2) * 0.0115, 0.0065, 0.0085, true);
   }
-  const vx = dx + 0.104;
+  // Je Port eine Status-LED mit Beschriftung (WAN, dann LAN 1 …)
+  const px = dx + 0.104;
+  const pitch = 0.009;
+  fill(s, px - 0.002, 0.006, type.ports * pitch + 0.004, s.h - 0.012, '#121316', 110, 0.001);
+  for (let i = 0; i < type.ports; i++) {
+    const x = px + i * pitch + pitch / 2;
+    text(s, i ? `${i}` : 'WAN', x, 0.0135, 0.0026, '#8d939b', { align: 'center' });
+    led(s, x, 0.0215, 0.0011, i ? GREEN : BLUE, false);
+  }
+  const vx = px + type.ports * pitch + 0.008;
   perforate(s, vx, 0.008, ix + iw - 0.004 - vx, s.h - 0.016, { shape: 'slot', size: 0.0016, pitch: 0.0085 });
 }
 

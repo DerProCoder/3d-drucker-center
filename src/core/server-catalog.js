@@ -4,7 +4,7 @@
 //   ports: Netzwerkanschlüsse hinten · series: Kategorie eines Servers (SERVER_SERIES) · income: Einnahmen pro Spielstunde, solange der Server online ist
 //   power: Strom pro Spielstunde in Euro, solange das Gerät im Schrank steckt
 //   drives: 'small' – Server mit 2,5-Zoll-Laufwerken hochkant (Frontblende), sonst je nach Größe
-// Firewall: Port 1 ist WAN (zum Patchpanel, also ins Internet), die übrigen sind LAN (zu Switches und Servern).
+// Firewall (4 oder 8 Ports): Port 1 ist WAN (zum Patchpanel, also ins Internet), die übrigen sind LAN (zu Switches und Servern).
 
 // Kabelführung hinten im Schrank: links und rechts eine Leiste mit einem Clip alle clipEvery HE
 export const CABLE_CLIP_EVERY = 2;
@@ -33,7 +33,8 @@ export const SERVER_DEVICES = [
   { id: 'risc-l', kind: 'server', series: 'risc', name: 'RISC L', units: 2, ports: 2, income: 46, power: 1.8, price: 2700, drives: 'small' },
   { id: 'switch-8', kind: 'switch', name: 'Switch 8 Ports', units: 1, ports: 8, power: 0.2, price: 150 },
   { id: 'switch-24', kind: 'switch', name: 'Switch 24 Ports', units: 1, ports: 24, power: 0.4, price: 450 },
-  { id: 'firewall', kind: 'firewall', name: 'Firewall', units: 1, ports: 4, power: 0.3, price: 500 },
+  { id: 'firewall', kind: 'firewall', name: 'Firewall 4 Ports', units: 1, ports: 4, power: 0.3, price: 500 }, // id bleibt (alte Spielstände)
+  { id: 'firewall-8', kind: 'firewall', name: 'Firewall 8 Ports', units: 1, ports: 8, power: 0.45, price: 900 },
   { id: 'patch-12', kind: 'patch', name: 'Patchpanel 12 Ports', units: 1, ports: 12, power: 0, price: 80 },
   { id: 'patch-24', kind: 'patch', name: 'Patchpanel 24 Ports', units: 1, ports: 24, power: 0, price: 140 },
 ].map((d) => ({ ...d, color: SERVER_SERIES.find((s) => s.id === d.series)?.color }));
