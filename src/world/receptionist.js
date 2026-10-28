@@ -1,5 +1,6 @@
 // Empfangskraft als Figur hinter dem Tresen (falls in der Personal-App eingestellt): winkt jedem Kunden zu, der zum
 // Abgeben an den Tresen kommt, tippt den Auftrag kurz in den Rechner und nimmt ihn an. Beim Abholen kassiert sie.
+// Server-Kunden (VM-Anfragen) begrüßt sie nur einmal – annehmen und den Server wählen muss der Spieler am PC.
 // Wer wann was darf, steht in core/staff.js und core/reception.js – hier nur Figur, Zeitablauf und Blickrichtung.
 import * as THREE from 'three';
 import { RECEPTION_WAGE } from '../core/staff.js';
@@ -23,11 +24,14 @@ export function createReceptionist({ staff, reception, customers }) {
   let serving = null; // Kunde, der gerade bedient wird
   let phase = 'idle'; // 'idle' | 'greet' | 'type'
   let timer = 0;
+  const greeted = new WeakSet(); // Server-Kunden, die sie schon begrüßt hat
 
   function statusText() {
     if (phase === 'greet') return `begrüßt ${serving.customer}`;
     if (phase === 'type') return `nimmt den Auftrag von ${serving.customer} an`;
     if (customers.paying()) return 'kassiert gerade';
+    const guest = customers.serverAtCounter?.();
+    if (guest) return `– ${guest.customer} wartet auf deine Antwort am PC`;
     return 'wartet auf Kunden';
   }
 
@@ -74,8 +78,10 @@ export function createReceptionist({ staff, reception, customers }) {
     if (!current) return;
 
     // Neuer Kunde am Tresen: begrüßen, dann den Auftrag eintippen und annehmen
+    // Server-Kunde am Tresen: nur begrüßen, nicht annehmen (das geht nur am PC mit Serverwahl)
     const atCounter = customers.atCounter();
-    if (serving && serving !== atCounter) {
+    const guest = customers.serverAtCounter?.() ?? null;
+    if (serving && serving !== atCounter && serving !== guest) {
       serving = null; // Spieler hat schon angenommen oder der Kunde ist gegangen
       phase = 'idle';
     }
@@ -83,10 +89,18 @@ export function createReceptionist({ staff, reception, customers }) {
       serving = atCounter;
       phase = 'greet';
       timer = GREET_SECONDS;
+    } else if (!serving && guest && !greeted.has(guest)) {
+      greeted.add(guest);
+      serving = guest;
+      phase = 'greet';
+      timer = GREET_SECONDS;
     }
     if (serving) {
       timer -= dt;
-      if (timer <= 0 && phase === 'greet') {
+      if (timer <= 0 && phase === 'greet' && serving.kind === 'server') {
+        serving = null; // begrüßt – der Rest passiert am PC
+        phase = 'idle';
+      } else if (timer <= 0 && phase === 'greet') {
         phase = 'type';
         timer = TYPE_SECONDS;
       } else if (timer <= 0 && phase === 'type') {

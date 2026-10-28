@@ -1,11 +1,14 @@
 // Schrankfenster (Klick auf einen Serverschrank in der zweiten Etage): alle eingebauten Geräte von oben nach unten mit
 // ihren Ports (nur Anzeige: wer woran hängt – gesteckt wird hinten am Schrank, world/server-room.js). Server zeigen,
 // ob sie online sind und warum nicht. Freie Höheneinheiten stehen als Lücken dazwischen, ▲ / ▼ verschiebt ein Gerät.
-// Geräte lassen sich ausbauen (Karton zurück in den Abstellraum), ein leerer Schrank abbauen.
+// Geräte lassen sich ausbauen (Karton zurück in den Abstellraum; laufen auf einem Server VMs, erst nach einem zweiten
+// Klick), ein leerer Schrank abbauen. Die Kopfzeile nennt den Stellplatz (Reihe A/B, 🔒 Privat, 🌡️ Automatik-Platz).
 // Klima (core/server-climate.js): oben Regler für Zu- und Abluft des Schranks, je Gerät Temperatur und Lüfterregler,
 // Reparieren bzw. Neustarten nach Ausfall. Die Temperaturen laufen live mit, ohne das Fenster neu aufzubauen.
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
+import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
+import { spotLabel } from '../core/server-zones.js';
 import { CABLE_COLOR } from '../models/server-hardware.js';
 import { euro, meters } from '../core/format.js';
 
@@ -15,7 +18,8 @@ const LEVEL_NAMES = { cold: 'zu kalt', cool: 'kühl', ok: 'gut', warm: 'warm', h
 const CLIMATE_REFRESH_MS = 500;
 
 // servers: core/servers.js · climate: core/server-climate.js · onClose: Fenster wurde geschlossen (zurück ins Spiel)
-export function createRackPanel({ economy, servers, climate, onClose }) {
+// rentals: core/server-rentals.js (VMs je Server; fehlt es, zeigt das Fenster nur die Miete über servers.rentOf)
+export function createRackPanel({ economy, servers, climate, rentals = null, onClose }) {
   const root = document.createElement('div');
   root.id = 'rack-panel';
   root.className = 'hidden';
@@ -32,6 +36,7 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
   const contentEl = root.querySelector('.shop-content');
   let rackId = null;
   let message = '';    // Rückmeldung unter der Kopfzeile
+  let confirmRemove = null; // Server mit VMs, dessen „Ausbauen“ einmal geklickt wurde (zweiter Klick baut aus)
   let refreshTimer = null;
 
   const isOpen = () => rackId !== null;
@@ -56,12 +61,30 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
     return -1;
   }
 
+  // Belegung eines Servers durch VMs: „3 VMs · RAM 96/512 GB · Cores 12/64 · +4,80 € / h“ bzw. „frei, keine VM“
+  function vmText(server, online) {
+    const t = server.type;
+    const rent = `+${euro.format(servers.rentOf(server))} / h`;
+    if (!rentals) return online ? `${rent} Miete` : '';
+    const vms = rentals.vmsOn(server).length;
+    if (!vms) return online ? (servers.isPrivateDevice(server) ? 'privat' : 'frei, keine VM') : '';
+    const usage = `${vms} ${vms === 1 ? 'VM' : 'VMs'} · RAM ${rentals.usedRam(server)}/${t.ram} GB · Cores ${rentals.usedCores(server)}/${t.cores}`;
+    return online ? `${usage} · ${rent}` : ` · ${usage} – Kunden kündigen bei zu langem Ausfall`;
+  }
+
   function deviceRow(rack, device, reached) {
     const t = device.type;
     let status = '';
     if (t.kind === 'server') {
       const why = servers.offlineReason(device, reached);
-      status = why ? `<span class="rack-status off">offline – ${why}</span>` : `<span class="rack-status on">online · +${euro.format(t.income)} / h</span>`;
+      // Server mit VMs in einem privaten Schrank: läuft, aber die Kunden zahlen nicht und kündigen (core/server-rentals.js)
+      const privateVms = !why && servers.isPrivateDevice(device) ? rentals?.vmsOn(device).length : 0;
+      if (why) status = `<span class="rack-status off">offline – ${why}${vmText(device, false)}</span>`;
+      else if (privateVms) {
+        status = `<span class="rack-status off">online · ${rentals.vmProblem(device, reached)}
+          (${privateVms} ${privateVms === 1 ? 'VM' : 'VMs'}, keine Miete)</span>`;
+      }
+      else status = `<span class="rack-status on">online · ${vmText(device, true)}</span>`;
     } else if (climate.problem(device)) {
       status = `<span class="rack-status off">${climate.problem(device)}</span>`;
     }
@@ -78,7 +101,9 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
             <button class="secondary small" data-move="${device.id}:${up}" title="Nach oben schieben" ${up === -1 ? 'disabled' : ''}>▲</button>
             <button class="secondary small" data-move="${device.id}:${down}" title="Nach unten schieben" ${down === -1 ? 'disabled' : ''}>▼</button>
           </span>
-          <button class="secondary small" data-remove="${device.id}">Ausbauen</button>
+          ${confirmRemove === device.id
+            ? `<button class="secondary small danger" data-remove="${device.id}">Wirklich ausbauen?</button>`
+            : `<button class="secondary small" data-remove="${device.id}">Ausbauen</button>`}
         </div>
         <div class="rack-ports">${ports}</div>
         ${climateRow(device)}
@@ -149,13 +174,15 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
       close();
       return;
     }
-    titleEl.textContent = rack.type.name;
+    titleEl.textContent = `${rack.type.name} · ${spotLabel(rack.slot)}`;
     const reached = servers.reachable();
     const devices = servers.devicesIn(rack.id);
     const usedUnits = devices.reduce((sum, d) => sum + d.type.units, 0);
     const online = devices.filter((d) => servers.isOnline(d, reached));
-    const income = online.reduce((sum, d) => sum + d.type.income, 0);
+    // Miete der VMs (core/server-rentals.js) – nur von Servern, die ihre VMs gerade bedienen (nicht privat)
+    const income = online.filter((d) => !rentals || rentals.serves(d, reached)).reduce((sum, d) => sum + servers.rentOf(d), 0);
     const power = devices.reduce((sum, d) => sum + d.type.power, 0);
+    const vmCount = rentals ? devices.reduce((sum, d) => sum + (d.type.kind === 'server' ? rentals.vmsOn(d).length : 0), 0) : null;
     // Geräte und freie Lücken von oben nach unten, damit man sieht, wo noch Platz ist
     const gaps = devices.length ? servers.freeGaps(rack) : [];
     const rows = [
@@ -165,7 +192,7 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
     contentEl.innerHTML = `
       <p class="slots">🔌 Kabel im Vorrat: <strong>${meters(servers.cableMeters)}</strong> · Belegt: ${usedUnits} / ${rack.type.units} HE
         · Online-Server: <strong>${online.length} / ${devices.filter((d) => d.type.kind === 'server').length}</strong>
-        · Einnahmen ${euro.format(income)} / h · Strom ${euro.format(power)} / h</p>
+        ${vmCount !== null ? `· VMs: <strong>${vmCount}</strong> ` : ''}· Miete ${euro.format(income)} / h · Strom ${euro.format(power)} / h</p>
       <p class="rack-help">So kommt ein Server ins Internet: <b>Server → Switch → Firewall (LAN)</b> und
         <b>Firewall (WAN) → Patchpanel</b>. Verkabelt wird <b>hinten am Schrank</b>: ersten Port anklicken, dann den
         zweiten. Klick auf einen belegten Port zieht das Kabel ab. Mit ▲ / ▼ ein Gerät im Schrank verschieben.
@@ -200,9 +227,19 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
       const [id, unit] = move.split(':').map(Number);
       message = servers.moveDevice(id, unit) ? '' : 'Zu wenig Kabel im Vorrat, um die Kabel zu verlängern.';
     }
-    const remove = e.target.closest('[data-remove]')?.dataset.remove;
+    const remove = Number(e.target.closest('[data-remove]')?.dataset.remove);
+    const vms = remove && rentals ? rentals.vmsOn(economy.furnitureById(remove)).length : 0;
+    if (remove && vms && confirmRemove !== remove) {
+      // Erster Klick auf einen Server mit VMs: nur warnen, der zweite Klick baut aus
+      confirmRemove = remove;
+      message = `⚠️ Läuft: ${vms} ${vms === 1 ? 'VM' : 'VMs'} – Kunden kündigen nach ${CANCEL_AFTER_OFFLINE / 60} Spielstunden
+        ohne Server. Zum Ausbauen noch einmal klicken.`;
+      render();
+      return;
+    }
+    confirmRemove = null;
     if (remove) {
-      servers.removeDevice(Number(remove));
+      servers.removeDevice(remove);
       message = 'Gerät ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat.';
     }
     const repair = e.target.closest('[data-repair]')?.dataset.repair;
@@ -227,10 +264,12 @@ export function createRackPanel({ economy, servers, climate, onClose }) {
     render();
   });
   economy.subscribe(() => render()); // z. B. Kabel geliefert, Server geht online
+  rentals?.subscribe(() => render()); // VM vermietet, Vertrag ausgelaufen oder gekündigt
 
   function open(id) {
     rackId = id;
     message = '';
+    confirmRemove = null;
     root.classList.remove('hidden');
     render();
     clearInterval(refreshTimer);

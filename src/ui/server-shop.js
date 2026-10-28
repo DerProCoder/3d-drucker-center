@@ -1,6 +1,7 @@
 // PC-App „Server-Shop“: Serverschränke, Server, Switches, Firewalls, Patchpanels und Kabelrollen kaufen. Oben steht,
-// was der Serverraum gerade bringt. Gekauft werden kann erst, wenn die zweite Etage steht (dort kommen die Schränke hin).
-import { CABLE_ROLL, SERVER_DEVICES, SERVER_RACKS, SERVER_SERIES } from '../core/server-catalog.js';
+// was der Serverraum gerade bringt (VMs und Miete aus core/server-rentals.js). Gekauft werden kann erst, wenn die
+// zweite Etage steht (dort kommen die Schränke hin).
+import { CABLE_ROLL, SERVER_CORES, SERVER_DEVICES, SERVER_RACKS, SERVER_RAM, SERVER_SERIES } from '../core/server-catalog.js';
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
 import { euro, meters } from '../core/format.js';
@@ -8,7 +9,7 @@ import { euro, meters } from '../core/format.js';
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
 
-export function createServerShop({ economy, servers, upgrades }) {
+export function createServerShop({ economy, servers, upgrades, rentals }) {
   const owned = (type) => servers.hardware.filter((f) => f.type === type).length;
   let images = null; // Produktbilder wie im Drucker-Shop, beim ersten Öffnen erzeugt
 
@@ -19,7 +20,7 @@ export function createServerShop({ economy, servers, upgrades }) {
     const specs = [
       type.kind === 'rack' ? `<dt>Platz</dt><dd>${type.units} Höheneinheiten (HE)</dd>` : `<dt>Größe</dt><dd>${type.units} HE</dd>`,
       type.ports ? `<dt>Ports</dt><dd>${type.ports}${type.kind === 'firewall' ? ' (1 × WAN, Rest LAN)' : ''}</dd>` : '',
-      type.income ? `<dt>Einnahmen</dt><dd>${euro.format(type.income)} / h, solange online</dd>` : '',
+      type.rentFactor ? `<dt>Ausstattung</dt><dd>${type.ram} GB RAM · ${type.cores} Cores</dd><dt>Mietfaktor</dt><dd>×${type.rentFactor.toLocaleString('de-DE', { minimumFractionDigits: 1 })}</dd>` : '',
       type.power ? `<dt>Strom</dt><dd>${euro.format(type.power)} / h</dd>` : '',
     ].join('');
     return `
@@ -46,14 +47,18 @@ export function createServerShop({ economy, servers, upgrades }) {
     const kinds = (list) => list.map(card).join('');
     return `
       <p class="slots">🖥️ Online: <strong>${servers.onlineServers.length} / ${serverList.length} Server</strong>
-        · Einnahmen <strong>${euro.format(servers.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
+        · ☁️ VMs: <strong>${rentals.vms.length}</strong>
+        · Miete <strong>${euro.format(rentals.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
         · 🔌 Kabel: ${meters(servers.cableMeters)}${eta !== null ? ` (+${meters(CABLE_ROLL.meters)} in ${Math.ceil(eta)} s)` : ''}</p>
       <p class="slots">Alles kommt als Karton in den Abstellraum (eine Minute Lieferzeit). Schränke trägst du in die zweite Etage
         und stellst sie an einer grünen Markierung auf, Geräte klickst du mit dem Karton in der Hand auf einen Schrank.
         Verkabelt wird hinten am Schrank – ersten Port anklicken, dann den zweiten: <b>Server → Switch → Firewall (LAN)</b>,
         <b>Firewall (WAN) → Patchpanel</b>. Jede Verbindung schneidet so viel Kabel von der Rolle ab, wie sie lang ist.</p>
+      <p class="slots">💶 Geld bringen Server erst mit <b>vermieteten VMs</b>: Kunden kommen mit ihren Wünschen (RAM und Cores) zum
+        Empfang, angenommen wird in der App <b>Server-Vermietung</b>. Jeder Server hat ${SERVER_RAM} GB RAM und ${SERVER_CORES} Cores – teurere Modelle
+        haben einen höheren <b>Mietfaktor</b> und bringen für dieselbe VM mehr Miete.</p>
       <section><h3>Serverschränke</h3><div class="grid">${kinds(SERVER_RACKS)}</div></section>
-      <section><h3>Server<span class="hint">verdienen Geld, solange sie online sind</span></h3>
+      <section><h3>Server<span class="hint">verdienen Geld mit vermieteten VMs, solange sie online sind</span></h3>
         ${SERVER_SERIES.map((s) => `<h4 class="server-series"${s.color ? ` style="--series:${hex(s.color)}"` : ''}>${s.name}</h4>
           <div class="grid">${kinds(SERVER_DEVICES.filter((d) => d.series === s.id))}</div>`).join('')}</section>
       <section><h3>Netzwerk</h3><div class="grid">${kinds(SERVER_DEVICES.filter((d) => d.kind !== 'server'))}</div></section>

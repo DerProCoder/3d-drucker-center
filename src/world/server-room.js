@@ -1,4 +1,6 @@
-// Serverraum in der zweiten Etage (Logik in core/servers.js): zwei Reihen Stellplätze für Serverschränke. Trägt man
+// Serverraum in der zweiten Etage (Logik in core/servers.js): im Westen zwei Reihen Stellplätze für Kundenschränke,
+// dahinter Richtung Nordwand die Reihe „Private Server“ (orange umrandet) und die Automatik-Reihe (grün umrandet;
+// Lage aller Plätze in core/server-zones.js). Trägt man
 // einen Schrankkarton, zeigen grüne Markierungen die freien Plätze; ein Klick stellt ihn auf. Mit einem Gerätekarton
 // in der Hand baut ein Klick auf den Schrank das Gerät ein – auf der Höhe, auf die man zielt (ein grüner Rahmen zeigt
 // vorher, wo es landet). Dafür muss die Glastür vorn offen sein; ein Klick auf die Tür öffnet bzw. schließt sie.
@@ -9,6 +11,8 @@
 // belegten Port zieht das Kabel ab.
 import * as THREE from 'three';
 import { SERVER_SPOTS } from '../core/servers.js';
+import { spotPosition, spotsInZone } from '../core/server-zones.js';
+import { canvasTexture } from '../models/canvas-texture.js';
 import { meters } from '../core/format.js';
 import { isServerHardware, portName } from '../core/server-catalog.js';
 import {
@@ -19,10 +23,6 @@ import {
 import { MAX_FAN_SPEED } from '../models/server-fans.js';
 import { FLOOR_Y } from './upper-floor.js';
 
-const PER_ROW = SERVER_SPOTS / 2;
-const ROWS_Z = [-4, 2];          // Reihen (Welt-z), Schränke schauen nach Süden (+z)
-const FIRST_X = -8;
-const SPACING = 1.0;
 const DOOR_OPEN_ANGLE = 1.9;     // Bogenmaß, so weit schwingt die Glastür auf
 const DOOR_SPEED = 3.5;          // Bogenmaß pro Sekunde
 // Klickfläche eines Ports: unsichtbar, aber vom Strahl getroffen (material.visible = false)
@@ -36,7 +36,70 @@ const CLIP_HIT_GEOMETRY = new THREE.BoxGeometry(0.034, 0.03, 0.04);
 const SHARED_GEOMETRY = new Set([PORT_HIT_GEOMETRY, CLIP_HIT_GEOMETRY, PLUG_GEOMETRY, BOOT_GEOMETRY]); // beim Neuaufbau nicht freigeben
 const AIM_MATERIAL = new THREE.MeshBasicMaterial({ visible: false, side: THREE.FrontSide });
 
-export const spotPosition = (spot) => ({ x: FIRST_X + (spot % PER_ROW) * SPACING, z: ROWS_Z[Math.floor(spot / PER_ROW)] });
+// Lage der Stellplätze (Schränke schauen nach Süden, +z) steht in core/server-zones.js
+export { spotPosition };
+
+// Dauerhafte Bodenmarkierung der privaten Reihen (Farben, Linienstärken in Metern, Auflösung der Textur)
+const ROW_MARKINGS = [
+  { zone: 'private', text: 'PRIVATE SERVER', color: '#ff8a1f', fill: 'rgba(255, 138, 31, 0.07)' },
+  { zone: 'automation', text: 'AUTOMATIK', color: '#3ddc6e', fill: 'rgba(61, 220, 110, 0.08)' },
+];
+const ROW_MARGIN = 0.15;   // Umrandung so weit um die Schränke herum (liegt im Gang, nicht unter den Schränken)
+const LABEL_BAND = 0.55;   // Streifen vor der Reihe (Süden, vor den Glastüren) für den Schriftzug
+const MARK_LINE = 0.08;    // Linienstärke der Umrandung
+const MARK_PX = 125;       // Pixel je Meter
+
+// Rechteck um die Schränke auf den Plätzen spots (Welt-x/z), um margin vergrößert
+function spotBounds(spots, margin) {
+  const xs = spots.map((s) => spotPosition(s).x);
+  const zs = spots.map((s) => spotPosition(s).z);
+  return {
+    minX: Math.min(...xs) - RACK_FOOTPRINT.w / 2 - margin, maxX: Math.max(...xs) + RACK_FOOTPRINT.w / 2 + margin,
+    minZ: Math.min(...zs) - RACK_FOOTPRINT.d / 2 - margin, maxZ: Math.max(...zs) + RACK_FOOTPRINT.d / 2 + margin,
+  };
+}
+
+// Umrandung um eine Reihe mit Schriftzug davor: eine flache Fläche knapp über dem Boden mit einer Canvas-Textur
+// (Kanten im Norden = oben auf dem Canvas, lesbar mit Blick nach Norden auf die Glastüren). Die Umrandung schließt
+// den Streifen mit dem Schriftzug ein und endet im Gang davor, der Rest des Gangs bleibt frei.
+function createRowMarking({ zone, text, color, fill }) {
+  const area = spotBounds(spotsInZone(zone), ROW_MARGIN);
+  area.maxZ += LABEL_BAND;
+  const width = area.maxX - area.minX;
+  const depth = area.maxZ - area.minZ;
+  const px = (m) => Math.round(m * MARK_PX);
+
+  const texture = canvasTexture(px(width), px(depth), (ctx) => {
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, px(width), px(depth));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = px(MARK_LINE);
+    ctx.strokeRect(px(MARK_LINE / 2), px(MARK_LINE / 2), px(width - MARK_LINE), px(depth - MARK_LINE));
+    // Schriftzug mittig im Streifen vor der Reihe, höchstens so breit wie die Umrandung
+    let size = px(0.34);
+    ctx.font = `bold ${size}px sans-serif`;
+    const maxW = px(width - 0.5);
+    const w = ctx.measureText(text).width;
+    if (w > maxW) size = Math.floor(size * maxW / w);
+    ctx.font = `bold ${size}px sans-serif`;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, px(width / 2), px(depth - (LABEL_BAND + MARK_LINE) / 2));
+  }, 1, 1, { wrap: false });
+
+  const marking = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    // Liegt knapp über dem Boden; polygonOffset gegen Flimmern, unter den gestrichelten Platzmarkierungen
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+  );
+  marking.rotation.x = -Math.PI / 2;
+  marking.position.set((area.minX + area.maxX) / 2, 0.003, (area.minZ + area.maxZ) / 2);
+  marking.renderOrder = -1;
+  marking.raycast = () => {}; // nicht anklickbar – Klicks gehen an die Platzmarkierungen und Schränke
+  marking.name = `${zone}-row-marking`;
+  return marking;
+}
 
 // Gestrichelte grüne Bodenmarkierung für einen freien Stellplatz
 function createSpotMarker() {
@@ -87,7 +150,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   group.position.y = FLOOR_Y;
   const markers = new THREE.Group();
   const racks = new THREE.Group();
-  group.add(markers, racks);
+  group.add(markers, racks, ...ROW_MARKINGS.map(createRowMarking));
 
   const carryingRack = () => carry.furniture?.type.kind === 'rack';
 

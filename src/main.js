@@ -33,7 +33,7 @@ import { createOffice } from './world/office.js';
 import { createEntrance } from './world/entrance.js';
 import { createOutdoor } from './world/outdoor.js';
 import { createPedestrians } from './world/pedestrians.js';
-import { createReceptionDesk } from './world/reception.js';
+import { RECEPTION_SPOTS, createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
 import { createRoomCulling } from './world/room-culling.js';
 import { createUpperFloor } from './world/upper-floor.js';
@@ -41,6 +41,7 @@ import { createServerRoom } from './world/server-room.js';
 import { createRackPanel } from './ui/rack-panel.js';
 import { Servers } from './core/servers.js';
 import { ServerClimate } from './core/server-climate.js';
+import { ServerRentals } from './core/server-rentals.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -75,7 +76,10 @@ const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
 const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate };
+// VMs an Kunden vermieten – einzige Einnahmequelle der Server
+const rentals = new ServerRentals(economy, servers, upgrades);
+rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -86,7 +90,7 @@ const hud = createHud(economy, orders, progress, gameClock);
 // Zu jeder vollen Spielstunde Miete und Strom abbuchen
 gameClock.onNewHour = () => {
   economy.payHourlyBill();
-  servers.payHour(); // Einnahmen der Online-Server
+  rentals.payHour(); // Miete der VMs auf Online-Servern
 };
 const sound = createSound();
 progress.onLevelUp = (level, title) => {
@@ -255,9 +259,14 @@ outdoor.group.add(pedestrians.group); // nur sichtbar, wenn man nach draußen sc
 // Empfang: Kunden geben Aufträge am Tresen ab und holen sie am Abholregal wieder ab
 const customers = createCustomers({
   reception,
+  rentals, // Server-Kunden (VM-Anfragen) kommen ebenfalls zum Empfang
   orders,
   onEvent: (type, d) => {
-    if (type === 'arrived') {
+    if (type === 'arrived' && d.request) {
+      // Server-Kunde: angenommen wird am PC (Serverwahl), nicht am Tresen
+      hud.notify(`💻 ${d.customer} möchte eine VM mieten (${d.request.ram} GB · ${d.request.cores} Cores) – am PC in „Server-Vermietung“ annehmen`, 'info');
+      sound.play('pop');
+    } else if (type === 'arrived') {
       const greeter = staff.receptionist?.name;
       hud.notify(greeter ? `🛎️ ${d.customer} ist am Empfang – ${greeter} nimmt den Auftrag an` : `🛎️ ${d.customer} wartet am Empfang – am Tresen annehmen`, 'info');
       sound.play('pop');
@@ -265,7 +274,7 @@ const customers = createCustomers({
   },
 });
 scene.add(customers.group);
-const receptionDesk = createReceptionDesk({ reception, orders, customers, collision, staff });
+const receptionDesk = createReceptionDesk({ reception, orders, customers, collision, staff, rentals });
 scene.add(receptionDesk.group);
 // Empfangskraft hinter dem Tresen (falls eingestellt): begrüßt Kunden, nimmt Aufträge an, kassiert
 const receptionist = createReceptionist({ staff, reception, customers });
@@ -420,6 +429,15 @@ const serverRoom = createServerRoom({ economy, servers, climate, carry, upgrades
 scene.add(serverRoom.group);
 servers.onEvent = (type, d) => {
   if (type === 'cables-delivered') hud.notify(`🔌 ${d.meters} m Kabel geliefert – im Vorrat`, 'good');
+};
+// Server-Vermietung: Vertragsende und Kündigung melden (die Ankunft am Empfang meldet createCustomers)
+rentals.onEvent = (type, d) => {
+  if (type === 'rental-ended') {
+    hud.notify(`📄 Vertrag mit ${d.vm.customer} ist ausgelaufen – ${d.server?.type.name ?? 'Server'} hat wieder Platz`, 'info');
+  } else if (type === 'rental-cancelled') {
+    hud.notify(`⚠️ ${d.vm.customer} hat gekündigt – Server war zu lange offline`, 'bad');
+    sound.play('warn');
+  }
 };
 const CLIMATE_MESSAGES = {
   hot: (name) => `🌡️ ${name} wird zu heiß – Lüfter im Schrankfenster hochdrehen!`,
@@ -607,6 +625,7 @@ const shop = createShop(economy, {
   cam: printerCam,
   upgrades,
   servers,
+  rentals, // Server-Vermietung (VM-Anfragen, Verträge)
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
   freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
@@ -623,6 +642,7 @@ const rackPanel = createRackPanel({
   economy,
   servers,
   climate,
+  rentals, // VM-Auslastung je Server (core/server-rentals.js)
   onClose: () => {
     if (gameOver) return;
     title.showResume();
@@ -857,6 +877,7 @@ renderer.setAnimationLoop(() => {
       economy.advancePrints(gameMinutes);
       orders.advance(gameMinutes);
       climate.advance(gameMinutes);
+      rentals.advance(gameMinutes);
       gameClock.advance(gameMinutes);
       checkBankrupt();
     });

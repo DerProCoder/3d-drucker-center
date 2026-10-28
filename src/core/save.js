@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -9,7 +9,8 @@ const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
-const VERSION = 11;
+// 12: Server-Vermietung (core/server-rentals.js) – wartende VM-Anfragen und laufende Verträge
+const VERSION = 12;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -32,7 +33,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -121,6 +122,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       : undefined,
     servers: servers?.toJSON(),
     climate: climate?.toJSON(), // Lüfter und Temperaturen im Serverraum (core/server-climate.js)
+    rentals: rentals?.toJSON(), // VM-Anfragen und Mietverträge (core/server-rentals.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -156,7 +158,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -188,6 +190,9 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   // die nächsten Clips rechts (Servers.defaultClips)
   if (data?.version === 9) data.version = 10;
   if (data?.version === 10) data.version = 11; // Version 10 kennt noch kein Serverklima – Lüfter starten bei 50 %
+  // Version 11 kennt noch keine Server-Vermietung: keine Mieter, keine Anfragen – alle Server sind frei und bringen
+  // erst wieder Geld, wenn man VMs vermietet (rentals.load ohne Daten)
+  if (data?.version === 11) data.version = 12;
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -265,6 +270,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
 
   servers?.load(data.servers);
   climate?.load(data.climate);
+  rentals?.load(data.rentals); // nach servers/economy: Verträge auf fehlenden Servern fallen weg
   economy.notify();
   orders.notify();
   progress.notify();

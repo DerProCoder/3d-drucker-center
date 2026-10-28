@@ -202,3 +202,47 @@
 /* Personal-App */
 .staff .staff-avatar { font-size: 1.8rem; line-height: 1; }
 .staff.hire { border-style: dashed; }
+
+/* Server-Vermietung: Serverwahl je Anfrage, Auslastungsbalken (.progress aus dem Druckermenü) und laufende VMs */
+.rental-requests { grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
+.rental-servers { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.rental-server {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #343944;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+}
+.rental-server:not(:disabled):hover { border-color: #3aa0ff; }
+.rental-server.selected { border-color: #3aa0ff; background: rgba(58, 160, 255, 0.18); box-shadow: inset 0 0 0 1px #3aa0ff; }
+.rental-server:disabled { opacity: 0.45; }
+.rental-server small { opacity: 0.65; }
+.rental-server-free { grid-column: 1; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.rental-server-rent { grid-column: 2; grid-row: 1 / span 2; align-self: center; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rental-server:not(:disabled) .rental-server-rent { color: #7ee08a; }
+.rental-server:disabled .rental-server-rent { font-weight: 400; max-width: 180px; }
+.rental-host .rack-status { align-self: flex-start; }
+.rental-meter { display: grid; grid-template-columns: 48px 1fr 92px; align-items: center; gap: 8px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.rental-meter .progress { margin-top: 0; height: 8px; }
+.rental-meter span:last-child { text-align: right; opacity: 0.8; }
+.rental-vms { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.rental-vm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.rental-vm span:first-child { flex: 1 0 100%; }
+.rental-warn { flex-basis: 100%; color: #f2c419; }
+.rental-warn.danger { color: #ff8a7a; font-weight: 600; }
+.rental-host .empty { margin: 0; font-size: 0.85rem; }

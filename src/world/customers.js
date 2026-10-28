@@ -1,14 +1,16 @@
 // Kunden als Figuren: Wer einen Auftrag abgeben will, kommt über den Gehweg und den Gartenweg zum Empfang, wartet am
 // Tresen (oder setzt sich, solange dort schon jemand steht) und geht wieder, sobald man annimmt. Liegt ein Auftrag im
-// Abholregal, kommt der Kunde, nimmt sein Paket, zahlt am Tresen und trägt es nach Hause. Die Abläufe stehen in
-// core/reception.js, hier geht es nur ums Laufen und Aussehen. Bewegung über Delta-Zeit.
+// Abholregal, kommt der Kunde, nimmt sein Paket, zahlt am Tresen und trägt es nach Hause. Wer einen Server (VM)
+// mieten will, wartet genauso am Tresen, auf einem Stuhl oder auf der Terrasse, bis man am PC annimmt (winkt und
+// geht) oder die Anfrage verfällt (geht einfach). Die Abläufe stehen in core/reception.js und core/server-rentals.js,
+// hier geht es nur ums Laufen und Aussehen. Bewegung über Delta-Zeit.
 import * as THREE from 'three';
 import { createPerson, peopleFor } from '../models/people.js';
 import { createParcel } from '../models/reception-furniture.js';
 import { orderSummary } from '../core/reception.js';
 import { ENTRANCE_PATH } from './entrance.js';
 import { SIDEWALK_LANES, SIDEWALK_END } from './outdoor.js';
-import { RECEPTION_SPOTS } from './reception.js';
+import { RECEPTION_SPOTS, rentalHint } from './reception.js';
 
 const WALK_SPEED = [1.15, 1.45];
 const WALK_CLIP_SPEED = 1.45;
@@ -39,6 +41,16 @@ const LOOKS = {
   'Schülerfirma Gymnasium Nord': 'punk-woman',
   'Spieleladen Würfelglück': 'hoodie-man',
   'Hausmeister Krawuttke': 'worker-man',
+  // Server-Kunden (core/server-rentals.js)
+  'Startup Wolkig GmbH': 'business-man',
+  'Gaming-Clan Pixelsturm': 'hoodie-man',
+  'Onlineshop Kaffeebohne': 'casual-woman',
+  'Lehrstuhl Informatik': 'formal-woman',
+  'Agentur Klickwerk': 'punk-man',
+  'Praxis Dr. Sommer': 'suit-woman',
+  'Stadtwerke Talheim': 'worker-man',
+  'KI-Labor Neuronix': 'business-man',
+  'Hobbyfunk e.V.': 'farmer-man',
 };
 const SCALE = { 'Jonas (12)': 0.78 };
 
@@ -59,14 +71,18 @@ function turnTowards(object, b, dt) {
   object.rotation.y = a + diff * Math.min(1, TURN_SPEED * dt);
 }
 
-// reception: core/reception.js · orders: Aufträge · onEvent(type, data): 'arrived' (Kunde steht am Tresen)
-export function createCustomers({ reception, orders, onEvent = () => {} }) {
+// reception: core/reception.js · orders: Aufträge · rentals: core/server-rentals.js (VM-Anfragen, optional)
+// onEvent(type, data): 'arrived' { customer } (Kunde steht am Tresen) bzw. { customer, request } (Server-Kunde ist an
+// seinem Warteplatz angekommen – einmal je Anfrage, egal ob Tresen, Stuhl oder Terrasse)
+export function createCustomers({ reception, orders, rentals = null, onEvent = () => {} }) {
   const group = new THREE.Group();
   const customers = [];
   const carrying = new Set();   // Aufträge, deren Paket gerade jemand trägt
   let spawnTimer = 0;
 
   const byOrder = (id, kind) => customers.find((c) => c.orderId === id && c.kind === kind);
+  const byRequest = (id) => customers.find((c) => c.requestId === id && c.kind === 'server');
+  const waits = (c) => c.kind === 'dropoff' || c.kind === 'server'; // braucht einen Platz am Tresen
   const counterTaken = (except) => customers.some((c) => c !== except && c.spot === 'counter' && c.phase !== 'leave');
   const chairTaken = (i, except) => customers.some((c) => c !== except && c.spot === i && c.phase !== 'leave');
 
@@ -74,7 +90,7 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
   const wayIn = (target) => [{ x: LANE_X, z: GATE.z }, ENTRANCE_PATH.frontOutside, ENTRANCE_PATH.frontInside, target];
   const wayOut = (exitZ) => [ENTRANCE_PATH.frontInside, ENTRANCE_PATH.frontOutside, GATE, { x: LANE_X, z: exitZ }];
 
-  // Platz für einen Kunden, der abgeben will: Tresen, sonst ein Stuhl, sonst draußen auf der Terrasse
+  // Platz für einen Kunden, der abgeben oder mieten will: Tresen, sonst ein Stuhl, sonst draußen auf der Terrasse
   function waitingSpot(c) {
     if (!counterTaken(c)) return 'counter';
     for (let i = 0; i < RECEPTION_SPOTS.chairs.length; i++) if (!chairTaken(i, c)) return i;
@@ -90,14 +106,15 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
   }
 
   let nextId = 1;
-  function spawn(order, kind) {
+  // source: Auftrag (dropoff, pickup) oder VM-Anfrage (server)
+  function spawn(source, kind) {
     const side = Math.random() < 0.5 ? -1 : 1;
     const holder = new THREE.Group();
     holder.add(new THREE.Mesh(hitboxGeometry, hitboxMaterial));
     holder.position.set(LANE_X, 0.03, side * SPAWN_Z);
     const c = {
-      id: nextId++, orderId: order.id, customer: order.customer, kind, holder, person: null, path: [], phase: 'enter',
-      spot: null, heading: 0, timer: 0, exitZ: -side * SIDEWALK_END, parcel: null,
+      id: nextId++, orderId: kind === 'server' ? null : source.id, requestId: kind === 'server' ? source.id : null,
+      customer: source.customer, kind, holder, person: null, path: [], phase: 'enter', announced: false, spot: null, heading: 0, timer: 0, exitZ: -side * SIDEWALK_END, parcel: null,
       speed: WALK_SPEED[0] + Math.random() * (WALK_SPEED[1] - WALK_SPEED[0]),
     };
     c.spot = kind === 'pickup' ? 'shelf' : waitingSpot(c);
@@ -105,6 +122,10 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
     holder.userData.interaction = {
       hint: () => {
         if (c.phase === 'counter' && api.counterInteraction) return api.counterInteraction.hint();
+        if (c.kind === 'server') {
+          const request = rentals?.requestById(c.requestId);
+          return request ? rentalHint(request) : c.customer;
+        }
         const o = orders.orderById(c.orderId);
         if (c.kind === 'pickup') return `${c.customer} holt ab: ${o ? orderSummary(o) : 'Paket'}`;
         if (c.phase === 'seated' || c.phase === 'enter') return `${c.customer} wartet auf den Tresen${o ? ` (${orderSummary(o)})` : ''}`;
@@ -114,9 +135,9 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
     };
     group.add(holder);
     customers.push(c);
-    createPerson(lookFor(order.customer)).then((person) => {
+    createPerson(lookFor(source.customer)).then((person) => {
       person.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
-      person.setScale(SCALE[order.customer] ?? 1);
+      person.setScale(SCALE[source.customer] ?? 1);
       c.person = person;
       holder.add(person.object);
     }).catch((err) => console.warn('Kunde konnte nicht geladen werden', err));
@@ -148,10 +169,16 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
       c.heading = p.heading;
       return;
     }
+    // Server-Kunden melden sich gleich am ersten Platz – angenommen wird ja am PC, nicht am Tresen
+    if (c.kind === 'server' && !c.announced) {
+      c.announced = true;
+      const request = rentals?.requestById(c.requestId);
+      if (request) onEvent('arrived', { customer: c.customer, request });
+    }
     if (c.spot === 'counter') {
       c.phase = 'counter';
       c.heading = p.heading;
-      onEvent('arrived', { customer: c.customer });
+      if (c.kind === 'dropoff') onEvent('arrived', { customer: c.customer });
     } else if (typeof c.spot === 'number') {
       const chair = RECEPTION_SPOTS.chairs[c.spot];
       c.holder.position.set(chair.seat.x, 0, chair.seat.z);
@@ -175,8 +202,21 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
         leave(c);
       }
     }
+    // Server-Anfrage erledigt: am PC angenommen (winken, auch vom Stuhl aus) oder verfallen/abgelehnt (einfach gehen)
+    if (c.kind === 'server' && c.phase !== 'leave' && c.phase !== 'farewell' && !rentals?.requestById(c.requestId)) {
+      if (rentals?.vmById(c.requestId) && (c.phase === 'counter' || c.phase === 'seated')) {
+        if (typeof c.spot === 'number') {
+          const chair = RECEPTION_SPOTS.chairs[c.spot];
+          c.holder.position.set(chair.stand.x, 0, chair.stand.z); // vom Stuhl aufstehen
+        }
+        c.phase = 'farewell';
+        c.timer = WAVE_SECONDS;
+      } else {
+        leave(c);
+      }
+    }
     // Wartet auf einem Stuhl oder draußen und der Tresen ist frei: aufstehen und hingehen
-    if (c.kind === 'dropoff' && c.phase === 'seated' && !counterTaken(c)) {
+    if (waits(c) && c.phase === 'seated' && !counterTaken(c)) {
       if (typeof c.spot === 'number') {
         const chair = RECEPTION_SPOTS.chairs[c.spot];
         c.holder.position.set(chair.stand.x, 0, chair.stand.z);
@@ -251,8 +291,9 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       const dropoff = reception.waiting.find((o) => !byOrder(o.id, 'dropoff'));
+      const rental = rentals?.requests.find((r) => !byRequest(r.id));
       const pickup = reception.duePickups.find((o) => !byOrder(o.id, 'pickup'));
-      const next = dropoff ? [dropoff, 'dropoff'] : pickup ? [pickup, 'pickup'] : null;
+      const next = dropoff ? [dropoff, 'dropoff'] : rental ? [rental, 'server'] : pickup ? [pickup, 'pickup'] : null;
       if (next) {
         spawn(...next);
         spawnTimer = SPAWN_GAP;
@@ -271,12 +312,14 @@ export function createCustomers({ reception, orders, onEvent = () => {} }) {
 
   // Kunde, der gerade am Tresen steht und auf die Annahme wartet
   const atCounter = () => customers.find((c) => c.kind === 'dropoff' && c.phase === 'counter') ?? null;
+  // Server-Kunde, der am Tresen steht und auf die Annahme am PC wartet
+  const serverAtCounter = () => customers.find((c) => c.kind === 'server' && c.phase === 'counter') ?? null;
   // Kunde, der nach dem Abholen gerade am Tresen bezahlt
   const paying = () => customers.find((c) => c.kind === 'pickup' && c.phase === 'pay' && !c.path.length) ?? null;
   // Positionen für die Haustür (öffnet sich, wenn jemand davorsteht)
   const positions = () => customers.map((c) => c.holder.position);
 
   // counterInteraction setzt world/reception.js – ein Klick auf den Kunden am Tresen wirkt wie einer auf den Tresen
-  const api = { group, update, atCounter, paying, positions, carrying, counterInteraction: null };
+  const api = { group, update, atCounter, serverAtCounter, paying, positions, carrying, counterInteraction: null };
   return api;
 }

@@ -351,8 +351,32 @@ function iconServer(ctx, x, y, s) {
   }
 }
 
+// Server-Vermietung: hellblaue Wolke, davor ein kleiner Server mit grünen Lämpchen
+function iconCloud(ctx, x, y, s) {
+  ctx.fillStyle = '#7cc4ff';
+  ctx.beginPath();
+  ctx.arc(x + s * 0.3, y + s * 0.42, s * 0.2, 0, Math.PI * 2);
+  ctx.arc(x + s * 0.55, y + s * 0.32, s * 0.26, 0, Math.PI * 2);
+  ctx.arc(x + s * 0.78, y + s * 0.46, s * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  roundRect(ctx, x + s * 0.1, y + s * 0.42, s * 0.84, s * 0.22, s * 0.11);
+  ctx.fill();
+  ctx.fillStyle = '#3a4250';
+  roundRect(ctx, x + s * 0.24, y + s * 0.52, s * 0.52, s * 0.44, s * 0.06);
+  ctx.fill();
+  for (let i = 0; i < 2; i++) {
+    const ry = y + s * (0.58 + i * 0.18);
+    ctx.fillStyle = '#1b1f26';
+    ctx.fillRect(x + s * 0.3, ry, s * 0.4, s * 0.12);
+    ctx.fillStyle = '#2bd96b';
+    ctx.fillRect(x + s * 0.34, ry + s * 0.04, s * 0.05, s * 0.05);
+    ctx.fillStyle = '#8a93a3';
+    ctx.fillRect(x + s * 0.48, ry + s * 0.05, s * 0.18, s * 0.03);
+  }
+}
+
 const ICONS = {
-  trophy: iconTrophy, server: iconServer,
+  trophy: iconTrophy, server: iconServer, cloud: iconCloud,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
   wood: iconWood, snake: iconSnake,

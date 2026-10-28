@@ -1,6 +1,7 @@
 // Einrichtung des Empfangs im Eingangsbereich: Tresen (Aufträge annehmen), Wartestühle und das Abholregal, in dem
 // fertige Aufträge als Pakete mit Kundennamen liegen. Die Abläufe stehen in core/reception.js, die Kunden als Figuren
-// in world/customers.js. Hier: Möbel, Pakete im Regal und was ein Klick auf Tresen oder Regal bewirkt.
+// in world/customers.js. Hier: Möbel, Pakete im Regal und was ein Klick auf Tresen oder Regal bewirkt. Server-Kunden
+// (VM-Anfragen) warten auch am Tresen, werden aber am PC angenommen – hier gibt es für sie nur einen Hinweis.
 import * as THREE from 'three';
 import { SHELF_SLOTS, orderSummary } from '../core/reception.js';
 import {
@@ -26,7 +27,12 @@ export const RECEPTION_SPOTS = {
   })),
 };
 
-function drawScreen(waiting, packed) {
+// Hinweis zu einem Server-Kunden (VM-Anfrage aus core/server-rentals.js) – angenommen wird am PC, nicht am Tresen
+export function rentalHint(request) {
+  return `${request.customer} möchte eine VM mieten: ${request.ram} GB RAM · ${request.cores} Cores – am PC annehmen`;
+}
+
+function drawScreen(waiting, packed, rentals) {
   return (ctx, w, h) => {
     ctx.fillStyle = '#0e1a24';
     ctx.fillRect(0, 0, w, h);
@@ -37,6 +43,10 @@ function drawScreen(waiting, packed) {
     ctx.font = '500 20px "Segoe UI", Arial, sans-serif';
     ctx.fillText(`Wartende Kunden: ${waiting}`, 16, 76);
     ctx.fillText(`Im Abholregal: ${packed} / ${SHELF_SLOTS}`, 16, 104);
+    if (rentals) {
+      ctx.fillStyle = '#ffd27a'; // fällt auf: muss am PC angenommen werden
+      ctx.fillText(`Server-Anfragen: ${rentals} (am PC)`, 16, 132);
+    }
   };
 }
 
@@ -65,7 +75,8 @@ function drawHours(ctx, w, h) {
 
 // reception: core/reception.js · orders: Aufträge (für Änderungen) · customers: world/customers.js (wer am Tresen
 // steht, welche Pakete gerade getragen werden) · collision: Kollision der Spielfigur · staff: für die Empfangskraft
-export function createReceptionDesk({ reception, orders, customers, collision, staff }) {
+// rentals: core/server-rentals.js (wartende VM-Anfragen für Bildschirm und Hinweis, optional)
+export function createReceptionDesk({ reception, orders, customers, collision, staff, rentals = null }) {
   const group = new THREE.Group();
 
   const screenCanvas = document.createElement('canvas');
@@ -124,10 +135,11 @@ export function createReceptionDesk({ reception, orders, customers, collision, s
       parcels.add(parcel);
       parcelByOrder.set(order.id, parcel);
     }
-    drawScreen(reception.waiting.length, packed.length)(screenCanvas.getContext('2d'), screenCanvas.width, screenCanvas.height);
+    drawScreen(reception.waiting.length, packed.length, rentals?.requests.length ?? 0)(screenCanvas.getContext('2d'), screenCanvas.width, screenCanvas.height);
     screenTexture.needsUpdate = true;
   }
   orders.subscribe(sync);
+  rentals?.subscribe(sync); // Zähler der Server-Anfragen auf dem Bildschirm
 
   // Tresen: den Kunden, der dort steht, annehmen
   const counterInteraction = {
@@ -139,6 +151,10 @@ export function createReceptionDesk({ reception, orders, customers, collision, s
         const greeter = staff?.receptionist ? ` (sonst macht es gleich ${staff.receptionist.name})` : '';
         return `Linksklick: Auftrag von ${order.customer} annehmen${greeter} – ${orderSummary(order)} · ${euro.format(order.reward)}${tags}`;
       }
+      // Server-Kunde am Tresen: nur der Hinweis, angenommen wird am PC
+      const guest = customers.serverAtCounter?.();
+      const request = guest && rentals?.requestById(guest.requestId);
+      if (request) return rentalHint(request);
       const n = reception.waiting.length;
       return n ? `${n === 1 ? 'Ein Kunde ist' : `${n} Kunden sind`} auf dem Weg zum Tresen` : 'Empfang – gerade wartet niemand';
     },

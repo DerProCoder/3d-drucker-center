@@ -1,19 +1,24 @@
 // Serverraum in der zweiten Etage: Serverschränke aufstellen, Geräte einbauen, Kabel stecken und mit Servern Geld
 // verdienen. Schränke und Geräte sind Einrichtung aus economy.furniture (Karton, Lieferung, Abstellraum, Tragen wie
 // bei Regalen) mit eigenen Orten:
-//   Schrank: location 'server', slot = Stellplatz oben (world/server-room.js)
+//   Schrank: location 'server', slot = Stellplatz oben (core/server-zones.js: 0–15 Kunden, 16–23 privat, 24–27 Automatik)
 //   Gerät:   location 'rack', rackId, unit = oberste belegte Höheneinheit (0 = ganz oben im Schrank). Die Höhe
 //            wählt man beim Einbauen durch Zielen und kann sie im Schrankfenster ändern.
 // Ein Server ist online, wenn er über Kabel am LAN der Firewall hängt (direkt oder über Switches) und der WAN-Port
 // der Firewall mit einem Patchpanel (dem Internetanschluss) verbunden ist. Kabel gibt es nur innerhalb eines Schranks;
 // gesteckt wird hinten am Schrank Port für Port (world/server-room.js). Kabel kommt als Rolle in Metern, jede
 // Verbindung verbraucht ihre Länge, Abziehen gibt das Stück zurück in den Vorrat.
-// Online-Server bringen zu jeder vollen Spielstunde Einnahmen; Strom kosten alle eingebauten Geräte
+// Geld bringen Server nur über vermietete VMs (core/server-rentals.js, Miete zu jeder vollen Spielstunde, solange
+// der Server online ist); Strom kosten alle eingebauten Geräte
 // (economy.extraPowerPerHour, läuft mit der normalen Stromrechnung). Ohne Three.js und DOM.
 import { CABLE_ROLL, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
 import { meters } from './format.js';
+import { SERVER_SPOTS, isAutomationRack, isPrivateRack } from './server-zones.js';
 
-export const SERVER_SPOTS = 16; // Stellplätze für Schränke in der zweiten Etage
+// Stellplätze und Zonen (Kunden, privat, Automatik) stehen in core/server-zones.js
+export {
+  SERVER_SPOTS, isAutomationRack, isPrivateRack, spotDistance, spotLabel, spotPosition, spotZone,
+} from './server-zones.js';
 const CABLE_SLACK = 0.3;        // m je Kabel für die Schlaufe an den Steckern
 const CLIP_DETOUR = 0.25;       // m je Seite der Kabelführung, die das Kabel anläuft (hin und zurück)
 const round1 = (m) => Math.round(m * 10) / 10;
@@ -29,6 +34,8 @@ export class Servers {
     this.onEvent = null;    // (type, data) => void – z. B. 'cables-delivered'
     // Warum ein Gerät nicht arbeitet (defekt, eingefroren – core/server-climate.js setzt das), oder null
     this.deviceProblem = () => null;
+    // Miete pro Spielstunde der VMs auf einem Server (core/server-rentals.js setzt das; ohne Mieter bringt er nichts)
+    this.rentOf = () => 0;
     economy.extraPowerPerHour = () => this.powerPerHour;
   }
 
@@ -51,6 +58,21 @@ export class Servers {
 
   spotUsed(spot) {
     return this.racks.some((r) => r.slot === spot);
+  }
+
+  // Schrank, in dem ein Gerät eingebaut ist, oder null
+  rackOf(device) {
+    return device?.location === 'rack' ? this.economy.furnitureById(device.rackId) ?? null : null;
+  }
+
+  // Ob das Gerät in einem privaten Schrank steckt (Reihe „Private Server“ oder Automatik-Reihe) – nicht vermietbar
+  isPrivateDevice(device) {
+    return isPrivateRack(this.rackOf(device));
+  }
+
+  // Ob das Gerät in einem Schrank auf einem Automatik-Platz steckt
+  isAutomationDevice(device) {
+    return isAutomationRack(this.rackOf(device));
   }
 
   // ---------- Kaufen ----------
@@ -343,20 +365,13 @@ export class Servers {
     return this.installed.filter((d) => this.isOnline(d, reached));
   }
 
+  // Miete pro Spielstunde, die die Online-Server gerade bringen (nur vermietete VMs zahlen, core/server-rentals.js)
   get incomePerHour() {
-    return this.onlineServers.reduce((sum, d) => sum + d.type.income, 0);
+    return this.onlineServers.reduce((sum, d) => sum + this.rentOf(d), 0);
   }
 
   get powerPerHour() {
     return this.installed.reduce((sum, d) => sum + d.type.power, 0);
-  }
-
-  // Zu jeder vollen Spielstunde: Einnahmen der Online-Server gutschreiben (Strom läuft über die Stromrechnung)
-  payHour() {
-    const income = this.incomePerHour;
-    if (income <= 0) return;
-    this.economy.earn(income);
-    this.onEvent?.('income', { amount: income, servers: this.onlineServers.length });
   }
 
   // ---------- Speichern ----------

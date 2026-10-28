@@ -1,6 +1,6 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör), „Drucker-Shop“ und „Holzshop“ (Laser R1 und Holzplatten) zum Einkaufen,
-// „Aufträge“ und „Druckermenü“ zum Steuern,
+// „Aufträge“ und „Druckermenü“ zum Steuern, „Server-Shop“ und „Server-Vermietung“ (VM-Anfragen der Kunden),
 // „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
@@ -18,6 +18,7 @@ import { createStaffMenu } from './staff-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { createSnakeApp } from './snake-app.js';
 import { createServerShop } from './server-shop.js';
+import { createServerRentalApp } from './server-rental-app.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 import { euro } from '../core/format.js';
 
@@ -34,6 +35,7 @@ const APPS = [
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'wood', name: 'Holzshop', icon: 'wood', live: true },
   { id: 'servers', name: 'Server-Shop', icon: 'server', live: true },
+  { id: 'rentals', name: 'Server-Vermietung', icon: 'cloud', live: true },
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
@@ -60,7 +62,7 @@ const appById = (id) => APPS.find((a) => a.id === id);
 const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
 
 export function createShop(economy, {
-  orders, achievements, cam, upgrades, staff, staffStatus, servers, freePrinterSlots, freeShelfSpace, onClose,
+  orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
@@ -111,7 +113,8 @@ export function createShop(economy, {
   const notes = createNotesApp();
   const calc = createCalcApp();
   const snake = createSnakeApp();
-  const serverShop = createServerShop({ economy, servers, upgrades });
+  const serverShop = createServerShop({ economy, servers, upgrades, rentals });
+  const rentalApp = createServerRentalApp({ economy, servers, rentals });
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -355,9 +358,10 @@ export function createShop(economy, {
   }
 
   function render() {
-    // Zähler am Aufträge-Symbol
+    // Zähler an den Symbolen „Aufträge“ (offene Aufträge) und „Server-Vermietung“ (wartende Anfragen)
+    const counts = { orders: orders.open.length, rentals: rentals.requests.length };
     for (const badge of root.querySelectorAll('[data-badge]')) {
-      badge.textContent = badge.dataset.badge === 'orders' && orders.open.length ? orders.open.length : '';
+      badge.textContent = counts[badge.dataset.badge] || '';
     }
     for (const b of root.querySelectorAll('.taskbar-app')) b.classList.toggle('active', b.dataset.open === app);
     windowEl.classList.toggle('hidden', !app);
@@ -372,7 +376,7 @@ export function createShop(economy, {
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
-      cam: cam.render, dev: renderDev, servers: serverShop.render,
+      cam: cam.render, dev: renderDev, servers: serverShop.render, rentals: rentalApp.render,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
     const typing = document.activeElement?.closest?.('[data-keep-focus]');
@@ -504,6 +508,7 @@ export function createShop(economy, {
     if (app === 'control') printerMenu.liveUpdate(contentEl);
     if (app === 'orders') ordersMenu.liveUpdate(contentEl);
     if (app === 'staff') staffMenu.liveUpdate(contentEl);
+    if (app === 'rentals') rentalApp.liveUpdate(contentEl);
     // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
     if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)
       || (app === 'servers' && servers.deliveries.length)) {
@@ -527,6 +532,12 @@ export function createShop(economy, {
     }
     if (app === 'servers') {
       const message = serverShop.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
+    if (app === 'rentals') {
+      const { message, render: redraw } = rentalApp.handleClick(e);
+      if (redraw) render();
       if (message) toast(message);
       return;
     }
@@ -599,6 +610,7 @@ export function createShop(economy, {
   orders.subscribe(refresh);
   upgrades.subscribe(refresh);
   staff.subscribe(refresh);
+  rentals.subscribe(refresh);
 
   return { open, close, isOpen };
 }
