@@ -604,6 +604,8 @@ function onStarted() {
 
 function onStopped() {
   if (!uiOpen()) {
+    // Pause (am PC per Esc – die Seite sieht die Taste dann nicht): angefangenes Verlegen im Serverraum abbrechen
+    serverRoom.cancelPick();
     title.show(true);
     autosave.save(); // beim Pausieren gleich sichern
   }
@@ -704,7 +706,8 @@ const interaction = new Interaction({
   targets: [room, upperFloor.group, serverRoom.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
 });
 
-interaction.formatText = (text) => (isTablet() ? tabletText(text) : text);
+// Tablet: kein Esc – abbrechen geht dort per Tippen auf den gewählten Port oder ⏸
+interaction.formatText = (text) => (isTablet() ? tabletText(text).replace(' oder Esc:', ':') : text);
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && controls.isLocked) interaction.click();
@@ -731,6 +734,8 @@ document.addEventListener('wheel', (e) => {
 
 window.addEventListener('keydown', (e) => {
   // Esc im PC: zurück ins Spiel · nochmal Esc auf dem Hinweis „Klicken, um weiterzuspielen“: Pausenmenü
+  // Esc bricht außerdem ein angefangenes Verlegen im Serverraum ab (zusätzlich, nicht statt des Pausenmenüs)
+  if (e.code === 'Escape') serverRoom.cancelPick();
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
   else if (e.code === 'Escape' && rackPanel.isOpen()) rackPanel.close();
   else if (e.code === 'Escape' && title.isResume()) title.show(true);
@@ -911,6 +916,8 @@ renderer.setAnimationLoop(() => {
     });
   }
   safely('Drucker', () => workshop.animate(dt));
+  // Wer die zweite Etage verlässt (Treppe, Fahrstuhl), bricht ein angefangenes Verlegen ab
+  if (playerLevel !== 1) serverRoom.cancelPick();
   safely('Serverraum', () => serverRoom.update(dt));
   safely('Ausstellungsregal', () => displayWall.update());
   safely('Licht', () => hallLights.update(dt, camera.position));

@@ -235,7 +235,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   let pickedTray = [];            // danach angeklickte Gitterfelder (Feld-Indizes) in Reihenfolge
   let hoverField = null;          // gerade angezieltes Gitterfeld (Vorschau des Wegs bis dorthin)
   let hoverPort = null;           // gerade angezielter zweiter Port (Vorschau des ganzen Kabels)
-  let trayLanes = 0;              // Zahl der Kabel im Gitter – das nächste bekommt diesen Versatz
+  let nextTrayLane = () => 0;     // Versatz, den das nächste Gitterkabel bekommt (für die Vorschau, siehe syncCables)
   const portPos = new Map();      // `${id}:${port}` → Position in group (für Markierung und Vorschaukabel)
   const portKey = (ref) => `${ref.id}:${ref.port}`;
   const portLabel = (ref) => {
@@ -367,7 +367,11 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     if (key === pendingKey) return;
     pendingKey = key;
     if (pendingCable) {
-      pendingCable.traverse((o) => { if (!SHARED_GEOMETRY.has(o.geometry)) o.geometry?.dispose(); });
+      // Röhre freigeben, ebenso die eigenen (halb durchsichtigen) Materialkopien der Vorschau
+      pendingCable.traverse((o) => {
+        if (!SHARED_GEOMETRY.has(o.geometry)) o.geometry?.dispose();
+        o.material?.dispose();
+      });
       group.remove(pendingCable);
       pendingCable = null;
     }
@@ -380,9 +384,10 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       const local = (ref) => portPos.get(portKey(ref)).clone().sub(offset);
       points = cableRoute(rack.type, local(picked), local(to), servers.cables.length, pickedClips).map((p) => p.add(offset));
     } else if (fields) {
-      const start = riseOf(picked, trayLanes);
-      const end = ends ? riseOf(to, trayLanes) : null;
-      if (start && (end || !ends)) points = trayCablePoints(start, fields, end, trayLanes);
+      const lane = nextTrayLane();
+      const start = riseOf(picked, lane);
+      const end = ends ? riseOf(to, lane) : null;
+      if (start && (end || !ends)) points = trayCablePoints(start, fields, end, lane);
     }
     if (!points || points.length < 2) return;
     pendingCable = createCable(points, CABLE_COLOR, inRack ? undefined : TRAY_CABLE_RADIUS);
@@ -416,7 +421,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         const peer = servers.peerLabel(ref);
         if (isPicked()) {
           const next = isWanRef(ref) ? 'Gitterfelder, dann Port im Schrank' : 'Clips oder Gitterfelder, dann zweiten Port';
-          return `${portLabel(ref)} gewählt – ${next} anklicken · Linksklick hier: abbrechen`;
+          return `${portLabel(ref)} gewählt – ${next} anklicken · Linksklick hier oder Esc: abbrechen`;
         }
         if (peer) return `${portLabel(ref)} ↔ ${peer} · Linksklick: Kabel abziehen`;
         if (servers.cableAt(ref)) return `${portLabel(ref)} – verbunden · Linksklick: Kabel abziehen`;
@@ -474,102 +479,193 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     };
   }
 
-  // Drehende Lüfter: { rotor, speed: () => Prozent }, beim Neuaufbau neu gesammelt
+  // ---------- Aufbau: nur neu bauen, was sich geändert hat ----------
+  // Schränke (Gehäuse, Geräte, Klickflächen) und Kabel liegen getrennt im Zwischenspeicher. Ein Schrank wird nur neu
+  // gebaut, wenn sich an ihm etwas ändert (Platz, Geräte, Höhe, Status-LED online/offline), ein Kabel nur, wenn sich
+  // seine Enden, sein Weg oder die Lage seiner Ports ändern. Stecken oder Ziehen eines Kabels baut so nur dieses Kabel
+  // (und Schränke, deren Server dadurch on- bzw. offline gehen) neu statt den ganzen Raum.
+
+  const cablesGroup = new THREE.Group();
+  cablesGroup.name = 'server-cables';
+  group.add(cablesGroup);
+  const rackCache = new Map();   // rackId → { key, group, ports: Map(`${id}:${port}` → Lage in group), fans }
+  const cableCache = new Map();  // Schlüssel eines Kabels → Gruppe mit Röhre und Steckern
+  // Versatz (lane) je Kabel: bleibt gleich, solange das Kabel steckt – sonst rückten beim Ziehen eines Kabels alle
+  // späteren nach und müssten neu gebaut werden. Gitterkabel und Kabel im Schrank zählen getrennt.
+  const lanes = { tray: new Map(), rack: new Map() };
+  const cableId = (cable) => `${portKey(cable.a)}>${portKey(cable.b)}`;
+  const freeLane = (pool) => {
+    const used = new Set(pool.values());
+    let lane = 0;
+    while (used.has(lane)) lane++;
+    return lane;
+  };
+  const laneFor = (pool, id) => {
+    if (!pool.has(id)) pool.set(id, freeLane(pool));
+    return pool.get(id);
+  };
+  nextTrayLane = () => freeLane(lanes.tray);
+
+  // Geometrie (und eigene Materialien, z. B. vom Vorschaukabel) freigeben; geteilte bleiben
+  const disposeGroup = (g, materials = false) => g.traverse((o) => {
+    if (o.geometry && !SHARED_GEOMETRY.has(o.geometry)) o.geometry.dispose();
+    if (materials && o.material) o.material.dispose();
+  });
+
+  // Drehende Lüfter: { rotor, speed: () => Prozent }, aus den Schränken im Zwischenspeicher gesammelt
   let fans = [];
 
-  function buildRacks() {
-    racks.traverse((o) => { if (!SHARED_GEOMETRY.has(o.geometry)) o.geometry?.dispose(); });
-    racks.clear();
-    portPos.clear();
-    fans = [];
-    const reached = servers.reachable();
-    const portWorld = new Map(); // `${id}:${port}` → Position im Schrank
-    const rackGroups = new Map();
-    for (const rack of servers.racks) {
-      const g = new THREE.Group();
-      const { x, z } = spotPosition(rack.slot);
-      g.position.set(x, 0, z);
-      const shell = createServerRack(rack.type);
-      const door = doorState(rack.id);
-      door.mesh = shell.userData.door;
-      door.mesh.rotation.y = -door.angle;
-      door.mesh.userData.interaction = doorInteraction(rack);
-      g.add(shell);
-      for (const which of ['top', 'bottom']) {
-        for (const rotor of shell.userData.fans[which]) fans.push({ rotor, speed: () => climate.rack(rack.id)[which] });
-      }
-      for (const device of servers.devicesIn(rack.id)) {
-        const mesh = createServerDevice(device.type, { online: servers.isOnline(device, reached) });
-        const at = devicePlacement(rack.type, device.unit, device.type.units);
-        mesh.position.copy(at);
-        g.add(mesh);
-        // Defekte Geräte stehen still
-        const speed = () => (climate.device(device.id).status === 'broken' ? 0 : climate.device(device.id).fan);
-        for (const rotor of mesh.userData.fans) fans.push({ rotor, speed });
-        portPositions(device.type).forEach((p, port) => portWorld.set(`${device.id}:${port}`, at.clone().add(new THREE.Vector3(p.x, p.y, p.z))));
-      }
-      // Unsichtbare Zielfläche genau in der Front der Höheneinheiten: Zielt man zum Einbauen in einen leeren Bereich,
-      // trifft der Strahl hier statt durch den offenen Rücken hindurch irgendwo dahinter – so zählt die Höhe vorn.
-      // Nur von vorn treffbar (FrontSide), damit sie hinten beim Verkabeln nicht stört.
-      const front = devicePlacement(rack.type, 0, rack.type.units);
-      const aim = new THREE.Mesh(new THREE.PlaneGeometry(FRONT_WIDTH, rack.type.units * UNIT), AIM_MATERIAL);
-      aim.position.set(front.x, front.y, front.z + 0.003);
-      g.add(aim);
-      g.userData.interaction = rackInteraction(rack);
-      rackGroups.set(rack.id, g);
-      racks.add(g);
+  // Ein Schrank mit Geräten, Klickflächen für Ports und Clips. Ports: Lage in group (für Kabel und Markierung)
+  function buildRack(rack, reached) {
+    const g = new THREE.Group();
+    const { x, z } = spotPosition(rack.slot);
+    const offset = new THREE.Vector3(x, 0, z);
+    g.position.copy(offset);
+    const rackFans = [];
+    const ports = new Map();
+    const shell = createServerRack(rack.type);
+    const door = doorState(rack.id);
+    door.mesh = shell.userData.door;
+    door.mesh.rotation.y = -door.angle;
+    door.mesh.userData.interaction = doorInteraction(rack);
+    g.add(shell);
+    for (const which of ['top', 'bottom']) {
+      for (const rotor of shell.userData.fans[which]) rackFans.push({ rotor, speed: () => climate.rack(rack.id)[which] });
     }
-    servers.cables.forEach((cable, i) => {
-      if (isTrayCable(cable)) return; // die über das Gitter kommen unten, wenn alle Ports ihre Lage haben
-      const device = economy.furnitureById(cable.a.id);
-      const g = rackGroups.get(device?.rackId);
-      const a = portWorld.get(`${cable.a.id}:${cable.a.port}`);
-      const b = portWorld.get(`${cable.b.id}:${cable.b.port}`);
-      if (g && a && b) g.add(createCable(cableRoute(economy.furnitureById(device.rackId).type, a, b, i, cable.clips), CABLE_COLOR));
-    });
-    // Unsichtbare Klickflächen über den Ports (etwas größer als die Buchse, damit man sie gut trifft)
-    for (const [key, pos] of portWorld) {
-      const [id, port] = key.split(':').map(Number);
-      const device = economy.furnitureById(id);
-      const hitbox = new THREE.Mesh(PORT_HIT_GEOMETRY, PORT_HIT_MATERIAL);
-      hitbox.position.copy(pos);
-      hitbox.name = `port:${key}`;
-      hitbox.userData.interaction = portInteraction({ id, port });
-      rackGroups.get(device.rackId).add(hitbox);
-      const { x, z } = spotPosition(economy.furnitureById(device.rackId).slot);
-      portPos.set(key, pos.clone().add(new THREE.Vector3(x, 0, z)));
+    for (const device of servers.devicesIn(rack.id)) {
+      const mesh = createServerDevice(device.type, { online: servers.isOnline(device, reached) });
+      const at = devicePlacement(rack.type, device.unit, device.type.units);
+      mesh.position.copy(at);
+      g.add(mesh);
+      // Defekte Geräte stehen still
+      const speed = () => (climate.device(device.id).status === 'broken' ? 0 : climate.device(device.id).fan);
+      for (const rotor of mesh.userData.fans) rackFans.push({ rotor, speed });
+      // Unsichtbare Klickflächen über den Ports (etwas größer als die Buchse, damit man sie gut trifft)
+      portPositions(device.type).forEach((p, port) => {
+        const pos = at.clone().add(new THREE.Vector3(p.x, p.y, p.z));
+        const key = `${device.id}:${port}`;
+        const hitbox = new THREE.Mesh(PORT_HIT_GEOMETRY, PORT_HIT_MATERIAL);
+        hitbox.position.copy(pos);
+        hitbox.name = `port:${key}`;
+        hitbox.userData.interaction = portInteraction({ id: device.id, port });
+        g.add(hitbox);
+        ports.set(key, pos.add(offset));
+      });
     }
-    addWanPorts();
-    // Kabel über das Gitter: vom Port hoch ins Feld, durch die Felder und am Ziel wieder runter; jedes Kabel liegt
-    // etwas versetzt neben den anderen (lane)
-    trayLanes = 0;
-    for (const cable of servers.cables) {
-      if (!isTrayCable(cable)) continue;
-      const lane = trayLanes++;
-      const route = routeOf(cable);
-      const a = riseOf(cable.a, lane);
-      const b = riseOf(cable.b, lane);
-      if (route?.fields && a && b) racks.add(createCable(trayCablePoints(a, route.fields, b, lane), CABLE_COLOR, TRAY_CABLE_RADIUS));
-    }
+    // Unsichtbare Zielfläche genau in der Front der Höheneinheiten: Zielt man zum Einbauen in einen leeren Bereich,
+    // trifft der Strahl hier statt durch den offenen Rücken hindurch irgendwo dahinter – so zählt die Höhe vorn.
+    // Nur von vorn treffbar (FrontSide), damit sie hinten beim Verkabeln nicht stört.
+    const front = devicePlacement(rack.type, 0, rack.type.units);
+    const aim = new THREE.Mesh(new THREE.PlaneGeometry(FRONT_WIDTH, rack.type.units * UNIT), AIM_MATERIAL);
+    aim.position.set(front.x, front.y, front.z + 0.003);
+    g.add(aim);
     // Klickflächen über den Clips der Kabelführung
-    for (const rack of servers.racks) {
-      for (const side of [-1, 1]) {
-        for (let index = 0; index < clipCount(rack.type); index++) {
-          const hitbox = new THREE.Mesh(CLIP_HIT_GEOMETRY, PORT_HIT_MATERIAL);
-          hitbox.position.copy(clipPosition(rack.type, side, index));
-          hitbox.name = `clip:${rack.id}:${side}:${index}`;
-          hitbox.userData.interaction = clipInteraction(rack, { side, index });
-          rackGroups.get(rack.id).add(hitbox);
-        }
+    for (const side of [-1, 1]) {
+      for (let index = 0; index < clipCount(rack.type); index++) {
+        const hitbox = new THREE.Mesh(CLIP_HIT_GEOMETRY, PORT_HIT_MATERIAL);
+        hitbox.position.copy(clipPosition(rack.type, side, index));
+        hitbox.name = `clip:${rack.id}:${side}:${index}`;
+        hitbox.userData.interaction = clipInteraction(rack, { side, index });
+        g.add(hitbox);
       }
     }
-    if (picked && !portPos.has(portKey(picked))) cancelPick();
-    showPicked();
+    g.userData.interaction = rackInteraction(rack);
+    return { group: g, ports, fans: rackFans };
+  }
+
+  function syncRacks(reached) {
+    const seen = new Set();
+    let changed = false;
+    for (const rack of servers.racks) {
+      seen.add(rack.id);
+      const key = JSON.stringify([
+        rack.slot, rack.type.id,
+        servers.devicesIn(rack.id).map((d) => [d.id, d.unit, d.type.id, servers.isOnline(d, reached)]),
+      ]);
+      const cached = rackCache.get(rack.id);
+      if (cached?.key === key) continue;
+      if (cached) {
+        racks.remove(cached.group);
+        disposeGroup(cached.group);
+      }
+      const built = buildRack(rack, reached);
+      racks.add(built.group);
+      rackCache.set(rack.id, { key, ...built });
+      changed = true;
+    }
+    for (const [id, cached] of rackCache) {
+      if (seen.has(id)) continue;
+      racks.remove(cached.group);
+      disposeGroup(cached.group);
+      rackCache.delete(id);
+      doors.delete(id);
+      changed = true;
+    }
+    if (!changed) return;
+    portPos.clear();
+    for (const cached of rackCache.values()) for (const [key, pos] of cached.ports) portPos.set(key, pos);
+    addWanPorts();
+    fans = [...rackCache.values()].flatMap((c) => c.fans);
     // Schränke als Hindernis in der zweiten Etage
     collision.setDynamic('server-racks', servers.racks.map((rack) => {
       const { x, z } = spotPosition(rack.slot);
       return { minX: x - RACK_FOOTPRINT.w / 2, maxX: x + RACK_FOOTPRINT.w / 2, minZ: z - RACK_FOOTPRINT.d / 2, maxZ: z + RACK_FOOTPRINT.d / 2, level: 1 };
     }));
+  }
+
+  // Kabel im Schrank (durch die Clips) bzw. über das Gitter (vom Port hoch, durch die Felder, am Ziel runter)
+  function buildCable(cable, lane, tray) {
+    if (tray) {
+      const route = routeOf(cable);
+      const a = riseOf(cable.a, lane);
+      const b = riseOf(cable.b, lane);
+      return route?.fields && a && b ? createCable(trayCablePoints(a, route.fields, b, lane), CABLE_COLOR, TRAY_CABLE_RADIUS) : null;
+    }
+    // Route in Schrankkoordinaten rechnen und an die Stelle des Schranks verschieben
+    const rack = rackOfRef(cable.a);
+    const pa = portPos.get(portKey(cable.a));
+    const pb = portPos.get(portKey(cable.b));
+    if (!rack || !pa || !pb) return null;
+    const { x, z } = spotPosition(rack.slot);
+    const offset = new THREE.Vector3(x, 0, z);
+    const points = cableRoute(rack.type, pa.clone().sub(offset), pb.clone().sub(offset), lane, cable.clips).map((p) => p.add(offset));
+    return createCable(points, CABLE_COLOR);
+  }
+
+  function syncCables() {
+    const ids = new Set(servers.cables.map(cableId));
+    for (const pool of Object.values(lanes)) for (const id of pool.keys()) if (!ids.has(id)) pool.delete(id);
+    const wanted = new Map();
+    for (const cable of servers.cables) {
+      const tray = isTrayCable(cable);
+      const id = cableId(cable);
+      const lane = laneFor(tray ? lanes.tray : lanes.rack, id);
+      // Alles, wovon die Form abhängt: Enden, Clips bzw. Wegpunkte, Versatz, Lage der Ports und Schranktypen
+      const at = (ref) => (isWanRef(ref) ? ref.port : portPos.get(portKey(ref))?.toArray().map((v) => Math.round(v * 1e4)));
+      const key = JSON.stringify([id, tray, lane, cable.clips, cable.tray, at(cable.a), at(cable.b), rackOfRef(cable.a)?.type.id, rackOfRef(cable.b)?.type.id]);
+      if (wanted.has(key)) continue;
+      wanted.set(key, { cable, lane, tray });
+    }
+    for (const [key, g] of cableCache) {
+      if (wanted.has(key)) continue;
+      cablesGroup.remove(g);
+      disposeGroup(g);
+      cableCache.delete(key);
+    }
+    for (const [key, { cable, lane, tray }] of wanted) {
+      if (cableCache.has(key)) continue;
+      const g = buildCable(cable, lane, tray) ?? new THREE.Group(); // leer merken, damit es nicht jedes Mal neu versucht
+      cablesGroup.add(g);
+      cableCache.set(key, g);
+    }
+  }
+
+  function buildRoom() {
+    const reached = servers.reachable();
+    syncRacks(reached);
+    syncCables();
+    if (picked && !portPos.has(portKey(picked))) cancelPick();
+    showPicked();
   }
 
   // Neu aufbauen nur, wenn sich am Serverraum etwas geändert hat (Schränke, Geräte, Kabel, wer online ist)
@@ -614,8 +710,18 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     ]);
     if (key === lastKey) return;
     lastKey = key;
-    buildRacks();
+    buildRoom();
   }
 
-  return { group, update };
+  // Angefangenes Verlegen abbrechen (Esc, Pause, Etage verlassen) – true, wenn etwas gewählt war
+  function cancelCabling() {
+    if (!picked) return false;
+    cancelPick();
+    hoverPort = null;
+    hoverField = null;
+    showPicked();
+    return true;
+  }
+
+  return { group, update, cancelPick: cancelCabling };
 }

@@ -28,16 +28,26 @@ const HIT_MATERIAL = new THREE.MeshBasicMaterial({ visible: false });
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 export const TRAY_CABLE_RADIUS = 0.0035;  // im Gitter etwas dicker als im Schrank, damit man es von unten sieht
-const LANE_STEP = 0.025;                  // Versatz nebeneinanderliegender Kabel im Feld (m)
-const LANES = 9;                          // so viele nebeneinander, dann eine Lage höher
+const LANE_STEP = 0.017;                  // Versatz nebeneinanderliegender Kabel im Feld (m)
+const LANES = 13;                         // so viele nebeneinander (±10 cm), dann eine Lage höher – beliebig viele Lagen
+const SEGMENT_LENGTH = 0.05;              // Röhre: etwa alle 5 cm ein Ring …
+const MAX_SEGMENTS = 300;                 // … aber höchstens so viele je Kabel
+
+// Ein Material je Kabelfarbe für alle Kabel (wird nie freigegeben, nur die Röhren)
+const cableMaterials = new Map();
+function cableMaterial(color) {
+  if (!cableMaterials.has(color)) cableMaterials.set(color, new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
+  return cableMaterials.get(color);
+}
 
 // Kabel als weiche Röhre entlang points, an beiden Enden ein Stecker mit Knickschutz, ausgerichtet in Richtung des
-// ersten bzw. letzten Kabelstücks (Buchsen hinten am Gerät zeigen nach −z, am Wandkasten nach +x)
+// ersten bzw. letzten Kabelstücks (Buchsen hinten am Gerät zeigen nach −z, am Wandkasten nach +x). Material und
+// Stecker-Geometrie sind geteilt – beim Entfernen nur die Röhre freigeben.
 export function createCable(points, color, radius = 0.0028) {
   const g = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
+  const material = cableMaterial(color);
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const segments = Math.min(1600, Math.max(points.length * 12, Math.ceil(curve.getLength() * 40)));
+  const segments = Math.min(MAX_SEGMENTS, Math.max(points.length * 6, Math.ceil(curve.getLength() / SEGMENT_LENGTH)));
   g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, segments, radius, 6, false), material));
   for (const [p, q] of [[points[0], points[1]], [points[points.length - 1], points[points.length - 2]]]) {
     const dir = q.clone().sub(p).normalize();
@@ -58,11 +68,13 @@ export function createCable(points, color, radius = 0.0028) {
 // Feld-Index (core) ↔ Feld { x, z } des Modells (Spalte/Reihe ab der Nordwestecke)
 const toCell = (field) => ({ x: field % TRAY_COLS, z: Math.floor(field / TRAY_COLS) });
 
-// Versatz eines Kabels im Feld (lane: laufende Nummer) und Höhe, auf der es liegt
+// Versatz eines Kabels im Feld (lane: Nummer, je steckendem Gitterkabel eine eigene) und Höhe, auf der es liegt.
+// Jede Nummer ergibt eine eigene Kombination aus Versatz und Lage – Kabel mit gleichem Weg liegen nie übereinander.
 function laneOf(lane) {
   const o = ((lane % LANES) - (LANES - 1) / 2) * LANE_STEP;
-  const y = TRAY_HEIGHT + TRAY_CABLE_RADIUS + 0.001 + (Math.floor(lane / LANES) % 3) * 2.2 * TRAY_CABLE_RADIUS;
-  return { o, y };
+  const layer = Math.floor(lane / LANES);
+  const y = TRAY_HEIGHT + TRAY_CABLE_RADIUS + 0.001 + layer * 2.2 * TRAY_CABLE_RADIUS;
+  return { o, y, layer };
 }
 
 // Stützpunkte durch die Felder (Mitten, um den Versatz verschoben). An Ecken je ein Punkt kurz davor und danach,
@@ -123,18 +135,20 @@ export function rackRise(port, rack, lane) {
 // Trasse, daran hoch und oben waagerecht ins Gitter
 export function wanRise(port, lane) {
   const p = wanPortPosition(port);
-  const { o, y } = laneOf(lane);
+  const { o, y, layer } = laneOf(lane);
   const front = WAN_BOX.x + WAN_BOX.depth / 2;
   const z = WAN_TRACE.z + o;
+  // in der Trasse liegen die Lagen nebeneinander, von der Wand weg (Trasse ist nur gut 3 cm tief)
+  const tx = WAN_TRACE.x - 0.012 + Math.min(layer, 3) * 0.008;
   const v = (x, py, pz) => new THREE.Vector3(x, py, pz);
   return [
     v(front + 0.006, p.y, p.z),
     v(front + 0.034, p.y, p.z),
     v(front + 0.05, p.y + 0.04, (p.z * 2 + z) / 3),
     v(front + 0.03, WAN_TRACE.y0 + 0.03, (p.z + z * 2) / 3),
-    v(WAN_TRACE.x, WAN_TRACE.y0 + 0.12, z),
-    v(WAN_TRACE.x, WAN_TRACE.y1 - 0.08, z),
-    v(WAN_TRACE.x + 0.08, y, z),
+    v(tx, WAN_TRACE.y0 + 0.12, z),
+    v(tx, WAN_TRACE.y1 - 0.08, z),
+    v(tx + 0.08, y, z),
   ];
 }
 
