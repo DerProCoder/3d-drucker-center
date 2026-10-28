@@ -9,8 +9,12 @@
 // zweiten – ein Stück von der Kabelrolle verbindet beide. Klickt man dazwischen Clips der Kabelführung an, läuft das
 // Kabel durch diese Clips (Kabelführung links und rechts im offenen Rücken), sonst hängt es frei. Klick auf einen
 // belegten Port zieht das Kabel ab.
+// Zwischen zwei Schränken und zum Internet-Anschluss an der Westwand laufen Kabel über das Kabelgitter unter der
+// Decke (world/cable-tray.js): ersten Port anklicken, dann Gitterfelder (nochmal: wieder heraus), dann den Port im
+// anderen Schrank bzw. am Wandkasten. Ein halb durchsichtiges Kabel zeigt dabei den Weg bis hierher.
 import * as THREE from 'three';
 import { SERVER_SPOTS } from '../core/servers.js';
+import { WAN_FIELD, fieldAbove, fieldLabel, isWanRef, toggleWaypoint, trayPath, wanPortName } from '../core/cable-tray.js';
 import { spotPosition, spotsInZone } from '../core/server-zones.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { meters } from '../core/format.js';
@@ -22,18 +26,18 @@ import {
 } from '../models/server-hardware.js';
 import { MAX_FAN_SPEED } from '../models/server-fans.js';
 import { FLOOR_Y } from './upper-floor.js';
+import {
+  SHARED_CABLE_GEOMETRY, TRAY_CABLE_RADIUS, createCable, createCableTrayRoom, rackRise, trayCablePoints, wanRise,
+} from './cable-tray.js';
 
 const DOOR_OPEN_ANGLE = 1.9;     // Bogenmaß, so weit schwingt die Glastür auf
 const DOOR_SPEED = 3.5;          // Bogenmaß pro Sekunde
 // Klickfläche eines Ports: unsichtbar, aber vom Strahl getroffen (material.visible = false)
 const PORT_HIT_GEOMETRY = new THREE.BoxGeometry(0.016, 0.014, 0.012);
 const PORT_HIT_MATERIAL = new THREE.MeshBasicMaterial({ visible: false });
-// Stecker (durchsichtig-hell) und Knickschutz (in Kabelfarbe) an den Kabelenden
-const PLUG_GEOMETRY = new THREE.BoxGeometry(0.0115, 0.0085, 0.012);
-const PLUG_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd8dde2, roughness: 0.3, transparent: true, opacity: 0.85 });
-const BOOT_GEOMETRY = new THREE.BoxGeometry(0.009, 0.007, 0.014);
 const CLIP_HIT_GEOMETRY = new THREE.BoxGeometry(0.034, 0.03, 0.04);
-const SHARED_GEOMETRY = new Set([PORT_HIT_GEOMETRY, CLIP_HIT_GEOMETRY, PLUG_GEOMETRY, BOOT_GEOMETRY]); // beim Neuaufbau nicht freigeben
+// beim Neuaufbau nicht freigeben (Stecker und Knickschutz der Kabel kommen aus world/cable-tray.js)
+const SHARED_GEOMETRY = new Set([PORT_HIT_GEOMETRY, CLIP_HIT_GEOMETRY, ...SHARED_CABLE_GEOMETRY]);
 const AIM_MATERIAL = new THREE.MeshBasicMaterial({ visible: false, side: THREE.FrontSide });
 
 // Lage der Stellplätze (Schränke schauen nach Süden, +z) steht in core/server-zones.js
@@ -121,25 +125,6 @@ function createSpotMarker() {
   );
   marker.rotation.x = -Math.PI / 2;
   return marker;
-}
-
-// Kabel hinter den Geräten (der Schrank ist hinten offen) entlang points (cableRoute: durch die Clips an der Seite)
-// als weiche Kurve, an beiden Enden ein Stecker mit Knickschutz in der Buchse
-function createCable(points, color) {
-  const g = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
-  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, points.length * 12, 0.0028, 6, false), material);
-  g.add(tube);
-  for (const p of [points[0], points[points.length - 1]]) {
-    const plug = new THREE.Mesh(PLUG_GEOMETRY, PLUG_MATERIAL);
-    plug.position.set(p.x, p.y, p.z - 0.004);
-    const boot = new THREE.Mesh(BOOT_GEOMETRY, material);
-    boot.position.set(p.x, p.y, p.z - 0.016);
-    g.add(plug, boot);
-  }
-  g.traverse((o) => { o.castShadow = false; });
-  return g;
 }
 
 // economy, servers (core/servers.js), carry: was man trägt, upgrades: ob die Etage steht,
@@ -242,18 +227,70 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     };
   }
 
-  // ---------- Verkabeln hinten am Schrank: ersten Port anklicken, wahlweise Clips, dann den zweiten Port ----------
+  // ---------- Verkabeln: ersten Port anklicken, wahlweise Clips bzw. Gitterfelder, dann den zweiten Port ----------
+  // Ports sind { id, port } – Geräte-ID oder 'wan' (Internet-Anschluss an der Wand, core/cable-tray.js)
 
   let picked = null;              // erster gewählter Port { id, port } oder null
   let pickedClips = [];           // danach angeklickte Clips [{ side, index }] in Reihenfolge
+  let pickedTray = [];            // danach angeklickte Gitterfelder (Feld-Indizes) in Reihenfolge
+  let hoverField = null;          // gerade angezieltes Gitterfeld (Vorschau des Wegs bis dorthin)
+  let hoverPort = null;           // gerade angezielter zweiter Port (Vorschau des ganzen Kabels)
+  let trayLanes = 0;              // Zahl der Kabel im Gitter – das nächste bekommt diesen Versatz
   const portPos = new Map();      // `${id}:${port}` → Position in group (für Markierung und Vorschaukabel)
   const portKey = (ref) => `${ref.id}:${ref.port}`;
   const portLabel = (ref) => {
+    if (isWanRef(ref)) return `Internet-Anschluss · ${wanPortName(ref.port)}`;
     const device = economy.furnitureById(ref.id);
     return `${device.type.name} · ${device.type.kind === 'firewall' ? '' : 'Port '}${portName(device.type, ref.port)}`;
   };
   const clipKey = (c) => `${c.side}:${c.index}`;
-  const pickedRack = () => (picked ? economy.furnitureById(economy.furnitureById(picked.id).rackId) : null);
+  // Schrank, in dem ein Port sitzt (null am Wandanschluss oder wenn das Gerät nicht mehr eingebaut ist)
+  const rackOfRef = (ref) => {
+    if (!ref || isWanRef(ref)) return null;
+    const device = economy.furnitureById(ref.id);
+    return device?.rackId != null ? economy.furnitureById(device.rackId) ?? null : null;
+  };
+  const pickedRack = () => rackOfRef(picked);
+  const sameRack = (a, b) => !!rackOfRef(a) && rackOfRef(a) === rackOfRef(b);
+  // Gitterfeld, in dem das Kabel von diesem Port ankommt (über dem Schrank bzw. Einstieg der Wandtrasse)
+  const endFieldOf = (ref) => (isWanRef(ref) ? WAN_FIELD : (rackOfRef(ref) ? fieldAbove(rackOfRef(ref).slot) : null));
+  // Kabelstück vom Port hoch ins Gitter (Punkte in group) oder null
+  const riseOf = (ref, lane) => {
+    if (isWanRef(ref)) return wanRise(ref.port, lane);
+    const rack = rackOfRef(ref);
+    const at = portPos.get(portKey(ref));
+    if (!rack || !at) return null;
+    const { x, z } = spotPosition(rack.slot);
+    return rackRise(at, { x, z, type: rack.type }, lane);
+  };
+  // Läuft dieses Kabel über das Gitter? (zwischen zwei Schränken, zur Wand oder mit Gitterfeldern)
+  const isTrayCable = (cable) => !sameRack(cable.a, cable.b);
+  // Weg eines Gitterkabels durch die Felder: { fields } oder null
+  const routeOf = (cable) => {
+    if (servers.trayRoute) return servers.trayRoute(cable);
+    const route = trayPath(endFieldOf(cable.a), cable.tray ?? [], endFieldOf(cable.b));
+    return route.fields ? route : null;
+  };
+
+  // Gitter, Wandkasten und Trasse; Klicks auf Felder und Wandports landen hier
+  const trayRoom = createCableTrayRoom({
+    fieldInteraction: {
+      hint: (field) => fieldHint(field),
+      hover: (field) => { hoverField = field; showPreview(); },
+      unhover: () => { hoverField = null; showPreview(); },
+      action: (field) => {
+        if (!carry.isEmpty || !picked) return;
+        pickedTray = toggleWaypoint(pickedTray, field);
+        showPicked();
+      },
+    },
+    wanPortInteraction: (port) => portInteraction({ id: 'wan', port }),
+  });
+  group.add(trayRoom.group);
+  const addWanPorts = () => {
+    for (let port = 0; port < trayRoom.box.userData.ports.length; port++) portPos.set(`wan:${port}`, trayRoom.wanPortPos(port));
+  };
+  addWanPorts();
 
   // Leuchtender Rahmen am gewählten Port und ein halb durchsichtiges Kabel zum angezielten zweiten Port
   const pickedMarker = new THREE.Mesh(
@@ -272,27 +309,61 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
 
   function showPicked() {
     pickedMarker.visible = !!picked;
-    if (picked) pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(0, 0, -0.002));
+    if (picked) {
+      // Buchsen am Wandkasten zeigen nach +x, hinten an den Geräten nach −z
+      const wan = isWanRef(picked);
+      pickedMarker.rotation.y = wan ? Math.PI / 2 : 0;
+      pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(wan ? 0.002 : 0, 0, wan ? 0 : -0.002));
+    }
     clipMarkers.clear();
     const rack = pickedRack();
-    if (!rack) return;
-    const { x, z } = spotPosition(rack.slot);
-    for (const c of pickedClips) {
-      const marker = new THREE.Mesh(CLIP_MARKER_GEOMETRY, pickedMarker.material);
-      marker.position.copy(clipPosition(rack.type, c.side, c.index)).add(new THREE.Vector3(x, 0, z));
-      marker.raycast = () => {};
-      clipMarkers.add(marker);
+    if (rack) {
+      const { x, z } = spotPosition(rack.slot);
+      for (const c of pickedClips) {
+        const marker = new THREE.Mesh(CLIP_MARKER_GEOMETRY, pickedMarker.material);
+        marker.position.copy(clipPosition(rack.type, c.side, c.index)).add(new THREE.Vector3(x, 0, z));
+        marker.raycast = () => {};
+        clipMarkers.add(marker);
+      }
     }
+    showPreview();
   }
 
   function cancelPick() {
     picked = null;
     pickedClips = [];
+    pickedTray = [];
   }
 
-  // hover läuft in jedem Bild – das Kabel nur neu bauen, wenn sich Start oder Ziel ändern
-  function showPendingCable(to) {
-    const key = picked && to ? `${portKey(picked)}>${pickedClips.map(clipKey).join(',')}>${portKey(to)}` : '';
+  // Weg durchs Gitter vom gewählten Port über die Wegpunkte (und das angezielte Feld) bis zum letzten davon
+  function partialRoute() {
+    const start = endFieldOf(picked);
+    const points = hoverField !== null && !pickedTray.includes(hoverField) ? [...pickedTray, hoverField] : pickedTray;
+    if (start === null || !points.length) return null;
+    return trayPath(start, points, points[points.length - 1]).fields ?? null;
+  }
+
+  // Vorschau: gelbe Felder (Wegpunkte hell, Weg dazwischen gedämpft) und halb durchsichtiges Kabel – zum angezielten
+  // zweiten Port, wenn das geht, sonst bis zum letzten Wegpunkt bzw. angezielten Feld. hover läuft in jedem Bild –
+  // das Kabel nur neu bauen, wenn sich etwas ändert.
+  function showPreview() {
+    const to = picked && hoverPort && !servers.connectProblem(picked, hoverPort, pickedClips, pickedTray) ? hoverPort : null;
+    const inRack = to && sameRack(picked, to); // im selben Schrank zählen nur die Clips
+    let fields = null;
+    let ends = false;
+    if (picked && !inRack) {
+      if (to) {
+        fields = trayPath(endFieldOf(picked), pickedTray, endFieldOf(to)).fields ?? null;
+        ends = !!fields;
+      }
+      if (!fields) fields = partialRoute();
+    }
+    trayRoom.markFields(picked ? pickedTray : [], fields ?? []);
+
+    const key = !picked ? '' : [
+      portKey(picked), pickedClips.map(clipKey).join(','), pickedTray.join(','), inRack || ends ? portKey(to) : '',
+      fields?.join(',') ?? '',
+    ].join('>');
     if (key === pendingKey) return;
     pendingKey = key;
     if (pendingCable) {
@@ -300,14 +371,21 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       group.remove(pendingCable);
       pendingCable = null;
     }
-    if (!picked || !to) return;
-    // Route in Schrankkoordinaten rechnen und an die Stelle des Schranks verschieben
-    const rack = pickedRack();
-    const { x, z } = spotPosition(rack.slot);
-    const offset = new THREE.Vector3(x, 0, z);
-    const local = (ref) => portPos.get(portKey(ref)).clone().sub(offset);
-    const points = cableRoute(rack.type, local(picked), local(to), servers.cables.length, pickedClips).map((p) => p.add(offset));
-    pendingCable = createCable(points, CABLE_COLOR);
+    let points = null;
+    if (inRack) {
+      // Route in Schrankkoordinaten rechnen und an die Stelle des Schranks verschieben
+      const rack = pickedRack();
+      const { x, z } = spotPosition(rack.slot);
+      const offset = new THREE.Vector3(x, 0, z);
+      const local = (ref) => portPos.get(portKey(ref)).clone().sub(offset);
+      points = cableRoute(rack.type, local(picked), local(to), servers.cables.length, pickedClips).map((p) => p.add(offset));
+    } else if (fields) {
+      const start = riseOf(picked, trayLanes);
+      const end = ends ? riseOf(to, trayLanes) : null;
+      if (start && (end || !ends)) points = trayCablePoints(start, fields, end, trayLanes);
+    }
+    if (!points || points.length < 2) return;
+    pendingCable = createCable(points, CABLE_COLOR, inRack ? undefined : TRAY_CABLE_RADIUS);
     pendingCable.traverse((o) => {
       if (!o.isMesh) return;
       o.material = o.material.clone();
@@ -318,29 +396,56 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     group.add(pendingCable);
   }
 
+  // Hinweis beim Zielen auf ein Gitterfeld (nur beim Verlegen – sonst stört er beim Blick an die Decke)
+  function fieldHint(field) {
+    if (!carry.isEmpty || !picked) return null;
+    const label = `Kabelgitter ${fieldLabel(field)}`;
+    if (pickedTray.includes(field)) return `Linksklick: ${label} wieder aus dem Kabelweg nehmen`;
+    const start = endFieldOf(picked);
+    const problem = start === null ? 'Kein Gitterfeld über dem Anschluss' : trayPath(start, [...pickedTray, field], field).problem;
+    if (problem) return `${label} – ${problem}`;
+    const n = pickedTray.length;
+    return `Linksklick: Kabel durch ${label} führen${n ? ` (${n === 1 ? '1 Feld' : `${n} Felder`} gewählt)` : ''}`;
+  }
+
   function portInteraction(ref) {
     const isPicked = () => picked && picked.id === ref.id && picked.port === ref.port;
     return {
       hint: () => {
         if (!carry.isEmpty) return null;
         const peer = servers.peerLabel(ref);
-        if (isPicked()) return `${portLabel(ref)} gewählt – Clips oder zweiten Port anklicken · Linksklick hier: abbrechen`;
+        if (isPicked()) {
+          const next = isWanRef(ref) ? 'Gitterfelder, dann Port im Schrank' : 'Clips oder Gitterfelder, dann zweiten Port';
+          return `${portLabel(ref)} gewählt – ${next} anklicken · Linksklick hier: abbrechen`;
+        }
         if (peer) return `${portLabel(ref)} ↔ ${peer} · Linksklick: Kabel abziehen`;
-        if (!picked) return `Linksklick: Kabel an ${portLabel(ref)} anstecken (Vorrat ${meters(servers.cableMeters)})`;
-        const problem = servers.connectProblem(picked, ref, pickedClips);
+        if (servers.cableAt(ref)) return `${portLabel(ref)} – verbunden · Linksklick: Kabel abziehen`;
+        if (!picked) {
+          const free = isWanRef(ref) ? ' – frei' : '';
+          return `${portLabel(ref)}${free} · Linksklick: Kabel anstecken (Vorrat ${meters(servers.cableMeters)})`;
+        }
+        const problem = servers.connectProblem(picked, ref, pickedClips, pickedTray);
         if (problem) return problem;
-        const via = pickedClips.length ? `über ${pickedClips.length === 1 ? '1 Clip' : `${pickedClips.length} Clips`}` : 'frei hängend';
-        return `Linksklick: mit ${portLabel(ref)} verbinden, ${via} (${meters(servers.cableLength(picked, ref, pickedClips))} Kabel)`;
+        const n = pickedTray.length;
+        const via = !sameRack(picked, ref)
+          ? `über ${n === 1 ? '1 Gitterfeld' : `${n} Gitterfelder`}`
+          : pickedClips.length ? `über ${pickedClips.length === 1 ? '1 Clip' : `${pickedClips.length} Clips`}` : 'frei hängend';
+        return `Linksklick: mit ${portLabel(ref)} verbinden, ${via} (${meters(servers.cableLength(picked, ref, pickedClips, pickedTray))} Kabel)`;
       },
-      hover: () => showPendingCable(picked && !isPicked() && !servers.connectProblem(picked, ref, pickedClips) ? ref : null),
-      unhover: () => showPendingCable(null),
+      hover: () => {
+        const target = picked && !isPicked() ? ref : null;
+        if (target === hoverPort || (target && hoverPort && portKey(target) === portKey(hoverPort))) return;
+        hoverPort = target;
+        showPreview();
+      },
+      unhover: () => { hoverPort = null; showPreview(); },
       action: () => {
         if (!carry.isEmpty) return;
         if (isPicked()) cancelPick();
         else if (servers.cableAt(ref)) servers.disconnect(ref);
         else if (!picked) picked = { ...ref };
-        else if (servers.connect(picked, ref, pickedClips)) cancelPick();
-        showPendingCable(null);
+        else if (servers.connect(picked, ref, pickedClips, pickedTray)) cancelPick();
+        hoverPort = null;
         showPicked();
       },
     };
@@ -355,6 +460,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       hint: () => {
         if (!carry.isEmpty) return null;
         if (!picked) return `${label} – zum Einlegen erst einen Port anklicken`;
+        if (isWanRef(picked)) return 'Clips nur für Kabel innerhalb eines Schranks – Gitterfelder anklicken';
         if (pickedRack() !== rack) return 'Der Clip gehört zu einem anderen Schrank';
         return chosen() === -1 ? `Linksklick: Kabel durch ${label} führen` : `Linksklick: Kabel wieder aus ${label} nehmen`;
       },
@@ -414,6 +520,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       racks.add(g);
     }
     servers.cables.forEach((cable, i) => {
+      if (isTrayCable(cable)) return; // die über das Gitter kommen unten, wenn alle Ports ihre Lage haben
       const device = economy.furnitureById(cable.a.id);
       const g = rackGroups.get(device?.rackId);
       const a = portWorld.get(`${cable.a.id}:${cable.a.port}`);
@@ -431,6 +538,18 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       rackGroups.get(device.rackId).add(hitbox);
       const { x, z } = spotPosition(economy.furnitureById(device.rackId).slot);
       portPos.set(key, pos.clone().add(new THREE.Vector3(x, 0, z)));
+    }
+    addWanPorts();
+    // Kabel über das Gitter: vom Port hoch ins Feld, durch die Felder und am Ziel wieder runter; jedes Kabel liegt
+    // etwas versetzt neben den anderen (lane)
+    trayLanes = 0;
+    for (const cable of servers.cables) {
+      if (!isTrayCable(cable)) continue;
+      const lane = trayLanes++;
+      const route = routeOf(cable);
+      const a = riseOf(cable.a, lane);
+      const b = riseOf(cable.b, lane);
+      if (route?.fields && a && b) racks.add(createCable(trayCablePoints(a, route.fields, b, lane), CABLE_COLOR, TRAY_CABLE_RADIUS));
     }
     // Klickflächen über den Clips der Kabelführung
     for (const rack of servers.racks) {

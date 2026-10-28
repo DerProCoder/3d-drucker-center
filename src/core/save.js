@@ -11,7 +11,9 @@ const KEY = 'druckercenter-save';
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
 // 12: Server-Vermietung (core/server-rentals.js) – wartende VM-Anfragen und laufende Verträge
 // 13: Schalter „Automatik an/aus“ je Serverschrank (climate.racks[].auto, core/climate-automation.js)
-const VERSION = 13;
+// 14: Internet nur über den Wandanschluss, Kabel zwischen Schränken über das Kabelgitter (cables[].tray, Enden
+//     { id: 'wan', port }, core/cable-tray.js) und einmalige Nachricht für alte Stände (servers.wanNotice)
+const VERSION = 14;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -198,6 +200,15 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 12) {
     for (const r of data.climate?.racks ?? []) r.auto ??= true;
     data.version = 13;
+  }
+  // Version 13 kennt noch keinen Internet-Anschluss an der Wand: Kabel bekommen einen leeren Gitterweg, es wird nichts
+  // automatisch verkabelt – Schränke ohne Leitung zur Wand sind danach offline. Wer schon Serverhardware hat, bekommt
+  // einmal den Hinweis (servers.wanNotice, main.js zeigt ihn beim ersten Spielstart und löscht ihn).
+  if (data?.version === 13) {
+    for (const c of data.servers?.cables ?? []) c.tray ??= [];
+    const hasServers = (data.economy?.furniture ?? []).some((f) => f.location === 'server' || f.location === 'rack');
+    if (hasServers) data.servers = { ...(data.servers ?? {}), wanNotice: true };
+    data.version = 14;
   }
   if (data?.version !== VERSION) return false;
 

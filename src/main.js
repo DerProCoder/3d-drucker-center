@@ -595,6 +595,11 @@ function stopPlaying() {
 function onStarted() {
   title.hide();
   sound.unlock(); // Browser erlauben Ton erst nach einer Nutzeraktion
+  // Alter Spielstand vor dem Wandanschluss (#28): einmal Bescheid sagen, warum die Server jetzt offline sind
+  if (servers.wanNotice) {
+    servers.wanNotice = false; // wird mit dem nächsten Speichern vergessen
+    hud.notify('🌐 Neu: Internet gibt es nur noch über den Anschluss an der Wand – Patchpanel oder Firewall-WAN über das Kabelgitter oben anschließen', 'info');
+  }
 }
 
 function onStopped() {

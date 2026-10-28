@@ -53,7 +53,8 @@ export function createServerShop({ economy, servers, upgrades, rentals }) {
       <p class="slots">Alles kommt als Karton in den Abstellraum (eine Minute Lieferzeit). Schränke trägst du in die zweite Etage
         und stellst sie an einer grünen Markierung auf, Geräte klickst du mit dem Karton in der Hand auf einen Schrank.
         Verkabelt wird hinten am Schrank – ersten Port anklicken, dann den zweiten: <b>Server → Switch → Firewall (LAN)</b>,
-        <b>Firewall (WAN) → Patchpanel</b>. Jede Verbindung schneidet so viel Kabel von der Rolle ab, wie sie lang ist.</p>
+        <b>Firewall (WAN) → Patchpanel → Kabelgitter → Internet-Anschluss an der Wand</b> (Firewall-WAN auch direkt).
+        Kabel zu einem anderen Schrank oder zur Wand laufen über das Kabelgitter unter der Decke. Jede Verbindung schneidet so viel Kabel von der Rolle ab, wie sie lang ist.</p>
       <p class="slots">💶 Geld bringen Server erst mit <b>vermieteten VMs</b>: Kunden kommen mit ihren Wünschen (RAM und Cores) zum
         Empfang, angenommen wird in der App <b>Server-Vermietung</b>. Jeder Server hat ${SERVER_RAM} GB RAM und ${SERVER_CORES} Cores – teurere Modelle
         haben einen höheren <b>Mietfaktor</b> und bringen für dieselbe VM mehr Miete.</p>

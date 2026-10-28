@@ -5,33 +5,42 @@
 //   Gerät:   location 'rack', rackId, unit = oberste belegte Höheneinheit (0 = ganz oben im Schrank). Die Höhe
 //            wählt man beim Einbauen durch Zielen und kann sie im Schrankfenster ändern.
 // Ein Server ist online, wenn er über Kabel am LAN der Firewall hängt (direkt oder über Switches) und der WAN-Port
-// der Firewall mit einem Patchpanel (dem Internetanschluss) verbunden ist. Kabel gibt es nur innerhalb eines Schranks;
-// gesteckt wird hinten am Schrank Port für Port (world/server-room.js). Kabel kommt als Rolle in Metern, jede
-// Verbindung verbraucht ihre Länge, Abziehen gibt das Stück zurück in den Vorrat.
+// der Firewall Internet hat: direkt am Internet-Anschluss an der Wand ({ id: 'wan', port }, core/cable-tray.js) oder an
+// einem Patchpanel, das selbst eine Leitung zum Wandanschluss hat. Gesteckt wird hinten am Schrank Port für Port
+// (world/server-room.js). Im selben Schrank läuft ein Kabel über die Clips der Kabelführung; zwischen zwei Schränken
+// bzw. zum Wandanschluss nur über das Kabelgitter unter der Decke (Wegpunkte `tray`). Kabel kommt als Rolle in Metern,
+// jede Verbindung verbraucht ihre Länge, Abziehen gibt das Stück zurück in den Vorrat.
 // Geld bringen Server nur über vermietete VMs (core/server-rentals.js, Miete zu jeder vollen Spielstunde, solange
 // der Server online ist); Strom kosten alle eingebauten Geräte
 // (economy.extraPowerPerHour, läuft mit der normalen Stromrechnung). Ohne Three.js und DOM.
 import { CABLE_ROLL, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
 import { meters } from './format.js';
 import { SERVER_SPOTS, isAutomationRack, isPrivateRack } from './server-zones.js';
+import {
+  CABLE_SLACK, WALL_PORTS, WAN_ID, endField, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath,
+  trayProblem, trayToJSON, validWanRef, wanEnd, wanPortName,
+} from './cable-tray.js';
 
 // Stellplätze und Zonen (Kunden, privat, Automatik) stehen in core/server-zones.js
 export {
   SERVER_SPOTS, isAutomationRack, isPrivateRack, spotDistance, spotLabel, spotPosition, spotZone,
 } from './server-zones.js';
-const CABLE_SLACK = 0.3;        // m je Kabel für die Schlaufe an den Steckern
 const CLIP_DETOUR = 0.25;       // m je Seite der Kabelführung, die das Kabel anläuft (hin und zurück)
 const round1 = (m) => Math.round(m * 10) / 10;
 
 export class Servers {
   constructor(economy) {
     this.economy = economy;
-    // { a: { id, port }, b: { id, port }, clips: [{ side, index }], length (m) } – id: Gerät aus economy.furniture,
+    // { a: { id, port }, b: { id, port }, clips: [{ side, index }], tray: [Feld-Indizes], length (m) } – id: Gerät aus
+    // economy.furniture oder 'wan' (Internet-Anschluss an der Wand, port 0 … WALL_PORTS − 1),
     // clips: Clips der Kabelführung, durch die das Kabel läuft (side −1/1 = −x/+x, von hinten gesehen rechts/links; index 0 = oben; leer = frei)
+    // tray: angeklickte Gitterfelder in Klick-Reihenfolge (nur bei Kabeln zwischen Schränken bzw. zum Wandanschluss, sonst leer)
     this.cables = [];
     this.cableMeters = 0;   // Kabel im Vorrat in Metern
     this.deliveries = [];   // Kabelrollen unterwegs: { arriveIn (Sekunden), meters }
     this.onEvent = null;    // (type, data) => void – z. B. 'cables-delivered'
+    // Alter Spielstand (vor dem Wandanschluss): Hinweis „Internet nur über den Wandanschluss“ einmal zeigen (main.js)
+    this.wanNotice = false;
     // Warum ein Gerät nicht arbeitet (defekt, eingefroren – core/server-climate.js setzt das), oder null
     this.deviceProblem = () => null;
     // Miete pro Spielstunde der VMs auf einem Server (core/server-rentals.js setzt das; ohne Mieter bringt er nichts)
@@ -181,7 +190,7 @@ export class Servers {
     if (!rack || !this.unitFits(rack, unit, device.type.units, device.id)) return false;
     const mine = this.cables.filter((c) => c.a.id === device.id || c.b.id === device.id);
     const unitOf = (d) => (d === device ? unit : d.unit);
-    const lengths = mine.map((c) => this.cableLength(c.a, c.b, c.clips, unitOf));
+    const lengths = mine.map((c) => this.cableLength(c.a, c.b, c.clips, c.tray, unitOf) ?? c.length);
     const extra = lengths.reduce((sum, l) => sum + l, 0) - mine.reduce((sum, c) => sum + c.length, 0);
     if (extra > this.cableMeters) return false;
     mine.forEach((c, i) => { c.length = lengths[i]; });
@@ -202,7 +211,8 @@ export class Servers {
     return true;
   }
 
-  // Leeren Schrank abbauen (zurück in den Abstellraum)
+  // Leeren Schrank abbauen (zurück in den Abstellraum). Kabel hängen nur an Geräten – die sind beim Ausbauen schon
+  // abgezogen worden (removeDevice → unplugAll, auch Gitterkabel zu anderen Schränken und zum Wandanschluss).
   removeRack(rackId) {
     const rack = this.economy.furnitureById(rackId);
     if (rack?.location !== 'server' || this.devicesIn(rack.id).length) return false;
@@ -212,8 +222,43 @@ export class Servers {
 
   // ---------- Kabel ----------
 
+  // Kabel an einem Port (Gerät oder Wandanschluss { id: 'wan', port }) oder null
   cableAt({ id, port }) {
     return this.cables.find((c) => (c.a.id === id && c.a.port === port) || (c.b.id === id && c.b.port === port)) ?? null;
+  }
+
+  // Ports am Internet-Anschluss an der Wand für die Anzeige am Wandkasten: [{ port, name: 'WAN n', cable | null }]
+  wanPorts() {
+    return Array.from({ length: WALL_PORTS }, (_, port) => ({ port, name: wanPortName(port), cable: this.cableAt({ id: WAN_ID, port }) }));
+  }
+
+  // Ob ein Kabel zwischen a und b über das Kabelgitter läuft: ein Ende am Wandanschluss oder Geräte in verschiedenen
+  // Schränken (im selben Schrank geht es über die Clips)
+  isTrayCable(a, b) {
+    if (isWanRef(a) || isWanRef(b)) return true;
+    const da = this.economy.furnitureById(a.id);
+    const db = this.economy.furnitureById(b.id);
+    return !!da && !!db && da.rackId !== db.rackId;
+  }
+
+  // Ende für core/cable-tray.js: Wandanschluss-Port oder Gerät mit Stellplatz und Höhe im Schrank, oder null
+  // (Gerät nicht eingebaut). unitOf wie bei cableLength.
+  trayEnd(ref, unitOf = (d) => d.unit) {
+    if (isWanRef(ref)) return wanEnd(ref.port);
+    const device = this.economy.furnitureById(ref.id);
+    const rack = this.rackOf(device);
+    return rack ? rackEnd(rack.slot, rack.type.units, unitOf(device), device.type.units) : null;
+  }
+
+  // Weg eines Gitterkabels durch die Felder (für das Zeichnen): { fields, steps } – oder null bei Kabeln im selben
+  // Schrank bzw. wenn der Weg nicht (mehr) geht
+  trayRoute(cable) {
+    if (!cable || !this.isTrayCable(cable.a, cable.b)) return null;
+    const ea = this.trayEnd(cable.a);
+    const eb = this.trayEnd(cable.b);
+    if (!ea || !eb) return null;
+    const path = trayPath(endField(ea), cable.tray ?? [], endField(eb));
+    return path.fields ? { fields: path.fields, steps: path.steps } : null;
   }
 
   // Clips der Kabelführung im Schrank (je Seite), Höhe eines Clips in HE von oben
@@ -232,10 +277,16 @@ export class Servers {
     return null;
   }
 
-  // Kabellänge in Metern zwischen zwei Ports im selben Schrank, auf 10 cm gerundet: Höhenweg über die Clips (ohne
-  // Clips direkt), Spiel an den Steckern und der Umweg zur Kabelführung je angelaufener Seite.
+  // Kabellänge in Metern, auf 10 cm gerundet. Im selben Schrank: Höhenweg über die Clips (ohne Clips direkt), Spiel an
+  // den Steckern und der Umweg zur Kabelführung je angelaufener Seite. Zwischen Schränken bzw. zum Wandanschluss: Weg
+  // über das Kabelgitter mit den Wegpunkten tray (core/cable-tray.js trayCableLength) – null, wenn der Weg nicht geht.
   // unitOf(device) erlaubt, eine andere Höhe anzunehmen (beim Verschieben).
-  cableLength(a, b, clips = [], unitOf = (d) => d.unit) {
+  cableLength(a, b, clips = [], tray = [], unitOf = (d) => d.unit) {
+    if (this.isTrayCable(a, b)) {
+      const ea = this.trayEnd(a, unitOf);
+      const eb = this.trayEnd(b, unitOf);
+      return ea && eb ? trayCableLength(ea, eb, tray) : null;
+    }
     const da = this.economy.furnitureById(a.id);
     const db = this.economy.furnitureById(b.id);
     const rack = this.economy.furnitureById(da.rackId);
@@ -258,31 +309,48 @@ export class Servers {
     return indices.map((index) => ({ side: 1, index }));
   }
 
-  // Grund, warum sich die beiden Ports (über die Clips) nicht verbinden lassen, oder null
-  connectProblem(a, b, clips = []) {
-    const da = this.economy.furnitureById(a.id);
-    const db = this.economy.furnitureById(b.id);
-    if (!da || !db || da.location !== 'rack' || db.location !== 'rack') return 'Gerät nicht eingebaut';
-    if (da === db) return 'Ein Gerät kann man nicht mit sich selbst verbinden';
-    if (da.rackId !== db.rackId) return 'Kabel reichen nur innerhalb eines Schranks';
+  // Grund, warum sich die beiden Ports nicht verbinden lassen, oder null. Im selben Schrank über die Clips (tray
+  // zählt dort nicht), zwischen Schränken bzw. zum Wandanschluss { id: 'wan', port } über die Gitterfelder tray
+  // (Wegpunkte in Klick-Reihenfolge, clips zählen dort nicht).
+  connectProblem(a, b, clips = [], tray = []) {
+    if (isWanRef(a) && isWanRef(b)) return 'Internet-Anschluss kann man nicht mit sich selbst verbinden';
+    for (const ref of [a, b]) {
+      if (isWanRef(ref)) {
+        if (!isWanPort(ref.port)) return 'Kein Port am Internet-Anschluss';
+      } else if (this.economy.furnitureById(ref.id)?.location !== 'rack') {
+        return 'Gerät nicht eingebaut';
+      }
+    }
+    if (a.id === b.id) return 'Ein Gerät kann man nicht mit sich selbst verbinden';
     if (this.cableAt(a) || this.cableAt(b)) return 'Port ist schon belegt';
-    const rack = this.economy.furnitureById(da.rackId);
-    if (clips.some((c) => this.clipProblem(rack, c))) return 'Clip gehört nicht zu diesem Schrank';
-    const length = this.cableLength(a, b, clips);
+    if (this.isTrayCable(a, b)) {
+      const problem = trayProblem(this.trayEnd(a), this.trayEnd(b), tray);
+      if (problem) return problem;
+    } else {
+      const rack = this.rackOf(this.economy.furnitureById(a.id));
+      if (clips.some((c) => this.clipProblem(rack, c))) return 'Clip gehört nicht zu diesem Schrank';
+    }
+    const length = this.cableLength(a, b, clips, tray);
     if (this.cableMeters < length) return `Zu wenig Kabel – braucht ${meters(length)}, im Server-Shop nachkaufen`;
     return null;
   }
 
-  connect(a, b, clips = []) {
-    if (this.connectProblem(a, b, clips)) return false;
-    const length = this.cableLength(a, b, clips);
-    this.cables.push({ a: { ...a }, b: { ...b }, clips: clips.map((c) => ({ ...c })), length });
+  connect(a, b, clips = [], tray = []) {
+    if (this.connectProblem(a, b, clips, tray)) return false;
+    const length = this.cableLength(a, b, clips, tray);
+    const viaTray = this.isTrayCable(a, b);
+    this.cables.push({
+      a: { ...a }, b: { ...b },
+      clips: viaTray ? [] : clips.map((c) => ({ ...c })),
+      tray: viaTray ? sanitizeTray(tray) : [],
+      length,
+    });
     this.cableMeters = round1(this.cableMeters - length);
     this.economy.notify();
     return true;
   }
 
-  // Kabel an diesem Port abziehen (das Stück kommt in den Vorrat zurück)
+  // Kabel an diesem Port abziehen (das Stück kommt in den Vorrat zurück) – auch am Wandanschluss { id: 'wan', port }
   disconnect(ref) {
     const cable = this.cableAt(ref);
     if (!cable) return false;
@@ -292,36 +360,72 @@ export class Servers {
     return true;
   }
 
+  // Alle Kabel eines Geräts abziehen, auch Gitterkabel zu anderen Schränken und zum Wandanschluss
   unplugAll(deviceId) {
     const mine = this.cables.filter((c) => c.a.id === deviceId || c.b.id === deviceId);
     this.cables = this.cables.filter((c) => !mine.includes(c));
     this.cableMeters = round1(this.cableMeters + mine.reduce((sum, c) => sum + c.length, 0));
   }
 
-  // Gegenstelle eines Ports: { device, port } oder null
+  // Gegenstelle eines Ports (ref auch am Wandanschluss): { device, port } bzw. am Wandanschluss
+  // { device: null, wan: true, port } – oder null
   peer(ref) {
     const cable = this.cableAt(ref);
     if (!cable) return null;
     const other = cable.a.id === ref.id && cable.a.port === ref.port ? cable.b : cable.a;
+    if (isWanRef(other)) return { device: null, wan: true, port: other.port };
     return { device: this.economy.furnitureById(other.id), port: other.port };
   }
 
+  // Gegenstelle als Text: „Switch 8 Ports · Port 3“, „Firewall 4 Ports · WAN“, „Internet-Anschluss · WAN 1“
   peerLabel(ref) {
     const p = this.peer(ref);
-    return p?.device ? `${p.device.type.name} · ${portName(p.device.type, p.port)}` : null;
+    if (p?.wan) return `Internet-Anschluss · ${wanPortName(p.port)}`;
+    if (!p?.device) return null;
+    const name = portName(p.device.type, p.port);
+    return `${p.device.type.name} · ${/^\d+$/.test(name) ? `Port ${name}` : name}`;
   }
 
   // ---------- Online? ----------
 
-  // Alle Geräte, die übers Netz ans Internet kommen: vom Patchpanel über den WAN-Port der Firewall, aus deren
-  // LAN-Ports weiter über Switches bis zu den Servern. Gibt die Menge der erreichten Geräte-IDs zurück.
+  // Patchpanels mit Internet: mindestens ein Port per Kabel am Wandanschluss – oder an einem anderen Patchpanel mit
+  // Internet (leitet passiv weiter). Alle Ports eines solchen Panels gelten als Internet. Menge der Geräte-IDs.
+  internetPatches() {
+    const ports = (d) => Array.from({ length: d.type.ports }, (_, i) => i);
+    const patches = this.installed.filter((d) => d.type.kind === 'patch');
+    const online = new Set(patches.filter((d) => ports(d).some((port) => this.peer({ id: d.id, port })?.wan)).map((d) => d.id));
+    const queue = patches.filter((d) => online.has(d.id));
+    while (queue.length) {
+      const panel = queue.shift();
+      for (const port of ports(panel)) {
+        const next = this.peer({ id: panel.id, port })?.device;
+        if (next?.type.kind === 'patch' && !online.has(next.id)) {
+          online.add(next.id);
+          queue.push(next);
+        }
+      }
+    }
+    return online;
+  }
+
+  // Ob die Firewall über ihren WAN-Port (Port 0) Internet hat: direkt am Wandanschluss oder an einem Patchpanel mit
+  // Internet. patches: aus internetPatches() (spart Rechnen)
+  firewallHasInternet(firewall, patches = this.internetPatches()) {
+    const wan = this.peer({ id: firewall.id, port: 0 });
+    return !!wan?.wan || (wan?.device?.type.kind === 'patch' && patches.has(wan.device.id));
+  }
+
+  // Alle Geräte, die übers Netz ans Internet kommen: vom Wandanschluss (direkt oder über Patchpanels) über den
+  // WAN-Port der Firewall, aus deren LAN-Ports weiter über Switches bis zu den Servern. Gibt die Menge der erreichten
+  // Geräte-IDs zurück (Patchpanels mit Internet gehören dazu).
   reachable() {
-    const reached = new Set();
+    const patches = this.internetPatches();
+    const reached = new Set(patches);
     const queue = [];
     const neighbors = (device, ports) => ports.map((port) => this.peer({ id: device.id, port })).filter((p) => p?.device);
     for (const device of this.installed.filter((d) => d.type.kind === 'firewall')) {
-      // WAN muss an einem Patchpanel hängen
-      if (this.deviceProblem(device) || this.peer({ id: device.id, port: 0 })?.device?.type.kind !== 'patch') continue;
+      // WAN muss Internet haben (Wandanschluss direkt oder Patchpanel mit Leitung zur Wand)
+      if (this.deviceProblem(device) || !this.firewallHasInternet(device, patches)) continue;
       reached.add(device.id);
       const lan = Array.from({ length: device.type.ports - 1 }, (_, i) => i + 1);
       queue.push(...neighbors(device, lan).map((p) => p.device));
@@ -352,11 +456,38 @@ export class Servers {
     if (problem) return problem;
     const ports = Array.from({ length: device.type.ports }, (_, i) => i);
     if (!ports.some((port) => this.cableAt({ id: device.id, port }))) return 'kein Kabel';
-    const firewalls = this.devicesIn(device.rackId).filter((d) => d.type.kind === 'firewall');
-    if (!firewalls.length) return 'keine Firewall im Schrank';
-    if (!firewalls.some((f) => this.peer({ id: f.id, port: 0 })?.device?.type.kind === 'patch')) return 'Firewall-WAN nicht am Patchpanel';
-    const down = this.devicesIn(device.rackId).find((d) => d.type.kind !== 'server' && this.deviceProblem(d));
-    if (down) return `${down.type.name} ${this.deviceProblem(down)}`;
+    // Netz des Servers ablaufen wie in reachable(), aber auch durch Switches, die nicht arbeiten: welche Firewalls
+    // hängen mit einem LAN-Port daran, welche Switches unterwegs sind defekt oder eingefroren?
+    const firewalls = [];
+    const down = [];
+    const seen = new Set([device.id]);
+    const queue = [device];
+    while (queue.length) {
+      const d = queue.shift();
+      for (let port = 0; port < d.type.ports; port++) {
+        const p = this.peer({ id: d.id, port });
+        if (!p?.device || seen.has(p.device.id)) continue;
+        seen.add(p.device.id);
+        if (p.device.type.kind === 'firewall' && p.port !== 0) firewalls.push(p.device);
+        if (p.device.type.kind !== 'switch') continue;
+        if (this.deviceProblem(p.device)) down.push(p.device);
+        queue.push(p.device);
+      }
+    }
+    const downText = (d) => `${d.type.name} ${this.deviceProblem(d)}`;
+    if (!firewalls.length) {
+      if (down.length) return downText(down[0]);
+      const inRack = this.devicesIn(device.rackId).some((d) => d.type.kind === 'firewall');
+      return inRack ? 'keine Verbindung zum LAN der Firewall' : 'keine Firewall im Schrank';
+    }
+    const working = firewalls.filter((f) => !this.deviceProblem(f));
+    if (!working.length) return downText(firewalls[0]);
+    const patches = this.internetPatches();
+    if (!working.some((f) => this.firewallHasInternet(f, patches))) {
+      const onPatch = working.some((f) => this.peer({ id: f.id, port: 0 })?.device?.type.kind === 'patch');
+      return onPatch ? 'Patchpanel nicht mit dem Internet-Anschluss verbunden' : 'keine Leitung zum Internet-Anschluss';
+    }
+    if (down.length) return downText(down[0]);
     return 'keine Verbindung zum LAN der Firewall';
   }
 
@@ -378,9 +509,13 @@ export class Servers {
 
   toJSON() {
     return {
-      cables: this.cables.map((c) => ({ a: { ...c.a }, b: { ...c.b }, clips: c.clips.map((k) => ({ ...k })), length: c.length })),
+      cables: this.cables.map((c) => ({
+        a: { ...c.a }, b: { ...c.b }, clips: c.clips.map((k) => ({ ...k })), tray: trayToJSON(c.tray), length: c.length,
+      })),
       cableMeters: this.cableMeters,
       deliveries: this.deliveries.map((d) => ({ ...d })),
+      // Einmalige Nachricht zum Wandanschluss (alte Stände, core/save.js Version 14) noch nicht gezeigt
+      wanNotice: this.wanNotice || undefined,
     };
   }
 
@@ -388,16 +523,29 @@ export class Servers {
     this.cables = data?.cables ?? [];
     this.cableMeters = data?.cableMeters ?? 0;
     this.deliveries = data?.deliveries ?? [];
-    // Kabel zu Geräten, die nicht (mehr) eingebaut sind oder den Port nicht (mehr) haben, zurück in den Vorrat
+    this.wanNotice = !!data?.wanNotice;
+    // Kabel zu Geräten, die nicht (mehr) eingebaut sind oder den Port nicht (mehr) haben, und Gitterkabel, deren Weg
+    // nicht (mehr) geht, zurück in den Vorrat
     const ok = (ref) => {
-      const device = this.economy.furnitureById(ref.id);
+      if (isWanRef(ref)) return validWanRef(ref);
+      const device = this.economy.furnitureById(ref?.id);
       return device?.location === 'rack' && ref.port < device.type.ports;
     };
-    const broken = this.cables.filter((c) => !ok(c.a) || !ok(c.b));
+    const routeOk = (c) => {
+      if (!this.isTrayCable(c.a, c.b)) return true;
+      c.tray = sanitizeTray(c.tray);
+      return !trayProblem(this.trayEnd(c.a), this.trayEnd(c.b), c.tray);
+    };
+    const broken = this.cables.filter((c) => !ok(c.a) || !ok(c.b) || !routeOk(c));
     this.cables = this.cables.filter((c) => !broken.includes(c));
     for (const c of this.cables) {
-      c.clips ??= this.defaultClips(c.a, c.b);
-      c.length ??= this.cableLength(c.a, c.b, c.clips);
+      if (this.isTrayCable(c.a, c.b)) {
+        c.clips = [];
+      } else {
+        c.tray = [];
+        c.clips ??= this.defaultClips(c.a, c.b);
+      }
+      c.length ??= this.cableLength(c.a, c.b, c.clips, c.tray);
     }
     this.cableMeters = round1(this.cableMeters + broken.reduce((sum, c) => sum + (c.length ?? 1), 0));
   }

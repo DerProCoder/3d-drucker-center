@@ -6,7 +6,7 @@
 //   rentFactor: Mietpreis-Faktor des Modells, die Miete jeder VM darauf wird damit malgenommen (core/server-rentals.js)
 //   power: Strom pro Spielstunde in Euro, solange das Gerät im Schrank steckt
 //   drives: 'small' – Server mit 2,5-Zoll-Laufwerken hochkant (Frontblende), sonst je nach Größe
-// Firewall (4 oder 8 Ports): Port 1 ist WAN (zum Patchpanel, also ins Internet), die übrigen sind LAN (zu Switches und Servern).
+// Firewall (4 oder 8 Ports): Port 1 ist WAN (ins Internet: zu einem Patchpanel mit Leitung zum Internet-Anschluss an der Wand oder direkt dorthin), die übrigen sind LAN (zu Switches und Servern).
 
 // Kabelführung hinten im Schrank: links und rechts eine Leiste mit einem Clip alle clipEvery HE
 export const CABLE_CLIP_EVERY = 2;

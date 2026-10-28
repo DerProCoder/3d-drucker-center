@@ -232,8 +232,10 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
         · Online-Server: <strong>${online.length} / ${devices.filter((d) => d.type.kind === 'server').length}</strong>
         ${vmCount !== null ? `· VMs: <strong>${vmCount}</strong> ` : ''}· Miete ${euro.format(income)} / h · Strom ${euro.format(power)} / h</p>
       <p class="rack-help">So kommt ein Server ins Internet: <b>Server → Switch → Firewall (LAN)</b> und
-        <b>Firewall (WAN) → Patchpanel</b>. Verkabelt wird <b>hinten am Schrank</b>: ersten Port anklicken, dann den
-        zweiten. Klick auf einen belegten Port zieht das Kabel ab. Mit ▲ / ▼ ein Gerät im Schrank verschieben.
+        <b>Firewall (WAN) → Patchpanel → Kabelgitter → Internet-Anschluss an der Wand</b> (die Firewall-WAN darf auch
+        direkt an die Wand). Verkabelt wird <b>hinten am Schrank</b>: ersten Port anklicken, dann den zweiten. Kabel zu
+        einem anderen Schrank oder zur Wand laufen über das <b>Kabelgitter oben</b> – dazwischen die Gitterfelder für
+        den Weg anklicken. Klick auf einen belegten Port zieht das Kabel ab. Mit ▲ / ▼ ein Gerät im Schrank verschieben.
         <b>Temperatur:</b> gut sind ${TEMP_LIMITS.idealMin}–${TEMP_LIMITS.idealMax} °C. Über ${TEMP_LIMITS.hot} °C geht ein Gerät
         irgendwann kaputt, unter ${TEMP_LIMITS.cold} °C friert es ein. Zuluft unten kühlt den ganzen Schrank, Abluft oben zieht
         die Wärme ab (oben wird es am wärmsten), jedes Gerät hat dazu einen eigenen Lüfter.</p>
