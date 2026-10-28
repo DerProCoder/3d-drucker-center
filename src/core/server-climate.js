@@ -19,17 +19,31 @@ const DEVICE_TAU = 8;         // dasselbe für ein Gerät
 const FAIL_MINUTES = 60;      // so lange hält ein Gerät 10 °C über bzw. 5 °C unter der Grenze aus
 const REPAIR_SHARE = 0.3;     // Reparatur kostet diesen Anteil vom Kaufpreis
 const RESTART_MARGIN = 3;     // °C über der Kältegrenze, ab der ein eingefrorenes Gerät wieder startet
-const FAN_POWER = { rack: 0.15, device: 0.04 }; // Strom-Euro pro Spielstunde je Lüfter bei 100 %
+export const FAN_POWER = { rack: 0.15, device: 0.04 }; // Strom-Euro pro Spielstunde je Lüfter (bei 100 % × (1 + FAN_COST_BOOST))
+// Hohe Lüfterstufen kühlen überproportional stark (Abluft und Gerätelüfter), kosten dafür aber auch überproportional
+// viel Strom. Der Zuschlag wächst mit (Stufe)^FAN_CURVE: bei 50 % kaum spürbar, ab etwa 80 % deutlich, bei 100 %
+// voll. So hält jeder volle Schrank (auch 42 HE voller GPU-Server) mit allen Lüftern auf 100 % unter 60 °C.
+const FAN_CURVE = 6;
+const FAN_COOL_BOOST = 1.2;   // zusätzliche Kühlwirkung bei 100 % (gemessen an der Wirkung von 100 % ohne Zuschlag)
+const FAN_COST_BOOST = 3;     // zusätzlicher Strom bei 100 % (also 4-mal so viel wie ohne Zuschlag)
 export const DEFAULT_FAN = 50;
 
 const clampFan = (pct) => Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+// Wirkung bzw. Stromverbrauch eines Lüfters auf dieser Stufe (0–100 %), 1 = 100 % ohne Zuschlag
+const fanEffect = (pct) => pct / 100 + FAN_COOL_BOOST * (pct / 100) ** FAN_CURVE;
+export const fanCost = (pct) => pct / 100 + FAN_COST_BOOST * (pct / 100) ** FAN_CURVE;
 const approach = (value, target, minutes, tau) => value + (target - value) * (1 - Math.exp(-minutes / tau));
+// Zuluft-Temperatur bei dieser Zuluft-Einstellung und Ziel der Schrankluft bei dieser Abwärme und Abluft
+const inletTemp = (bottom) => ROOM_TEMP - (ROOM_TEMP - COLD_AIR) * (bottom / 100);
+const airTarget = (load, top, inlet) => inlet + load * RACK_HEAT / (0.2 + fanEffect(top));
 
 export class ServerClimate {
   constructor(economy, servers) {
     this.economy = economy;
     this.servers = servers;
-    this.racks = new Map();   // Schrank-ID → { top, bottom (Lüfter %), air (°C, Mittel im Schrank), inlet (°C Zuluft) }
+    // Schrank-ID → { top, bottom (Lüfter %), air (°C, Mittel im Schrank), inlet (°C Zuluft), auto } – auto: ob die
+    // Klima-Automatik (core/climate-automation.js) den Schrank regeln darf, Standard an
+    this.racks = new Map();
     this.devices = new Map(); // Geräte-ID → { fan (%), temp (°C), heat, cold (Schaden 0…1), status, warned }
     this.onEvent = null;      // (type, { device }) => void – 'hot', 'cold' (Warnung), 'broken', 'frozen'
     servers.deviceProblem = (device) => this.problem(device);
@@ -39,7 +53,7 @@ export class ServerClimate {
 
   // Zustand eines Schranks bzw. Geräts (wird beim ersten Zugriff mit Standardwerten angelegt)
   rack(id) {
-    if (!this.racks.has(id)) this.racks.set(id, { top: DEFAULT_FAN, bottom: DEFAULT_FAN, air: ROOM_TEMP, inlet: ROOM_TEMP });
+    if (!this.racks.has(id)) this.racks.set(id, { top: DEFAULT_FAN, bottom: DEFAULT_FAN, air: ROOM_TEMP, inlet: ROOM_TEMP, auto: true });
     return this.racks.get(id);
   }
 
@@ -124,21 +138,14 @@ export class ServerClimate {
     const installed = new Set();
     for (const rack of this.servers.racks) {
       const r = this.rack(rack.id);
+      r.inlet = inletTemp(r.bottom);
       const devices = this.servers.devicesIn(rack.id);
-      // Defekte Geräte laufen nicht und heizen nicht; eingefrorene hängen nur und werden weiter warm
-      const load = devices.reduce((sum, d) => sum + (this.devices.get(d.id)?.status === 'broken' ? 0 : d.type.power), 0);
-      r.inlet = ROOM_TEMP - (ROOM_TEMP - COLD_AIR) * (r.bottom / 100);
-      const rise = load * RACK_HEAT / (0.2 + r.top / 100);
-      r.air = approach(r.air, r.inlet + rise, minutes, RACK_TAU);
+      r.air = approach(r.air, airTarget(this.rackLoad(rack.id, devices), r.top, r.inlet), minutes, RACK_TAU);
       for (const d of devices) {
         if (!this.hasFan(d)) continue;
         installed.add(d.id);
         const s = this.device(d.id);
-        // Oben im Schrank wärmer als unten: height 0 = ganz unten, 1 = ganz oben
-        const height = 1 - (d.unit + d.type.units / 2) / rack.type.units;
-        const local = r.air + (r.air - r.inlet) * 0.5 * (height - 0.5);
-        const own = s.status === 'broken' ? 0 : d.type.power * DEVICE_HEAT / (0.15 + s.fan / 100);
-        s.temp = approach(s.temp, local + own, minutes, DEVICE_TAU);
+        s.temp = approach(s.temp, this.deviceTarget(rack, d, r.air, r.inlet, s.fan), minutes, DEVICE_TAU);
         changed = this.stress(d, s, minutes) || changed;
       }
     }
@@ -150,6 +157,62 @@ export class ServerClimate {
       s.warned = null;
     }
     if (changed) this.economy.notify();
+  }
+
+  // ---------- Rechenhilfen (auch für die Klima-Automatik, core/climate-automation.js) ----------
+
+  // Schrank und seine Geräte für die Rechenhilfen
+  context(rackId) {
+    return { rack: this.economy.furnitureById(rackId), devices: this.servers.devicesIn(rackId) };
+  }
+
+  // Zuluft und Schrankluft im eingeschwungenen Zustand bei dieser Abwärme und diesen Schranklüftern: { air, inlet }
+  steadyAir(load, top, bottom) {
+    const inlet = inletTemp(bottom);
+    return { air: airTarget(load, top, inlet), inlet };
+  }
+
+  // Abwärme aller Geräte im Schrank in Strom-Euro/h. Defekte Geräte laufen nicht und heizen nicht; eingefrorene
+  // hängen nur und werden weiter warm. devices: Geräte im Schrank, falls schon bekannt (spart das Suchen)
+  rackLoad(rackId, devices = this.servers.devicesIn(rackId)) {
+    return devices.reduce((sum, d) => sum + (this.devices.get(d.id)?.status === 'broken' ? 0 : d.type.power), 0);
+  }
+
+  // Temperatur, der ein Gerät bei dieser Schrankluft, Zuluft und Lüfterstellung zustrebt
+  deviceTarget(rack, device, air, inlet, fan) {
+    // Oben im Schrank wärmer als unten: height 0 = ganz unten, 1 = ganz oben
+    const height = 1 - (device.unit + device.type.units / 2) / rack.type.units;
+    const local = air + (air - inlet) * 0.5 * (height - 0.5);
+    const broken = this.devices.get(device.id)?.status === 'broken';
+    return local + (broken ? 0 : device.type.power * DEVICE_HEAT / (0.15 + fanEffect(fan)));
+  }
+
+  // Eingeschwungener Zustand bei diesen Lüftern: { air, inlet (°C), temps: Map Geräte-ID → °C }
+  // fans: { top, bottom, device: (Gerät) => % } – was fehlt, bleibt wie eingestellt
+  // ctx: { rack, devices } – Schrank und seine Geräte, falls schon bekannt (die Automatik merkt sie sich)
+  steadyTemps(rackId, fans = {}, ctx = this.context(rackId)) {
+    const r = this.rack(rackId);
+    const { air, inlet } = this.steadyAir(this.rackLoad(rackId, ctx.devices), fans.top ?? r.top, fans.bottom ?? r.bottom);
+    const temps = new Map();
+    for (const d of ctx.devices) {
+      if (this.hasFan(d)) temps.set(d.id, this.deviceTarget(ctx.rack, d, air, inlet, fans.device?.(d) ?? this.device(d.id).fan));
+    }
+    return { air, inlet, temps };
+  }
+
+  // Vorhersage: Temperaturen der Geräte in minutes Spielminuten, wenn die Lüfter so bleiben (Map Geräte-ID → °C)
+  forecast(rackId, minutes, ctx = this.context(rackId)) {
+    const r = this.rack(rackId);
+    const inlet = inletTemp(r.bottom);
+    // Schrankluft nach der halben Zeit als Mittel für den ganzen Zeitraum
+    const air = approach(r.air, airTarget(this.rackLoad(rackId, ctx.devices), r.top, inlet), minutes / 2, RACK_TAU);
+    const temps = new Map();
+    for (const d of ctx.devices) {
+      if (!this.hasFan(d)) continue;
+      const s = this.device(d.id);
+      temps.set(d.id, approach(s.temp, this.deviceTarget(ctx.rack, d, air, inlet, s.fan), minutes, DEVICE_TAU));
+    }
+    return temps;
   }
 
   // Schaden durch Hitze bzw. Kälte aufsummieren, warnen, Gerät ausfallen lassen. Gibt true zurück, wenn es ausfällt.
@@ -186,10 +249,10 @@ export class ServerClimate {
     let sum = 0;
     for (const rack of this.servers.racks) {
       const r = this.rack(rack.id);
-      sum += FAN_POWER.rack * (r.top + r.bottom) / 100;
+      sum += FAN_POWER.rack * (fanCost(r.top) + fanCost(r.bottom));
     }
     for (const d of this.servers.installed) {
-      if (this.hasFan(d)) sum += FAN_POWER.device * this.device(d.id).fan / 100;
+      if (this.hasFan(d)) sum += FAN_POWER.device * fanCost(this.device(d.id).fan);
     }
     return sum;
   }
@@ -198,7 +261,7 @@ export class ServerClimate {
   rackFanPower(rackId) {
     const r = this.rack(rackId);
     const devices = this.servers.devicesIn(rackId).filter((d) => this.hasFan(d));
-    return FAN_POWER.rack * (r.top + r.bottom) / 100 + devices.reduce((sum, d) => sum + FAN_POWER.device * this.device(d.id).fan / 100, 0);
+    return FAN_POWER.rack * (fanCost(r.top) + fanCost(r.bottom)) + devices.reduce((sum, d) => sum + FAN_POWER.device * fanCost(this.device(d.id).fan), 0);
   }
 
   // ---------- Speichern ----------
@@ -206,7 +269,7 @@ export class ServerClimate {
   toJSON() {
     const exists = (id) => !!this.economy.furnitureById(id);
     return {
-      racks: [...this.racks].filter(([id]) => exists(id)).map(([id, r]) => ({ id, top: r.top, bottom: r.bottom, air: r.air })),
+      racks: [...this.racks].filter(([id]) => exists(id)).map(([id, r]) => ({ id, top: r.top, bottom: r.bottom, air: r.air, auto: r.auto })),
       devices: [...this.devices].filter(([id]) => exists(id)).map(([id, s]) => ({ id, fan: s.fan, temp: s.temp, heat: s.heat, cold: s.cold, status: s.status })),
     };
   }
@@ -215,7 +278,12 @@ export class ServerClimate {
     this.racks.clear();
     this.devices.clear();
     for (const r of data?.racks ?? []) {
-      Object.assign(this.rack(r.id), { top: clampFan(r.top ?? DEFAULT_FAN), bottom: clampFan(r.bottom ?? DEFAULT_FAN), air: r.air ?? ROOM_TEMP });
+      Object.assign(this.rack(r.id), {
+        top: clampFan(r.top ?? DEFAULT_FAN),
+        bottom: clampFan(r.bottom ?? DEFAULT_FAN),
+        air: r.air ?? ROOM_TEMP,
+        auto: r.auto !== false, // ältere Stände kennen den Schalter nicht: Automatik an
+      });
     }
     for (const s of data?.devices ?? []) {
       Object.assign(this.device(s.id), {

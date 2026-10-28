@@ -10,7 +10,8 @@ const KEY = 'druckercenter-save';
 // Ausbau + Spieluhr (#5) · 4: beides zusammen · 5: Aufträge mit Stufe am Empfang (counter/open/packed)
 // 6: Ausstellungsregale an der Südwand (location 'wall') mit ausgestellten Teilen (parts)
 // 12: Server-Vermietung (core/server-rentals.js) – wartende VM-Anfragen und laufende Verträge
-const VERSION = 12;
+// 13: Schalter „Automatik an/aus“ je Serverschrank (climate.racks[].auto, core/climate-automation.js)
+const VERSION = 13;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -193,6 +194,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   // Version 11 kennt noch keine Server-Vermietung: keine Mieter, keine Anfragen – alle Server sind frei und bringen
   // erst wieder Geld, wenn man VMs vermietet (rentals.load ohne Daten)
   if (data?.version === 11) data.version = 12;
+  // Version 12 kennt noch keine Klima-Automatik: fehlt der Schalter, ist sie an (climate.load setzt auto = true)
+  if (data?.version === 12) {
+    for (const r of data.climate?.racks ?? []) r.auto ??= true;
+    data.version = 13;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;

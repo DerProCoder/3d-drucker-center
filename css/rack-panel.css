@@ -70,6 +70,10 @@
   background: #1c2027;
   font-size: 0.85rem;
 }
+/* Klima-Automatik (core/climate-automation.js): Zeile oben im Klimakasten, Hinweis beim Anfassen eines Reglers */
+.rack-auto { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.rack-auto .on { color: #7ee08a; font-weight: 600; }
+.rack-climate .rack-message { flex-basis: 100%; margin: 0; }
 .rack-climate-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 0.8rem; }
 .rack-fan { display: inline-flex; align-items: center; gap: 6px; }
 .rack-fan input { width: 110px; accent-color: #3aa0ff; }

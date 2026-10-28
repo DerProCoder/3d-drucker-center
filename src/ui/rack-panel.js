@@ -5,6 +5,8 @@
 // Klick), ein leerer Schrank abbauen. Die Kopfzeile nennt den Stellplatz (Reihe A/B, 🔒 Privat, 🌡️ Automatik-Platz).
 // Klima (core/server-climate.js): oben Regler für Zu- und Abluft des Schranks, je Gerät Temperatur und Lüfterregler,
 // Reparieren bzw. Neustarten nach Ausfall. Die Temperaturen laufen live mit, ohne das Fenster neu aufzubauen.
+// Klima-Automatik (core/climate-automation.js): Kopfzeile nennt den regelnden Automatik-Server, Schalter „Automatik an/aus“.
+// Regelt sie, bewegen sich die Regler von selbst; wer einen anfasst, bekommt einen Hinweis – sie übernimmt gleich wieder.
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
@@ -19,7 +21,8 @@ const CLIMATE_REFRESH_MS = 500;
 
 // servers: core/servers.js · climate: core/server-climate.js · onClose: Fenster wurde geschlossen (zurück ins Spiel)
 // rentals: core/server-rentals.js (VMs je Server; fehlt es, zeigt das Fenster nur die Miete über servers.rentOf)
-export function createRackPanel({ economy, servers, climate, rentals = null, onClose }) {
+// automation: core/climate-automation.js (fehlt es, gibt es keine Automatik-Anzeige)
+export function createRackPanel({ economy, servers, climate, automation = null, rentals = null, onClose }) {
   const root = document.createElement('div');
   root.id = 'rack-panel';
   root.className = 'hidden';
@@ -139,13 +142,40 @@ export function createRackPanel({ economy, servers, climate, rentals = null, onC
         <input type="range" min="0" max="100" step="5" value="${r[which]}" data-rack-fan="${which}">
         <span class="rack-fan-value">${r[which]} %</span>
       </label>`;
+    const auto = automation ? `
+      <div class="rack-auto">
+        <span data-auto-text></span>
+        <button class="secondary small" data-auto-toggle>${automation.isAuto(rack.id) ? 'Automatik aus' : 'Automatik an'}</button>
+      </div>` : '';
     return `
       <div class="rack-climate">
+        ${auto}
         <span>🌡️ Luft im Schrank <b class="rack-temp" data-rack-air></b> · Zuluft <b data-rack-inlet></b>
           · Lüfterstrom <b data-fan-power></b></span>
         ${slider('bottom', '⬇️ Zuluft unten')}
         ${slider('top', '⬆️ Abluft oben')}
+        <p class="rack-message" data-auto-hint hidden>Automatik ist an – zum Selbstregeln ausschalten.
+          Sie übernimmt in der nächsten Spielminute wieder.</p>
       </div>`;
+  }
+
+  // Zeile zur Klima-Automatik: wer regelt, oder warum nicht
+  function autoText(rack) {
+    if (!automation.isAuto(rack.id)) return { text: '✋ Automatik aus – du regelst die Lüfter selbst', on: false };
+    const server = automation.controllerOf(rack.id);
+    if (server) {
+      const home = servers.rackOf(server);
+      return { text: `🌡️ Automatik (über ${server.type.name}, ${spotLabel(home.slot).replace('🌡️ ', '')})`, on: true };
+    }
+    const why = automation.serverCount ? '' : ' – Server in einen Schrank auf einem grünen Platz einbauen und online bringen';
+    return { text: `Keine Automatik – zu wenige Automatik-Server${why}`, on: false };
+  }
+
+  // Regler auf den aktuellen Wert stellen (die Automatik bewegt sie) – nicht, solange man ihn gerade zieht
+  function syncSlider(input, value) {
+    if (input.matches(':active') || Number(input.value) === value) return;
+    input.value = value;
+    input.nextElementSibling.textContent = `${value} %`;
   }
 
   // Temperaturen im offenen Fenster auffrischen (ohne Neuaufbau, damit die Regler bedienbar bleiben)
@@ -159,6 +189,14 @@ export function createRackPanel({ economy, servers, climate, rentals = null, onC
       contentEl.querySelector('[data-rack-inlet]').textContent = celsius(r.inlet);
       contentEl.querySelector('[data-fan-power]').textContent = `${euro.format(climate.rackFanPower(rackId))} / h`;
     }
+    const autoEl = contentEl.querySelector('[data-auto-text]');
+    if (autoEl) {
+      const { text, on } = autoText(economy.furnitureById(rackId));
+      autoEl.textContent = text;
+      autoEl.className = on ? 'on' : '';
+    }
+    for (const el of contentEl.querySelectorAll('[data-rack-fan]')) syncSlider(el, r[el.dataset.rackFan]);
+    for (const el of contentEl.querySelectorAll('[data-fan]')) syncSlider(el, climate.device(Number(el.dataset.fan)).fan);
     for (const el of contentEl.querySelectorAll('[data-temp]')) {
       const temp = Math.round(climate.device(Number(el.dataset.temp)).temp);
       const level = climate.level(temp);
@@ -213,6 +251,9 @@ export function createRackPanel({ economy, servers, climate, rentals = null, onC
     else if (input.dataset.rackFan) climate.setRackFan(rackId, input.dataset.rackFan, input.value);
     else return;
     input.nextElementSibling.textContent = `${input.value} %`;
+    // Regelt gerade die Automatik, holt sie den Regler gleich zurück – darauf hinweisen
+    const hint = contentEl.querySelector('[data-auto-hint]');
+    if (hint) hint.hidden = !automation?.isControlled(rackId);
     refreshClimate();
   });
 
@@ -255,6 +296,11 @@ export function createRackPanel({ economy, servers, climate, rentals = null, onC
       const problem = climate.restartProblem(device);
       message = problem ?? `${device.type.name} läuft wieder.`;
       if (!problem) climate.restart(device.id);
+    }
+    if (e.target.closest('[data-auto-toggle]')) {
+      const on = !automation.isAuto(rackId);
+      automation.setAuto(rackId, on);
+      message = on ? 'Klima-Automatik für diesen Schrank eingeschaltet.' : 'Automatik aus – die Lüfter bleiben, wie sie sind, bis du sie selbst verstellst.';
     }
     if (e.target.closest('[data-remove-rack]')) {
       servers.removeRack(rackId);

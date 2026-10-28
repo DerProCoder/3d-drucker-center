@@ -41,6 +41,7 @@ import { createServerRoom } from './world/server-room.js';
 import { createRackPanel } from './ui/rack-panel.js';
 import { Servers } from './core/servers.js';
 import { ServerClimate } from './core/server-climate.js';
+import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
@@ -76,6 +77,7 @@ const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
 const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
+const automation = new ClimateAutomation(climate, servers); // Server auf den grünen Plätzen regeln die Lüfter selbst
 // VMs an Kunden vermieten – einzige Einnahmequelle der Server
 const rentals = new ServerRentals(economy, servers, upgrades);
 rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
@@ -449,6 +451,25 @@ climate.onEvent = (type, d) => {
   hud.notify(CLIMATE_MESSAGES[type](d.device.type.name), 'bad');
   sound.play('warn');
 };
+// Klima-Automatik: an, Automatik-Server fällt aus bzw. ist wieder da
+const racksText = (n) => `${n} ${n === 1 ? 'Schrank' : 'Schränke'}`;
+// Ein Automatik-Server mit Namen, mehrere gleichzeitig zusammengefasst
+const serversText = (devices) => (devices.length === 1
+  ? `Automatik-Server ${devices[0].type.name}`
+  : `${devices.length} Automatik-Server (${devices.map((x) => x.type.name).join(', ')})`);
+automation.onEvent = (type, d) => {
+  if (type === 'active') {
+    hud.notify(`🌡️ Klima-Automatik aktiv – steuert ${racksText(d.racks)}`, 'good');
+    sound.play('pop');
+  } else if (type === 'server-lost') {
+    const rest = d.racks ? `${racksText(d.racks)} werden nicht mehr geregelt` : 'die anderen Automatik-Server übernehmen';
+    hud.notify(`⚠️ ${serversText(d.devices)} offline – ${rest}`, 'bad');
+    sound.play('warn');
+  } else if (type === 'server-back') {
+    hud.notify(`🌡️ ${serversText(d.devices)} wieder online – steuer${d.devices.length === 1 ? 't' : 'n'} ${racksText(d.racks)}`, 'good');
+    sound.play('pop');
+  }
+};
 // Ausstellungsregale an der Südwand
 const displayWall = createDisplayWall({ economy, carry, collision });
 scene.add(displayWall.group);
@@ -642,6 +663,7 @@ const rackPanel = createRackPanel({
   economy,
   servers,
   climate,
+  automation, // Klima-Automatik: Anzeige, Schalter „Automatik an/aus“
   rentals, // VM-Auslastung je Server (core/server-rentals.js)
   onClose: () => {
     if (gameOver) return;
@@ -877,6 +899,7 @@ renderer.setAnimationLoop(() => {
       economy.advancePrints(gameMinutes);
       orders.advance(gameMinutes);
       climate.advance(gameMinutes);
+      automation.advance(gameMinutes); // nach dem Klima: regelt mit den neuen Temperaturen
       rentals.advance(gameMinutes);
       gameClock.advance(gameMinutes);
       checkBankrupt();
