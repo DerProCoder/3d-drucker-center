@@ -4,7 +4,8 @@
 // und bringt Bonus-XP. Hier steht nur, WAS passiert – die Figuren laufen in world/ und melden per Aufruf zurück:
 //   arrived()          Gruppe steht am Empfang → Eintritt, Rundgang beginnt bei Station 0
 //   reachedStation(i)  Gruppe ist an Station i → Verweildauer läuft in advance(), danach nächste Station bzw. 'leaving'
-//   finished()         Gruppe hat das Gelände verlassen → Bewertung, XP, Azubi frei
+//   guideReleased()    Azubi hat sich an der Haustür verabschiedet → gleich wieder frei für Aufgaben
+//   finished()         Gruppe hat das Gelände verlassen → Bewertung, XP, Azubi frei (falls noch nicht geschehen)
 // Ohne Figuren (autoWalk = true) spielt advance() die Wege selbst mit festen Gehzeiten durch.
 // Bewusst ohne Three.js und DOM.
 import { WASTE_EMPTY_AT } from './economy.js';
@@ -275,6 +276,17 @@ export class Visitors {
     this.timer = AUTO_WALK.leave;
     this.emit('leaving', { group: g });
     this.notify();
+  }
+
+  // world: Der Azubi hat sich an der Haustür verabschiedet, die Gruppe geht allein zum Gehweg → Azubi sofort wieder
+  // frei für Aufgaben (sonst stünde er bis zum Verlassen des Geländes untätig herum). Bewertet wird weiter in finished().
+  guideReleased() {
+    const g = this.group;
+    if (g?.state !== 'leaving' || g.workerId == null) return false;
+    this.staff.release(g.workerId);
+    g.workerId = null;
+    this.notify();
+    return true;
   }
 
   // world: Gruppe hat das Gelände verlassen → Bewertung, XP, Azubi frei

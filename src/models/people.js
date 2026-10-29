@@ -111,8 +111,15 @@ function mergeFigure(gltf) {
     const si = src.attributes.skinIndex;
     const sw = src.attributes.skinWeight;
     for (let v = 0; v < n; v++) {
-      skinIndex.set([map[si.getX(v)], map[si.getY(v)], map[si.getZ(v)], map[si.getW(v)]], v * 4);
-      skinWeight.set([sw.getX(v), sw.getY(v), sw.getZ(v), sw.getW(v)], v * 4);
+      const k = v * 4;
+      skinIndex[k] = map[si.getX(v)];
+      skinIndex[k + 1] = map[si.getY(v)];
+      skinIndex[k + 2] = map[si.getZ(v)];
+      skinIndex[k + 3] = map[si.getW(v)];
+      skinWeight[k] = sw.getX(v);
+      skinWeight[k + 1] = sw.getY(v);
+      skinWeight[k + 2] = sw.getZ(v);
+      skinWeight[k + 3] = sw.getW(v);
     }
     part.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
     part.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
@@ -120,7 +127,9 @@ function mergeFigure(gltf) {
     const c = mesh.material.color;
     const own = mesh.material.vertexColors ? src.attributes.color : null;
     for (let v = 0; v < n; v++) {
-      colors.set(own ? [c.r * own.getX(v), c.g * own.getY(v), c.b * own.getZ(v)] : [c.r, c.g, c.b], v * 3);
+      colors[v * 3] = own ? c.r * own.getX(v) : c.r;
+      colors[v * 3 + 1] = own ? c.g * own.getY(v) : c.g;
+      colors[v * 3 + 2] = own ? c.b * own.getZ(v) : c.b;
     }
     part.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     if (src.index) part.setIndex(src.index.clone());
@@ -142,20 +151,54 @@ function mergeFigure(gltf) {
   return { scene, animations: gltf.animations };
 }
 
+// Lässt sich eine Figur nicht zusammenfassen: eigene Kopie mit einmal kopierten, matten Materialien (wie in Person),
+// die sich alle Kopien der Menge teilen. Die Originale im Zwischenspeicher bleiben unberührt – Azubis, Kunden und
+// Passanten klonen sie weiterhin für sich.
+function fallbackFigure(gltf) {
+  const scene = SkeletonUtils.clone(gltf.scene);
+  const copies = new Map();
+  const matte = (m) => {
+    if (!copies.has(m)) {
+      const copy = m.clone();
+      copy.metalness = 0;
+      copy.roughness = 0.85;
+      copies.set(m, copy);
+    }
+    return copies.get(m);
+  };
+  scene.traverse((o) => {
+    if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map(matte) : matte(o.material);
+  });
+  return { scene, animations: gltf.animations };
+}
+
+// Das Zusammenfassen kostet je Figur einige Millisekunden. Damit mehrere Figuren nicht in einem Stück laufen (langer
+// Ruckler), kommt jede einzeln dran, wenn der Browser gerade Luft hat (requestIdleCallback, sonst kurz nach dem
+// nächsten Bild) – nacheinander über eine Warteschlange.
+let mergeQueue = Promise.resolve();
+const whenIdle = () => new Promise((resolve) => {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve(), { timeout: 200 });
+  else setTimeout(resolve, 16);
+});
+
 // Zusammengefasste Figuren laden (z. B. vor der Ankunft einer Besuchergruppe), damit es dann nicht ruckelt
 export function loadCrowd(ids) {
   return Promise.all(ids.map((id) => {
     if (!crowdTemplates.has(id)) {
       const promise = load(id).then((gltf) => {
-        let template;
-        try {
-          template = mergeFigure(gltf);
-        } catch (err) {
-          console.warn(`: Figur nicht zusammengefasst`, err);
-          template = gltf;
-        }
-        crowdReady.set(id, template);
-        return template;
+        const merged = mergeQueue.then(whenIdle).then(() => {
+          let template;
+          try {
+            template = mergeFigure(gltf);
+          } catch (err) {
+            console.warn(`${id}: Figur nicht zusammengefasst`, err);
+            template = fallbackFigure(gltf);
+          }
+          crowdReady.set(id, template);
+          return template;
+        });
+        mergeQueue = merged.catch(() => {});
+        return merged;
       });
       crowdTemplates.set(id, promise);
     }
@@ -199,6 +242,7 @@ export class Person {
   // shared: Geometrie und Material nicht kopieren (Menschenmenge, siehe crowdPerson) · shadows: wirft Schatten
   constructor(gltf, { shared = false, shadows = true } = {}) {
     this.object = new THREE.Group();     // Ursprung zwischen den Füßen, Blick nach +z
+    this.shared = shared;
     this.body = SkeletonUtils.clone(gltf.scene);
     this.object.add(this.body);
     this.object.updateMatrixWorld(true);
@@ -301,6 +345,18 @@ export class Person {
         b[`Wrist${s}`].quaternion.identity();
       }
     }
+  }
+
+  // Figur wird nicht mehr gebraucht: Animation und Knochen (Knochen-Textur auf der Grafikkarte) freigeben, eigene
+  // Materialkopien ebenso. Geometrie teilen sich alle Kopien einer Figur – sie bleibt, geteilte Materialien auch.
+  dispose() {
+    this.mixer.stopAllAction();
+    this.mixer.uncacheRoot(this.body);
+    this.object.removeFromParent();
+    this.body.traverse((o) => {
+      if (o.isSkinnedMesh) o.skeleton.dispose();
+      if (o.isMesh && !this.shared) o.material.dispose();
+    });
   }
 
   // Mitte zwischen beiden Händen in lokalen Koordinaten der Figur (z. B. für Controller oder Spule)

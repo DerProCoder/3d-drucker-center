@@ -11,6 +11,8 @@
 // Spielfigur hält sie zusätzlich aus Tischen, Schränken und Wänden; der Spieler selbst wird nie blockiert, die
 // Besucher weichen ihm aus (wie die Passanten in world/pedestrians.js).
 //
+// Besucher sind nicht anklickbar: Sie fangen keine Klickstrahlen ab, Drucker, Tresen und Schränke bleiben bedienbar.
+//
 // Leistung: zusammengefasste Figuren mit geteiltem Material und ohne Schatten (models/people.js, crowdPerson),
 // Animation nur für sichtbare Figuren und mit der Entfernung seltener, ausgeblendet über world/room-culling.js und
 // je Stockwerk. Figuren werden schon bei der Ankündigung geladen und nach und nach angelegt. Bewegung über Delta-Zeit.
@@ -36,8 +38,10 @@ const TURN_SPEED = 6;
 const PLAYER_SPACE = 0.75;       // m so weit weichen sie dem Spieler aus
 const QUORUM = 0.85;             // Anteil, der an einer Station stehen muss, damit sie als erreicht gilt
 const GATHER_TIMEOUT = 30;       // s so lange wartet der Führer höchstens auf Nachzügler
+const GATHER_LIMIT = 120;        // s an der Treppe höchstens, auch wenn noch jemand auf der Treppe steht
 const GATHER_PAUSE = 1.2;        // s kurz durchzählen, bevor es weitergeht
 const STUCK_SECONDS = 10;        // ohne Fortschritt: Figur an ihr Ziel setzen (Notlösung, sollte nie nötig sein)
+const SPREAD_GIVE_UP = 3;        // s kommt eine Figur nicht an ihren Platz in der Station, bleibt sie, wo sie ist
 const WAVE_SECONDS = 3;          // Azubi winkt zum Abschied an der Haustür
 const KID_SCALE = [0.72, 0.86];
 const ADULT_SCALE = [0.94, 1.05];
@@ -192,13 +196,10 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
   let warm = null;                 // unsichtbare Figur, damit der Shader vorab übersetzt werden kann
   let run = null;                  // laufende Gruppe
   let frame = 0;
-  const stats = { rescues: 0, created: 0, log: [] }; // für Tests
+  const stats = { rescues: 0, created: 0, disposed: 0, stayed: 0, log: [] }; // für Tests
   const positionsOut = [];
   const tmp = {};
   const tmpB = {};
-
-  const hitboxGeometry = new THREE.BoxGeometry(0.5, 1.7, 0.4).translate(0, 0.85, 0);
-  const hitboxMaterial = new THREE.MeshBasicMaterial({ visible: false });
 
   // ---------- Laden ----------
 
@@ -220,6 +221,7 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
         if (!warm) {
           warm = crowdPerson(looks[0]);
           warm.object.visible = false; // zählt beim Vorübersetzen der Shader mit, wird aber nie gezeichnet
+          warm.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
           group.add(warm.object);
           onReady();
         }
@@ -235,17 +237,12 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
     const person = crowdPerson(look);
     if (!person) return null;
     stats.created++;
-    person.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
+    person.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; }); // fängt keine Klicks ab (siehe newRun)
     person.mixer.update(Math.random() * 2); // nicht alle im Gleichschritt
     return person;
   }
 
   // ---------- Gruppe anlegen und abbauen ----------
-
-  function hintFor(g) {
-    const doing = { announced: 'kommt heute', arriving: 'kommt gerade an', touring: 'auf Rundgang', leaving: 'geht wieder' }[g.state] ?? '';
-    return `Besuchergruppe ${g.name} (${g.size} Personen) – ${doing}`;
-  }
 
   function newRun(g) {
     const random = seeded(g.id * 7919 + g.size);
@@ -257,14 +254,15 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
       const choice = adult && g.kids ? looks.filter((id) => !kidLooks.includes(id)) : adult ? looks : kidLooks;
       const look = choice[Math.floor(random() * choice.length)];
       const [s0, s1] = adult ? ADULT_SCALE : KID_SCALE;
+      // Besucher sind nicht anklickbar und fangen den Klickstrahl nicht ab (keine Hitbox): Drucker, Tresen und
+      // Schränke bleiben auch durch die Gruppe hindurch bedienbar
       const holder = new THREE.Group();
-      holder.add(new THREE.Mesh(hitboxGeometry, hitboxMaterial));
-      holder.userData.interaction = { hint: () => (visitors.group ? hintFor(visitors.group) : 'Besucher'), action: () => {} };
       followers.push({
         index: i, look, scale: s0 + random() * (s1 - s0), idle: random() < 0.5 ? 'Idle' : 'Idle_Neutral',
         holder, person: null, attached: false, mode: 'off', s: 0, rank: i, lag: 0, lat: 0, jitter: random() * 0.25,
         spot: null, settled: false, level: 0, y: 0, heading: 0, speed: 0, animDt: 0,
         goal: new THREE.Vector3(), last: new THREE.Vector3(), stuck: 0, checkT: 0,
+        via: [], // Zwischenpunkte des vorigen Weges, die vor dem Anfang des neuen Abschnitts noch abzulaufen sind
       });
     }
     const exitSide = random() < 0.5 ? 'sidewalkN' : 'sidewalkS';
@@ -296,6 +294,20 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
     run = null;
   }
 
+  // Vorrat begrenzen: je Aussehen nur so viele freie Figuren behalten, wie die neue Gruppe braucht, den Rest freigeben.
+  // Sonst wüchse der Vorrat mit jeder Gruppe, deren Mischung anders ausfällt. So liegen höchstens so viele Figuren
+  // bereit, wie eine Gruppe Personen hat.
+  function trimPool(r) {
+    const need = new Map();
+    for (const f of r.followers) need.set(f.look, (need.get(f.look) ?? 0) + 1);
+    for (const [look, free] of pool) {
+      while (free.length > (need.get(look) ?? 0)) {
+        free.pop().dispose(); // Knochen und Animation – Geometrie und Material sind geteilt und bleiben
+        stats.disposed++;
+      }
+    }
+  }
+
   // ---------- Führer (Azubi aus world/workers.js) ----------
 
   function ensureGuide(g) {
@@ -310,6 +322,8 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
 
   function releaseGuide() {
     if (run?.guide?.alive) run.guide.release();
+    // Abschied an der Haustür: core/ gibt den Azubi gleich frei, nicht erst, wenn die Gruppe den Gehweg verlassen hat
+    if (run?.leaving && !run.guideReleased) visitors.guideReleased();
     if (run) {
       run.guide = null;
       run.guideReleased = true;
@@ -382,16 +396,36 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
 
   // ---------- Abschnitte starten ----------
 
+  // So weit hat eine Figur noch bis zum Punkt start – über ihre Zwischenpunkte (via)
+  function joinDistance(f, start) {
+    let p = f.holder.position;
+    let d = 0;
+    for (const q of f.via) {
+      d += Math.hypot(q.x - p.x, q.z - p.z);
+      p = q;
+    }
+    return d + Math.hypot(start.x - p.x, start.z - p.z);
+  }
+
   function startLeg(leg) {
+    const prev = run.leg;
     run.leg = leg;
     run.headS = 0;
     run.phase = 'walk';
     run.wait = 0;
     run.spots = null;
     const start = leg.points[0];
-    // Wer am nächsten am Anfang steht, geht vorn
     const active = run.followers.filter((f) => f.mode !== 'gone' && f.mode !== 'off');
-    active.sort((a, b) => a.holder.position.distanceToSquared(start) - b.holder.position.distanceToSquared(start));
+    // Wer noch auf dem vorigen Weg unterwegs ist (z. B. noch auf der Treppe steht), läuft ihn erst zu Ende – geradeaus
+    // zum neuen Anfang ginge es sonst gegen das Treppengeländer. Der vorige Weg endet dort, wo der neue beginnt.
+    for (const f of active) {
+      if (!prev || prev === leg) f.via = [];
+      else if (f.mode === 'path') f.via = prev.points.filter((p, i) => prev.cum[i] > f.s + 0.05);
+      else if (f.mode === 'join') f.via = [...f.via, ...prev.points];
+      else f.via = [];
+    }
+    // Wer am nächsten am Anfang steht, geht vorn
+    active.sort((a, b) => joinDistance(a, start) - joinDistance(b, start));
     active.forEach((f, rank) => {
       f.rank = rank;
       f.lag = 1.0 + (rank * SPACING) / OPEN_ABREAST + f.jitter;
@@ -478,6 +512,9 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
 
   // ---------- Bewegung ----------
 
+  // Steht p auf der Treppe (zwischen den Geländern)?
+  const onStairs = (p) => !!upperFloor?.built && p.x > STAIRS.x0 && p.x < STAIRS.x1 && p.z < STAIRS.zLow && p.z > STAIRS.zHigh;
+
   function stairHeight(x, z, level) {
     if (!upperFloor?.built) return { y: 0, level: 0 };
     const { x0, x1, zLow, zHigh } = STAIRS;
@@ -544,12 +581,17 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
       const want = Math.min(head - f.lag, limit, leg.L);
       let speed = CATCH_UP;
       let blocks = Infinity;
-      if (f.mode === 'join') {
+      const pos = f.holder.position;
+      while (f.mode === 'join' && f.via.length && Math.hypot(f.via[0].x - pos.x, f.via[0].z - pos.z) < 0.15) f.via.shift();
+      if (f.mode === 'join' && f.via.length) {
+        // Erst den vorigen Weg zu Ende gehen (Treppe), dann wie alle anderen zum Anfang
+        f.goal.set(f.via[0].x, 0, f.via[0].z);
+        blocks = -joinDistance(f, leg.points[0]);
+      } else if (f.mode === 'join') {
         // Zum Anfang des Abschnitts – höchstens so nah, wie Vordermann und Führer es erlauben
         pointAt(leg, 0, tmp);
         const tx = tmp.x + -tmp.dz * f.lat * tmp.w;
         const tz = tmp.z + tmp.dx * f.lat * tmp.w;
-        const pos = f.holder.position;
         const d = Math.hypot(tx - pos.x, tz - pos.z);
         const allowed = Math.max(0, -want); // so weit muss er noch vom Anfang weg bleiben
         if (d <= Math.max(0.3, allowed + 1e-3) && want >= 0) {
@@ -631,6 +673,12 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
         f.stuck = far && moved < 0.15 ? f.stuck + f.checkT : 0;
         f.last.copy(pos);
         f.checkT = 0;
+        // In einer Station zwischen schon Stehenden eingekeilt: dann eben hier stehen bleiben (die Fläche ist frei)
+        if (f.mode === 'spread' && f.stuck >= SPREAD_GIVE_UP) {
+          f.spot = { x: pos.x, z: pos.z };
+          f.stuck = 0;
+          stats.stayed++;
+        }
         if (f.stuck > STUCK_SECONDS) {
           if (stats.log.length < 12) stats.log.push(`${f.mode} ${run.leg?.names.join('>')} pos ${pos.x.toFixed(2)},${pos.z.toFixed(2)} L${f.level} goal ${f.goal.x.toFixed(2)},${f.goal.z.toFixed(2)}`);
           pos.x = f.goal.x;
@@ -648,7 +696,7 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
     if (!run.arrival && !guideFree()) return false;
     const list = run.order;
     const front = list.find((f) => f.mode === 'path' || f.mode === 'join');
-    const frontS = front ? (front.mode === 'path' ? front.s : -front.holder.position.distanceTo(NODES[leg.names[0]] ?? front.holder.position)) : run.headS;
+    const frontS = front ? (front.mode === 'path' ? front.s : -joinDistance(front, leg.points[0])) : run.headS;
     let rear = Infinity;
     for (const f of list) if (f.mode === 'path') rear = Math.min(rear, f.s);
     // Warten, wenn vorn jemand nicht mitkommt oder die Kolonne zu lang wird
@@ -717,8 +765,10 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
           return;
         }
       } else if (run.legs.length) {
-        // Treppenende: alle abwarten (kurze Pause zum Durchzählen)
-        if ((share >= 1 && run.wait > GATHER_PAUSE) || run.wait > GATHER_TIMEOUT) {
+        // Treppenende: alle abwarten (kurze Pause zum Durchzählen). Nachzügler höchstens GATHER_TIMEOUT lang – aber
+        // nie, solange noch jemand auf der Treppe steht (Notlösung nach GATHER_LIMIT)
+        const stairsFree = !run.followers.some((f) => f.mode !== 'gone' && f.mode !== 'off' && onStairs(f.holder.position));
+        if ((share >= 1 && run.wait > GATHER_PAUSE) || (run.wait > GATHER_TIMEOUT && stairsFree) || run.wait > GATHER_LIMIT) {
           run.at = last;
           startLeg(run.legs.shift());
         }
@@ -837,6 +887,7 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
     if (!run || run.id !== g.id) {
       teardown();
       run = newRun(g);
+      trimPool(run);
     }
     preload(g);
     prepare(g);
@@ -863,7 +914,7 @@ export function createVisitorGroup({ visitors, workers = null, collision = null,
   }
 
   // Für Tests: Zustand der laufenden Gruppe
-  const debug = () => ({ run, stats, nodes: NODES, areas: AREAS });
+  const debug = () => ({ run, stats, nodes: NODES, areas: AREAS, pool });
 
   return { group, update, preload, positions, debug };
 }
