@@ -46,6 +46,7 @@ import { ServerClimate } from './core/server-climate.js';
 import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { RentalAutomation } from './core/rental-automation.js';
+import { AIService } from './core/ai-service.js';
 import { Visitors, clockText, starsText } from './core/visitors.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
@@ -86,9 +87,11 @@ const automation = new ClimateAutomation(climate, servers); // Server auf den gr
 const rentals = new ServerRentals(economy, servers, upgrades);
 rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
 const rentalAutomation = new RentalAutomation(rentals); // Server in der orangen Reihe vergeben VM-Anfragen selbst
+// Eigene KI auf den KI-GPU-Servern: Stufe 1–5 je nach Anzahl online, Einnahmen über das KI-Abo
+const aiService = new AIService({ economy, servers, climate });
 // Besuchergruppe: einmal am Tag, ein Azubi führt sie herum (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -100,6 +103,7 @@ const hud = createHud(economy, orders, progress, gameClock);
 gameClock.onNewHour = () => {
   economy.payHourlyBill();
   rentals.payHour(); // Miete der VMs auf Online-Servern
+  aiService.payHour(); // KI-Abo der KI-GPU-Server (0 €, solange keiner online ist)
 };
 // Neuer Tag: Termin der Besuchergruppe festlegen
 gameClock.onNewDay = (day) => visitors.onNewDay(day);
@@ -469,6 +473,17 @@ rentalAutomation.onEvent = (type, d) => {
   } else if (type === 'active') {
     hud.notify(`🤖 Automatische Vergabe aktiv – ${d.server.type.name} (${placeText(d.rackLabel)}) vergibt die VM-Anfragen`, 'good');
     sound.play('pop');
+  }
+};
+// KI: Stufenwechsel melden (das KI-Abo wird wie die Miete still gutgeschrieben, 'income')
+aiService.onEvent = (type, d) => {
+  if (type !== 'level-changed') return;
+  if (d.level > d.previous) {
+    hud.notify(d.previous === 0 ? `🧠 KI ist online – Stufe ${d.level}` : `🧠 KI ist jetzt Stufe ${d.level}`, 'good');
+    sound.play('pop');
+  } else {
+    hud.notify(d.level === 0 ? '⚠️ KI ist offline – kein KI-GPU-Server online' : `⚠️ KI fällt auf Stufe ${d.level} zurück – weniger KI-GPU-Server online`, 'bad');
+    sound.play('warn');
   }
 };
 // Besuchergruppe: Ankündigung, Ankunft, Eintritt und Bewertung melden
@@ -968,6 +983,7 @@ renderer.setAnimationLoop(() => {
       automation.advance(gameMinutes); // nach dem Klima: regelt mit den neuen Temperaturen
       rentals.advance(gameMinutes);
       rentalAutomation.advance(gameMinutes); // vergibt Anfragen, deren Kunde am Empfang steht
+      aiService.advance(gameMinutes); // Stufenwechsel der KI erkennen (prüft höchstens einmal je Spielminute)
       gameClock.advance(gameMinutes);
       visitors.advance(gameMinutes); // nach der Uhr: Termin und Ankunft hängen an der Uhrzeit
       checkBankrupt();

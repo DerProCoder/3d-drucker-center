@@ -156,7 +156,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const intro = `${autoRow(reached)}
       <p class="slots">☁️ VMs: <strong>${rentals.vms.length}</strong>
         · Miete <strong>${euro.format(rentals.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
-        · Online: ${servers.onlineServers.length} / ${list.length} Server</p>
+        · Online: ${list.filter((s) => servers.isOnline(s, reached)).length} / ${list.length} Server</p>
       <p class="slots">Kunden kommen mit ihrem Wunsch zum <strong>Empfang</strong>. Wähl für jede Anfrage einen Server mit genug
         freiem RAM und freien Cores und klick auf <strong>Vermieten</strong>. Die Miete kommt jede Spielstunde, solange der
         Server online ist: (${euro.format(RENT_PER_GB)} × GB + ${euro.format(RENT_PER_CORE)} × Cores) × Mietfaktor des Servers.

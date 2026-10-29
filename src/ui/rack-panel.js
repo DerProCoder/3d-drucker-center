@@ -68,6 +68,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
   // Belegung eines Servers durch VMs: „3 VMs · RAM 96/512 GB · Cores 12/64 · +4,80 € / h“ bzw. „frei, keine VM“
   function vmText(server, online) {
     const t = server.type;
+    if (t.rentable === false) return online ? '🧠 rechnet für die KI (KI-Abo)' : ''; // KI-GPU-Server: keine VMs
     const rent = `+${euro.format(servers.rentOf(server))} / h`;
     if (!rentals) return online ? `${rent} Miete` : '';
     const vms = rentals.vmsOn(server).length;

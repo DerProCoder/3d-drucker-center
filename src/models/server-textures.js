@@ -310,7 +310,8 @@ function controls(s) {
   fill(s, 0.0422, 0.0068, 0.0014, 0.0099, '#2e6fd8');
 }
 
-// Server: Laufwerke links, rechts Lüftungsgitter und Typenschild; GPU-Server mit großem Lüftergitter
+// Server: Laufwerke links, rechts Lüftungsgitter und Typenschild; GPU-Server (type.gpu, auch der KI-GPU-Server in
+// Serienfarbe) mit großem Lüftergitter
 function serverFront(s, type, unitH) {
   const base = type.color ? css(type.color) : '#2a2d33';
   const colors = type.color ? { tray: '#1e2024', accent: '#2c2f34' } : { tray: '#3a3e45', accent: '#3d86d8' };
@@ -321,14 +322,14 @@ function serverFront(s, type, unitH) {
   const x0 = 0.052;
   const right = s.w - EAR - 0.003;
   let bayEnd;
-  if (type.id === 'server-gpu') {
+  if (type.gpu) {
     // Oben 8 Laufwerke und Typenschild, darunter das Gitter vor drei großen Lüftern
     for (let i = 0; i < 8; i++) driveBay(s, x0 + i * 0.03, 0.003, 0.0292, 0.036, true, colors, i < 6);
     const bx = x0 + 8 * 0.03 + 0.008;
     fill(s, bx, 0.006, right - bx, 0.03, '#141619', 140, 0.001);
     edge(s, bx, 0.006, right - bx, 0.03, true);
     text(s, type.name.toUpperCase(), bx + 0.006, 0.016, 0.0085, '#e2e5ea');
-    fill(s, bx + 0.006, 0.0245, 0.05, 0.0016, colors.accent);
+    fill(s, bx + 0.006, 0.0245, 0.05, 0.0016, type.color ? shade(base, 1.35) : colors.accent); // Zierleiste in Serienfarbe
     for (let i = 0; i < 4; i++) {
       led(s, bx + 0.012 + i * 0.022, 0.0305, 0.0011, GREEN);
       text(s, `GPU${i + 1}`, bx + 0.015 + i * 0.022, 0.0305, 0.0028, '#8d939b');
@@ -551,7 +552,7 @@ function backPanel(s, type, ports, unitH) {
     for (let i = 0; i < 2; i++) psu(s, s.w - 0.004 - (i + 1) * psuW - i * 0.003, s.h - 0.003 - psuH, psuW, psuH);
     vents(psuLeft, 0.003, s.w - 0.004 - psuLeft, s.h - psuH - 0.009);
     // Erweiterungskarten über bzw. neben den Anschlüssen
-    const gpu = type.id === 'server-gpu';
+    const gpu = !!type.gpu;
     const n = gpu ? 8 : type.units >= 2 ? 4 : 2;
     const cx = portsEnd + 0.04;
     const cy = 0.003;

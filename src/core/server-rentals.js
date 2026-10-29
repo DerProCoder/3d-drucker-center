@@ -6,6 +6,7 @@
 // Spielstunde für jede VM, deren Server gerade online ist. Ein Vertrag läuft eine feste Zeit; ist sein Server zu
 // lange am Stück offline (auch ausgebaut, defekt, eingefroren oder in einen privaten Schrank umgezogen), kündigt der
 // Kunde. Server in privaten Schränken (core/server-zones.js) sind nicht vermietbar und bringen keine Miete.
+// KI-GPU-Server (rentable: false, core/ai-service.js) sind nie vermietbar und tauchen in der Serverwahl nicht auf.
 // Zeiten in Spielminuten (Delta-Zeit). Ohne Three.js und DOM.
 //
 // Anfrage: { id, customer, note, ram (GB), cores, duration (Spielminuten Vertragslaufzeit), waitLeft (Spielminuten,
@@ -14,7 +15,7 @@
 // VM (laufender Vertrag): { id, customer, note, ram, cores, serverId, duration, minutesLeft (Restlaufzeit),
 //            offlineFor (Spielminuten, die der Server gerade am Stück offline ist), auto (true: von den privaten
 //            Servern automatisch vergeben, core/rental-automation.js) }
-import { SERVER_CORES, SERVER_RAM } from './server-catalog.js';
+import { SERVER_CORES, SERVER_RAM, isRentableType } from './server-catalog.js';
 
 export const NEW_REQUEST_EVERY = 60;      // Spielminuten zwischen zwei Anfragen (echt ca. 3 min) …
 const REQUEST_JITTER = 0.3;               // … ± 30 % Zufall
@@ -86,9 +87,10 @@ export class ServerRentals {
     return this.vms.find((v) => v.id === id) ?? null;
   }
 
-  // Alle eingebauten Server (für die Serverwahl), ob online oder nicht – auch private; die sperrt fitsOn mit Grund
+  // Alle eingebauten Server (für die Serverwahl), ob online oder nicht – auch private; die sperrt fitsOn mit Grund.
+  // KI-GPU-Server fehlen ganz (rechnen für die eigene KI)
   get rentableServers() {
-    return this.servers.installed.filter((d) => d.type.kind === 'server');
+    return this.servers.installed.filter((d) => isRentableType(d.type));
   }
 
   // Server einer VM (Gerät aus economy.furniture) oder null
@@ -153,6 +155,7 @@ export class ServerRentals {
   // Grund, warum die Anfrage nicht auf den Server passt, oder null. reached: aus servers.reachable() (spart Rechnen)
   fitsOn(request, server, reached = this.servers.reachable()) {
     if (server?.type.kind !== 'server' || server.location !== 'rack') return 'Server nicht eingebaut';
+    if (!isRentableType(server.type)) return 'KI-Server – nicht vermietbar';
     // Server in privaten Schränken (Reihe „Private Server“ und Automatik-Reihe, core/server-zones.js) gehören einem selbst
     if (this.servers.isPrivateDevice(server)) return 'privater Server';
     if (!this.servers.isOnline(server, reached)) return `offline – ${this.servers.offlineReason(server, reached) ?? 'keine Verbindung'}`;

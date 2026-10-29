@@ -6,6 +6,9 @@
 //   rentFactor: Mietpreis-Faktor des Modells, die Miete jeder VM darauf wird damit malgenommen (core/server-rentals.js)
 //   power: Strom pro Spielstunde in Euro, solange das Gerät im Schrank steckt
 //   drives: 'small' – Server mit 2,5-Zoll-Laufwerken hochkant (Frontblende), sonst je nach Größe
+//   gpu: Frontblende mit großem Lüftergitter und GPU-Leuchten (models/server-textures.js)
+//   rentable: false – nicht an Kunden vermietbar (KI-GPU-Server rechnen für die eigene KI, core/ai-service.js); hat
+//             dann keinen rentFactor
 // Firewall (4 oder 8 Ports): Port 1 ist WAN (ins Internet: zu einem Patchpanel mit Leitung zum Internet-Anschluss an der Wand oder direkt dorthin), die übrigen sind LAN (zu Switches und Servern).
 
 // Kabelführung hinten im Schrank: links und rechts eine Leiste mit einem Clip alle clipEvery HE
@@ -27,16 +30,19 @@ export const SERVER_SERIES = [
   { id: 'standard', name: 'Standard' },
   { id: 'system-x', name: 'System X', color: 0xf2c419 },
   { id: 'risc', name: 'RISC', color: 0x10204a }, // sparsam: wenig Strom für die Miete, dafür teurer
+  { id: 'ai', name: 'KI', color: 0x23a455 }, // nicht vermietbar: rechnen für die eigene KI (KI-Abo, core/ai-service.js)
 ];
 
 export const SERVER_DEVICES = [
   { id: 'server-1u', kind: 'server', series: 'standard', name: 'Mini-Server', units: 1, ports: 1, rentFactor: 1.0, power: 1.2, price: 600 },
   { id: 'server-2u', kind: 'server', series: 'standard', name: 'Server', units: 2, ports: 2, rentFactor: 1.3, power: 2.5, price: 1400 },
-  { id: 'server-gpu', kind: 'server', series: 'standard', name: 'GPU-Server', units: 4, ports: 2, rentFactor: 2.5, power: 7, price: 4200 },
+  { id: 'server-gpu', kind: 'server', series: 'standard', name: 'GPU-Server', units: 4, ports: 2, rentFactor: 2.5, power: 7, price: 4200, gpu: true },
   { id: 'systemx-s', kind: 'server', series: 'system-x', name: 'System X S', units: 1, ports: 2, rentFactor: 1.5, power: 1.5, price: 850 },
   { id: 'systemx-l', kind: 'server', series: 'system-x', name: 'System X L', units: 2, ports: 2, rentFactor: 1.5, power: 3.2, price: 2000 },
   { id: 'risc-s', kind: 'server', series: 'risc', name: 'RISC S', units: 1, ports: 2, rentFactor: 1.7, power: 0.8, price: 1100, drives: 'small' },
   { id: 'risc-l', kind: 'server', series: 'risc', name: 'RISC L', units: 2, ports: 2, rentFactor: 1.7, power: 1.8, price: 2700, drives: 'small' },
+  // id wie AI_SERVER_ID in core/ai-service.js
+  { id: 'server-ai', kind: 'server', series: 'ai', name: 'KI-GPU-Server', units: 4, ports: 2, rentable: false, power: 10, price: 17000, gpu: true },
   { id: 'switch-8', kind: 'switch', name: 'Switch 8 Ports', units: 1, ports: 8, power: 0.2, price: 150 },
   { id: 'switch-24', kind: 'switch', name: 'Switch 24 Ports', units: 1, ports: 24, power: 0.4, price: 450 },
   { id: 'firewall', kind: 'firewall', name: 'Firewall 4 Ports', units: 1, ports: 4, power: 0.3, price: 500 }, // id bleibt (alte Spielstände)
@@ -57,6 +63,8 @@ export const UNIT_METERS = 0.0445; // eine Höheneinheit in Metern (für die Kab
 export const SERVER_HARDWARE = [...SERVER_RACKS, ...SERVER_DEVICES];
 export const serverHardwareById = (id) => SERVER_HARDWARE.find((h) => h.id === id);
 export const isServerHardware = (type) => !!type?.kind && SERVER_HARDWARE.includes(type);
+// Ob Kunden VMs auf diesem Gerätetyp mieten können (alle Server außer den KI-GPU-Servern)
+export const isRentableType = (type) => type?.kind === 'server' && type.rentable !== false;
 
 export const KIND_NAMES = { rack: 'Serverschrank', server: 'Server', switch: 'Switch', firewall: 'Firewall', patch: 'Patchpanel' };
 

@@ -2,6 +2,8 @@
 // nicht die grüne Automatik-Reihe) übernehmen, was der Spieler sonst in der App „Server-Vermietung“ macht – Anfrage
 // öffnen, Server wählen, vermieten. Ein Vergabe-Server ist ein Server dort, der online ist (also auch weder defekt
 // noch eingefroren). Einer genügt, mehr machen es nicht schneller.
+// KI-GPU-Server (core/ai-service.js) rechnen nur für die eigene KI: Sie vergeben nichts und bekommen auch keine VMs
+// (rentals.rentableServers lässt sie weg).
 //
 // Ablauf: Steht ein Server-Kunde am Empfang (world/customers.js meldet 'arrived', main.js ruft rentals.markArrived),
 // wird seine Anfrage nach ASSIGN_DELAY Spielminuten „Bearbeitung“ vergeben. Passt sie auf keinen Server, bleibt sie
@@ -12,6 +14,7 @@
 // Cores – Best Fit, damit große Lücken für große VMs frei bleiben).
 // Schalter „Automatische Vergabe an/aus“ (Standard an) wird gespeichert. Läuft in Spielminuten. Ohne Three.js und DOM.
 import { isPrivateRowRack, spotLabel } from './server-zones.js';
+import { isRentableType } from './server-catalog.js';
 
 export const ASSIGN_DELAY = 1;  // Spielminuten zwischen Ankunft am Empfang und Vergabe (echt 3 s)
 export const RETRY_EVERY = 1;   // Spielminuten zwischen zwei Versuchen, wenn nichts passt
@@ -36,10 +39,11 @@ export class RentalAutomation {
 
   // ---------- Abfragen ----------
 
-  // Vergabe-Server: online in einem Schrank der orangen Reihe, nach ID (der erste steht in der Statuszeile)
+  // Vergabe-Server: online in einem Schrank der orangen Reihe, nach ID (der erste steht in der Statuszeile);
+  // KI-GPU-Server zählen nicht
   assignServers(reached = this.servers.reachable()) {
     return this.servers.installed
-      .filter((d) => isPrivateRowRack(this.servers.rackOf(d)) && this.servers.isOnline(d, reached))
+      .filter((d) => isRentableType(d.type) && isPrivateRowRack(this.servers.rackOf(d)) && this.servers.isOnline(d, reached))
       .sort((a, b) => a.id - b.id);
   }
 

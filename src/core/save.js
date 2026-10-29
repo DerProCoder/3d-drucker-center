@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -16,7 +16,8 @@ const KEY = 'druckercenter-save';
 // 15: Schalter „Automatische Vergabe an/aus“ der privaten Server (rentalAutomation.enabled, core/rental-automation.js),
 //     automatisch vergebene VMs mit Kennzeichen (rentals.vms[].auto)
 // 16: Besuchergruppen (core/visitors.js) – Termin der heutigen Gruppe und die letzten Bewertungen
-const VERSION = 16;
+// 17: KI-GPU-Server (core/ai-service.js) – Gesamteinnahmen aus dem KI-Abo (aiService.totalIncome)
+const VERSION = 17;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -39,7 +40,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -131,6 +132,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     rentals: rentals?.toJSON(), // VM-Anfragen und Mietverträge (core/server-rentals.js)
     rentalAutomation: rentalAutomation?.toJSON(), // Schalter „Automatische Vergabe“ (core/rental-automation.js)
     visitors: visitors?.toJSON(), // Termin der Besuchergruppe und letzte Bewertungen (core/visitors.js)
+    aiService: aiService?.toJSON(), // Gesamteinnahmen aus dem KI-Abo (core/ai-service.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -166,7 +168,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -226,6 +228,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 15) {
     data.visitors ??= null;
     data.version = 16;
+  }
+  // Version 16 kennt noch keine KI: nichts verdient – die Stufe ergibt sich aus den KI-GPU-Servern (gibt es noch keine)
+  if (data?.version === 16) {
+    data.aiService ??= null;
+    data.version = 17;
   }
   if (data?.version !== VERSION) return false;
 
@@ -306,6 +313,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   climate?.load(data.climate);
   rentals?.load(data.rentals); // nach servers/economy: Verträge auf fehlenden Servern fallen weg
   rentalAutomation?.load(data.rentalAutomation);
+  aiService?.load(data.aiService);
   economy.notify();
   orders.notify();
   progress.notify();

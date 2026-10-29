@@ -5,6 +5,7 @@ import { CABLE_ROLL, SERVER_CORES, SERVER_DEVICES, SERVER_RACKS, SERVER_RAM, SER
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
 import { euro, meters } from '../core/format.js';
+import { AI_FEE_PER_SERVER } from '../core/ai-service.js';
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
@@ -21,6 +22,7 @@ export function createServerShop({ economy, servers, upgrades, rentals }) {
       type.kind === 'rack' ? `<dt>Platz</dt><dd>${type.units} Höheneinheiten (HE)</dd>` : `<dt>Größe</dt><dd>${type.units} HE</dd>`,
       type.ports ? `<dt>Ports</dt><dd>${type.ports}${type.kind === 'firewall' ? ' (1 × WAN, Rest LAN)' : ''}</dd>` : '',
       type.rentFactor ? `<dt>Ausstattung</dt><dd>${type.ram} GB RAM · ${type.cores} Cores</dd><dt>Mietfaktor</dt><dd>×${type.rentFactor.toLocaleString('de-DE', { minimumFractionDigits: 1 })}</dd>` : '',
+      type.rentable === false ? `<dt>Einnahmen</dt><dd>KI-Abo statt Miete: ${euro.format(AI_FEE_PER_SERVER)} / h je Server × Stufenfaktor</dd>` : '',
       type.power ? `<dt>Strom</dt><dd>${euro.format(type.power)} / h</dd>` : '',
     ].join('');
     return `
