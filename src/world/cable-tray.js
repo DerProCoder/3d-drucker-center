@@ -30,8 +30,9 @@ const Z_AXIS = new THREE.Vector3(0, 0, 1);
 export const TRAY_CABLE_RADIUS = 0.0035;  // im Gitter etwas dicker als im Schrank, damit man es von unten sieht
 const LANE_STEP = 0.017;                  // Versatz nebeneinanderliegender Kabel im Feld (m)
 const LANES = 13;                         // so viele nebeneinander (±10 cm), dann eine Lage höher – beliebig viele Lagen
-const SEGMENT_LENGTH = 0.05;              // Röhre: etwa alle 5 cm ein Ring …
+const SEGMENT_LENGTH = 0.05;              // Röhre: etwa alle 5 cm ein Ring (nach Länge, nicht nach Zahl der Stützpunkte) …
 const MAX_SEGMENTS = 300;                 // … aber höchstens so viele je Kabel
+const WAN_GAP = 0.015;                  // halber Port-Abstand am Wandkasten: Kabel laufen zwischen den Nummern hoch
 
 // Ein Material je Kabelfarbe für alle Kabel (wird nie freigegeben, nur die Röhren)
 const cableMaterials = new Map();
@@ -47,7 +48,7 @@ export function createCable(points, color, radius = 0.0028) {
   const g = new THREE.Group();
   const material = cableMaterial(color);
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const segments = Math.min(MAX_SEGMENTS, Math.max(points.length * 6, Math.ceil(curve.getLength() / SEGMENT_LENGTH)));
+  const segments = Math.min(MAX_SEGMENTS, Math.max(8, Math.ceil(curve.getLength() / SEGMENT_LENGTH)));
   g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, segments, radius, 6, false), material));
   for (const [p, q] of [[points[0], points[1]], [points[points.length - 1], points[points.length - 2]]]) {
     const dir = q.clone().sub(p).normalize();
@@ -106,57 +107,104 @@ function fieldPoints(fields, lane, before = null, after = null) {
   return out;
 }
 
+// Ecken einer Polylinie runden (Issue #30). Eine Catmull-Rom-Kurve durch wenige Stützpunkte schießt an einer Ecke
+// über den Stützpunkt hinaus, wenn auf ein kurzes ein langes Stück folgt (z. B. erst 4 cm zur Kabelführung, dann
+// 1,8 m hoch) – das Kabel beult dann seitlich aus dem Schrank oder in die Wand. Deshalb wird jede Ecke durch einen
+// kleinen Bogen ersetzt (quadratische Bézierkurve im Dreieck davor–Ecke–danach, bleibt also innen) und davor und
+// danach je ein Punkt auf die Gerade gesetzt, damit die langen Stücke gerade ankommen. radius: Bogen beginnt höchstens
+// so weit vor der Ecke (bei kurzen Stücken entsprechend früher).
+const ARC_STEPS = 3;
+function roundCorners(points, radius = 0.05) {
+  const out = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const p = points[i];
+    const a = p.clone().sub(points[i - 1]);
+    const b = points[i + 1].clone().sub(p);
+    const la = a.length();
+    const lb = b.length();
+    if (la < 1e-6 || lb < 1e-6 || a.dot(b) / (la * lb) > 0.999) {
+      out.push(p);
+      continue;
+    }
+    a.divideScalar(la);
+    b.divideScalar(lb);
+    const d = Math.min(radius, la * 0.22, lb * 0.22);
+    const s = p.clone().addScaledVector(a, -d);
+    const e = p.clone().addScaledVector(b, d);
+    out.push(p.clone().addScaledVector(a, -2 * d));
+    for (let k = 0; k <= ARC_STEPS; k++) {
+      const t = k / ARC_STEPS;
+      out.push(s.clone().multiplyScalar((1 - t) ** 2).addScaledVector(p, 2 * t * (1 - t)).addScaledVector(e, t * t));
+    }
+    out.push(p.clone().addScaledVector(b, 2 * d));
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 // Stück vom Port eines Geräts im Schrank bis ins Feld über dem Schrank (von unten nach oben): Stecker nach hinten,
-// zur Kabelführung an der Seite, daran hoch, durch die Kabeleinführung hinten im Dach und senkrecht ins Gitter.
+// weiter gerade nach hinten bis auf die Höhe der Clips (hinter der hinteren Montageschiene vorbei), auf Porthöhe zur
+// Kabelführung an der näheren Seite, darin senkrecht durch die Clips hoch bis unters Dach, hinter der Schiene zur Mitte,
+// unter dem hinteren Querträger nach vorn zur Kabeleinführung und durch sie senkrecht ins Gitter. Ecken rundet
+// trayCablePoints (roundCorners) – so bleibt das Kabel in der Schrankkontur.
 // port: Lage der Buchse, rack: { x, z, type } – Mitte des Schranks und sein Typ
 export function rackRise(port, rack, lane) {
   const { o, y } = laneOf(lane);
   const H = rackHeight(rack.type);
   const D = rackDepth(rack.type);
-  const top = clipPosition(rack.type, 1, 0).add(new THREE.Vector3(rack.x, 0, rack.z));
+  const side = port.x >= rack.x ? 1 : -1;
+  const clip = clipPosition(rack.type, side, 0).add(new THREE.Vector3(rack.x, 0, rack.z));
+  // Lage im Clip wie bei den Kabeln im Schrank (3 × 3 nebeneinander), damit nicht alle an derselben Stelle laufen
+  const cx = clip.x + side * ((lane % 3) - 1) * 0.005;
+  const cz = clip.z + ((Math.floor(lane / 3) % 3) - 1) * 0.005;
   const entryX = rack.x + THREE.MathUtils.clamp(o * 1.4, -0.15, 0.15);
   const entryZ = rack.z - D / 2 + 0.05;
+  const under = Math.max(port.y + 0.01, H - 0.09); // unter dem hinteren Querträger (Unterkante H − 0,07)
   const v = (x, py, z) => new THREE.Vector3(x, py, z);
-  const plug = v(port.x, port.y, port.z - 0.028);
   return [
     port.clone(),
-    plug,
-    v((plug.x + top.x) / 2, port.y - 0.01, Math.min(plug.z, top.z) - 0.01),
-    v(top.x, port.y, top.z),
-    v(top.x, Math.max(port.y, top.y - 0.02), top.z),
-    v(entryX, H - 0.03, entryZ),
-    v(entryX, H + 0.03, entryZ),
-    v(entryX, y - 0.08, entryZ),
-    v(entryX + (rack.x + o - entryX) * 0.3, y, entryZ + 0.06),
+    v(port.x, port.y, port.z - 0.028),
+    v(port.x, port.y, Math.min(cz, port.z - 0.028)),
+    v(cx, port.y, cz),
+    v(cx, under, cz),
+    v(entryX, under, cz),
+    v(entryX, under, entryZ),
+    v(entryX, y, entryZ),
   ];
 }
 
-// Stück vom Port am Wandkasten bis ins Einstiegsfeld (WAN_FIELD): Stecker nach vorn, über den Kasten in die
-// Trasse, daran hoch und oben waagerecht ins Gitter
+// Stück vom Port am Wandkasten bis ins Einstiegsfeld (WAN_FIELD): Stecker gerade nach vorn, kurz zur Seite in die
+// Lücke zwischen zwei Port-Nummern, senkrecht vor dem Kasten hoch (Schild sitzt unten, models/cable-tray.js
+// headerBelow), über dem Kasten nach hinten in die Trasse, darin hoch und oben waagerecht ins Gitter.
+// Die Lage in der Trasse folgt der Lage des Ports (gleiche Reihenfolge in z, die untere Reihe weiter vorn wie vor dem
+// Kasten) – so kreuzen sich die Kabel über dem Kasten nicht. Erst im Gitter gehen sie auf ihre Spur (lane).
 export function wanRise(port, lane) {
   const p = wanPortPosition(port);
-  const { o, y, layer } = laneOf(lane);
+  const { y } = laneOf(lane);
   const front = WAN_BOX.x + WAN_BOX.depth / 2;
-  const z = WAN_TRACE.z + o;
-  // in der Trasse liegen die Lagen nebeneinander, von der Wand weg (Trasse ist nur gut 3 cm tief)
-  const tx = WAN_TRACE.x - 0.012 + Math.min(layer, 3) * 0.008;
+  const top = WAN_BOX.y + WAN_BOX.height / 2;
+  const lower = p.y < WAN_BOX.y;
+  const fx = front + (lower ? 0.046 : 0.034);
+  const zc = p.z + WAN_GAP;
+  const z = WAN_TRACE.z + (zc - WAN_BOX.z) * 0.6; // Ports (±0,2 m) auf die Trasse (±0,15 m) zusammengerückt
+  const tx = WAN_TRACE.x - 0.012 + (lower ? 0.01 : 0);
   const v = (x, py, pz) => new THREE.Vector3(x, py, pz);
   return [
     v(front + 0.006, p.y, p.z),
-    v(front + 0.034, p.y, p.z),
-    v(front + 0.05, p.y + 0.04, (p.z * 2 + z) / 3),
-    v(front + 0.03, WAN_TRACE.y0 + 0.03, (p.z + z * 2) / 3),
-    v(tx, WAN_TRACE.y0 + 0.12, z),
-    v(tx, WAN_TRACE.y1 - 0.08, z),
-    v(tx + 0.08, y, z),
+    v(fx, p.y, p.z),
+    v(fx, p.y + 0.012, zc),
+    v(fx, top + 0.05, zc),
+    v(tx, top + 0.2, z),
+    v(tx, y, z),
   ];
 }
 
-// Ganzer Verlauf: Anfangsstück (von unten nach oben), Felder, Endstück (wird umgedreht); doppelte Punkte raus
+// Ganzer Verlauf: Anfangsstück (von unten nach oben), Felder, Endstück (wird umgedreht); doppelte Punkte raus, Ecken
+// gerundet
 export function trayCablePoints(startRise, fields, endRise, lane) {
   const end = endRise ? [...endRise].reverse() : [];
   const all = [...startRise, ...fieldPoints(fields, lane, startRise[startRise.length - 1], end[0] ?? null), ...end];
-  return all.filter((p, i) => i === 0 || p.distanceToSquared(all[i - 1]) > 1e-6);
+  return roundCorners(all.filter((p, i) => i === 0 || p.distanceToSquared(all[i - 1]) > 1e-6));
 }
 
 // Gitter, Wandkasten und Trasse. fieldInteraction: { hint(field), hover(field), unhover(), action(field) } für das
@@ -194,6 +242,7 @@ export function createCableTrayRoom({ fieldInteraction, wanPortInteraction }) {
   const bottom = WAN_BOX.y - WAN_BOX.height / 2;
   const box = createWallBox({
     ports: WALL_PORTS, width: WAN_BOX.width, height: WAN_BOX.height, depth: WAN_BOX.x + WAN_BOX.depth / 2 - WAN_BOX.wallX,
+    headerBelow: true, // Kabel laufen vor dem Kasten nach oben – Schild unten bleibt frei
     positions: Array.from({ length: WALL_PORTS }, (_, port) => {
       const p = wanPortPosition(port);
       return { x: WAN_BOX.z - p.z, y: p.y - bottom };

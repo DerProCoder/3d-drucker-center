@@ -236,6 +236,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   let hoverField = null;          // gerade angezieltes Gitterfeld (Vorschau des Wegs bis dorthin)
   let hoverPort = null;           // gerade angezielter zweiter Port (Vorschau des ganzen Kabels)
   let nextTrayLane = () => 0;     // Versatz, den das nächste Gitterkabel bekommt (für die Vorschau, siehe syncCables)
+  let nextRackLane = () => 0;     // ebenso für das nächste Kabel im Schrank
   const portPos = new Map();      // `${id}:${port}` → Position in group (für Markierung und Vorschaukabel)
   const portKey = (ref) => `${ref.id}:${ref.port}`;
   const portLabel = (ref) => {
@@ -382,7 +383,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       const { x, z } = spotPosition(rack.slot);
       const offset = new THREE.Vector3(x, 0, z);
       const local = (ref) => portPos.get(portKey(ref)).clone().sub(offset);
-      points = cableRoute(rack.type, local(picked), local(to), servers.cables.length, pickedClips).map((p) => p.add(offset));
+      points = cableRoute(rack.type, local(picked), local(to), nextRackLane(), pickedClips).map((p) => p.add(offset));
     } else if (fields) {
       const lane = nextTrayLane();
       const start = riseOf(picked, lane);
@@ -505,6 +506,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     return pool.get(id);
   };
   nextTrayLane = () => freeLane(lanes.tray);
+  nextRackLane = () => freeLane(lanes.rack);
 
   // Geometrie (und eigene Materialien, z. B. vom Vorschaukabel) freigeben; geteilte bleiben
   const disposeGroup = (g, materials = false) => g.traverse((o) => {

@@ -284,7 +284,7 @@ const BOX_PX = 1000;         // Pixel je Meter der Front-Textur
 // Vorgegeben (positions [{ x, y }], z. B. aus core/cable-tray.js wanPortPosition umgerechnet) oder selbst verteilt:
 // bis 16 Ports in einer Reihe, darüber in zwei Reihen, gezählt von links oben. Außenmaße ebenso vorgegeben oder
 // passend zu den Ports.
-function wallBoxLayout({ ports, width, height, depth = BOX_DEPTH, positions }) {
+function wallBoxLayout({ ports, width, height, depth = BOX_DEPTH, positions, headerBelow = false }) {
   let list = positions?.map((p) => ({ x: p.x, y: p.y }));
   if (!list) {
     const rows = ports > 16 ? 2 : 1;
@@ -309,9 +309,10 @@ function wallBoxLayout({ ports, width, height, depth = BOX_DEPTH, positions }) {
   const maxX = Math.max(...list.map((p) => p.x));
   width ??= maxX - minX + pitch + 2 * BOX_MARGIN;
   height ??= rowYs[0] + portH / 2 + LABEL_H + HEADER_H;
-  const header = Math.max(0.05, height - (rowYs[0] + portH / 2 + LABEL_H)); // Kopfzeile über der obersten Reihe
+  // Kopfzeile über der obersten Reihe bzw. (headerBelow) unter der untersten
+  const header = Math.max(0.05, headerBelow ? rowYs[rowYs.length - 1] - portH / 2 - 0.006 : height - (rowYs[0] + portH / 2 + LABEL_H));
   return {
-    width, height, depth, header, portW, portH, rowYs, minX, maxX, pitch,
+    width, height, depth, header, headerBelow, portW, portH, rowYs, minX, maxX, pitch,
     list: list.map((p) => ({ x: p.x, y: p.y, z: depth + 0.006 })),
   };
 }
@@ -343,7 +344,7 @@ function drawFiberIcon(ctx, x, y, s) {
   ctx.restore();
 }
 function wallBoxFront(layout) {
-  const { width, height, list, header, portW, portH, rowYs, minX, maxX, pitch } = layout;
+  const { width, height, list, header, headerBelow, portW, portH, rowYs, minX, maxX, pitch } = layout;
   const px = (m) => Math.round(m * BOX_PX);
   return canvasTexture(px(width), px(height), (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, 0, 0, h);
@@ -354,25 +355,26 @@ function wallBoxFront(layout) {
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
     ctx.lineWidth = 3;
     ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
-    // Kopfzeile: helles Schild mit Glasfaser-Symbol und Aufschrift
+    // Kopfzeile: helles Schild mit Glasfaser-Symbol und Aufschrift (oben bzw. unten, plateY: Oberkante in m von oben)
     const pad = Math.min(0.02, header * 0.18);
     const plateH = header - 1.6 * pad;
+    const plateY = headerBelow ? height - header + 0.6 * pad : pad;
     ctx.fillStyle = '#e9edf1';
-    ctx.fillRect(px(pad), px(pad), w - px(2 * pad), px(plateH));
+    ctx.fillRect(px(pad), px(plateY), w - px(2 * pad), px(plateH));
     ctx.strokeStyle = '#1d2228';
     ctx.lineWidth = 2;
-    ctx.strokeRect(px(pad), px(pad), w - px(2 * pad), px(plateH));
+    ctx.strokeRect(px(pad), px(plateY), w - px(2 * pad), px(plateH));
     const icon = plateH * 0.62;
-    drawFiberIcon(ctx, px(pad + 0.012 + icon / 2), px(pad + plateH / 2), px(icon));
+    drawFiberIcon(ctx, px(pad + 0.012 + icon / 2), px(plateY + plateH / 2), px(icon));
     const textX = px(pad + 0.03 + icon);
     ctx.fillStyle = '#1d2228';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.font = `bold ${px(plateH * 0.4)}px sans-serif`;
-    ctx.fillText('INTERNET / WAN', textX, px(pad + plateH * 0.36));
+    ctx.fillText('INTERNET / WAN', textX, px(plateY + plateH * 0.36));
     ctx.font = `${px(plateH * 0.2)}px sans-serif`;
     ctx.fillStyle = '#3a4048';
-    ctx.fillText(`Glasfaser-Hausanschluss · ${list.length} Ports`, textX, px(pad + plateH * 0.76));
+    ctx.fillText(`Glasfaser-Hausanschluss · ${list.length} Ports`, textX, px(plateY + plateH * 0.76));
     // Dunkles Feld hinter jeder Port-Reihe und Nummern über den Ports (Canvas-y läuft von oben nach unten)
     const left = px(minX - pitch / 2 + width / 2);
     const right = px(maxX + pitch / 2 + width / 2);
@@ -394,6 +396,8 @@ function wallBoxFront(layout) {
 // Vorderseite +z. In world/ z. B. an der Westwand mit rotation.y = π/2 (Vorderseite zeigt dann nach +x, Kasten-x
 // nach −z). Optional width/height/depth (Außenmaße) und positions [{ x, y }] (Lage der Ports in Kastenkoordinaten),
 // damit Kasten und Ports genau zu den Zahlen in core/cable-tray.js passen.
+// headerBelow: Schild mit Aufschrift unter statt über den Ports – wenn die Kabel von den Ports nach oben laufen, bleibt
+// es so lesbar.
 //
 // userData:
 //   ports       Lage der Ports [{ x, y, z }] in Kastenkoordinaten (knapp vor der Kupplung, wie portPositions bei

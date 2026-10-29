@@ -347,10 +347,17 @@ function seededRandom(seed) {
   };
 }
 
+const HANG_STEPS = 6;     // Stützpunkte je frei hängendem Stück
+const HANG_OUT = 0.05;    // so weit darf ein Kabel hinten aus dem offenen Rücken hängen (m)
+const CLIP_LEAD = 0.015;  // vor und nach einem Clip läuft das Kabel so weit senkrecht (m)
+
 // Verlauf eines Kabels von Port a nach Port b (Schrankkoordinaten) als Stützpunkte für eine weiche Kurve. Aus den
-// Steckern geht es kurz gerade nach hinten. Ohne Clips hängt das Kabel frei durch; mit Clips ([{ side, index }], in
+// Steckern geht es gerade nach hinten (bis hinter die hintere Montageschiene). Ohne Clips hängt das Kabel frei durch; mit Clips ([{ side, index }], in
 // dieser Reihenfolge) hängt es zum ersten Clip, läuft zwischen zwei Clips derselben Seite durch alle Clips dazwischen
-// und hängt vom letzten zum anderen Port. lane verteilt mehrere Kabel im Clip und macht jedes ein wenig anders.
+// und hängt vom letzten zum anderen Port. Durch einen Clip läuft es senkrecht. lane verteilt mehrere Kabel im Clip
+// und macht jedes ein wenig anders.
+// Frei hängende Stücke sind dicht mit Punkten belegt, deren Stützpunkte im Schrank liegen (Issue #30) – bei nur einem
+// Durchhangpunkt schoss die Kurve über große Höhen bzw. zum Clip auf der anderen Seite seitlich aus dem Schrank.
 export function cableRoute(rackType, a, b, lane = 0, clips = []) {
   const rand = seededRandom(lane * 7919 + Math.round((a.y + b.y) * 1000) + 1);
   const jitter = (amount) => (rand() - 0.5) * 2 * amount;
@@ -359,39 +366,79 @@ export function cableRoute(rackType, a, b, lane = 0, clips = []) {
   const laneZ = ((Math.floor(lane / 3) % 3) - 1) * 0.005;
   const inClip = (c) => clipPosition(rackType, c.side, c.index).add(v(laneX * c.side, 0, laneZ));
   const plug = (p) => v(p.x, p.y, p.z - 0.028);
-  // Frei hängendes Stück von p nach q: in der Mitte nach unten und etwas nach hinten durchhängend
-  const hang = (p, q) => {
+  // vom Stecker weiter gerade nach hinten bis hinter die hintere Montageschiene (Rückseite bei −D/2 + 0,03), damit
+  // das Kabel nicht durch sie hindurch zur Seite läuft (bei kurzen Schränken stehen die Geräte schon weiter hinten)
+  const tail = (p) => v(p.x, p.y, Math.min(p.z - 0.028, -rackDepth(rackType) / 2 + 0.024));
+  // Grenzen für die Stützpunkte: seitlich nicht weiter als die Clips (Seitenwände innen bei ±0,27 m), nicht in den
+  // Sockel, nicht über die oberste HE, hinten höchstens HANG_OUT aus dem offenen Rücken
+  const maxX = CLIP_X + 0.006;
+  const minY = RACK_BASE + 0.02;
+  const maxY = RACK_BASE + rackType.units * UNIT;
+  const minZ = -rackDepth(rackType) / 2 - HANG_OUT;
+  const inside = (p) => p.set(THREE.MathUtils.clamp(p.x, -maxX, maxX), THREE.MathUtils.clamp(p.y, minY, maxY), Math.max(p.z, minZ));
+  // Frei hängendes Stück von p nach q (ohne die beiden Enden): kubische Bézierkurve, die p in Richtung dp verlässt
+  // und in Richtung dq bei q ankommt, in der Mitte nach unten und etwas nach hinten durchhängend. Die Kurve bleibt
+  // in der Hülle ihrer Stützpunkte, also im Schrank.
+  const hang = (p, dp, q, dq) => {
     const span = p.distanceTo(q);
-    const sag = 0.012 + span * 0.14 + jitter(0.006);
-    return v((p.x + q.x) / 2 + jitter(0.01), (p.y + q.y) / 2 - sag, Math.min(p.z, q.z) - 0.015 - span * 0.05 + jitter(0.01));
+    const reach = THREE.MathUtils.clamp(span * 0.3, 0.02, 0.2);
+    // um 4/3 versetzt: die Bézierkurve hängt in der Mitte dann um den ganzen Durchhang durch
+    const sag = v(jitter(0.01), -(0.012 + span * 0.14 + jitter(0.006)), -(0.015 + Math.min(span * 0.05, 0.04) + jitter(0.01)));
+    sag.multiplyScalar(4 / 3);
+    const c1 = inside(p.clone().addScaledVector(dp, reach).add(sag));
+    const c2 = inside(q.clone().addScaledVector(dq, -reach).add(sag));
+    const out = [];
+    for (let k = 1; k < HANG_STEPS; k++) {
+      const t = k / HANG_STEPS;
+      const u = 1 - t;
+      out.push(p.clone().multiplyScalar(u * u * u).addScaledVector(c1, 3 * u * u * t).addScaledVector(c2, 3 * u * t * t).addScaledVector(q, t * t * t));
+    }
+    return out;
   };
 
+  const targets = clips.map(inClip);
   const points = [a, plug(a)];
-  if (!clips.length) {
-    points.push(hang(plug(a), plug(b)));
-  } else {
-    let prev = plug(a);
-    clips.forEach((c, i) => {
-      const at = inClip(c);
-      const last = clips[i - 1];
-      if (last && last.side === c.side) {
-        // In der Leiste: durch alle Clips zwischen beiden, dazwischen kleine Bögen
-        const dir = Math.sign(c.index - last.index);
-        for (let k = last.index + dir; dir && k !== c.index; k += dir) {
-          const through = inClip({ side: c.side, index: k });
-          points.push(v(prev.x + jitter(0.003), (prev.y + through.y) / 2, prev.z - 0.004 - rand() * 0.008));
-          points.push(through.add(v(jitter(0.002), 0, jitter(0.002))));
-          prev = through;
-        }
-        if (dir) points.push(v(prev.x + jitter(0.003), (prev.y + at.y) / 2, prev.z - 0.004 - rand() * 0.008));
-      } else {
-        points.push(hang(prev, at));
+  let prev = tail(a);
+  if (prev.z < plug(a).z - 1e-4) points.push(prev);
+  let prevDir = v(0, 0, -1);
+  // aus dem zuletzt durchlaufenen Clip senkrecht heraus
+  const leaveClip = () => {
+    prev = prev.clone().addScaledVector(prevDir, CLIP_LEAD);
+    points.push(prev);
+  };
+  clips.forEach((c, i) => {
+    const at = targets[i];
+    const last = clips[i - 1];
+    const next = clips[i + 1];
+    if (last && last.side === c.side) {
+      // In der Leiste: durch alle Clips zwischen beiden, dazwischen kleine Bögen
+      const dir = Math.sign(c.index - last.index);
+      for (let k = last.index + dir; dir && k !== c.index; k += dir) {
+        const through = inClip({ side: c.side, index: k });
+        points.push(v(prev.x + jitter(0.003), (prev.y + through.y) / 2, prev.z - 0.004 - rand() * 0.008));
+        points.push(through.add(v(jitter(0.002), 0, jitter(0.002))));
+        prev = through;
       }
+      if (dir) points.push(v(prev.x + jitter(0.003), (prev.y + at.y) / 2, prev.z - 0.004 - rand() * 0.008));
       points.push(at);
+      prevDir = v(0, Math.sign(at.y - targets[i - 1].y) || -1, 0);
       prev = at;
-    });
-    points.push(hang(prev, plug(b)));
-  }
+      return;
+    }
+    if (i) leaveClip();
+    // senkrecht durch den Clip: in Laufrichtung der Leiste bzw. von der Seite des vorigen zu der des nächsten Ziels
+    const before = i ? targets[i - 1] : tail(a);
+    const after = next ? targets[i + 1] : tail(b);
+    const dir = v(0, (next?.side === c.side ? Math.sign(after.y - at.y) : Math.sign(after.y - before.y)) || -1, 0);
+    const entry = at.clone().addScaledVector(dir, -CLIP_LEAD);
+    points.push(...hang(prev, prevDir, entry, dir), entry, at);
+    prev = at;
+    prevDir = dir;
+  });
+  if (clips.length) leaveClip();
+  const end = tail(b);
+  points.push(...hang(prev, prevDir, end, v(0, 0, 1)));
+  if (end.z < plug(b).z - 1e-4) points.push(end);
   points.push(plug(b), b);
   return points;
 }
