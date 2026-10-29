@@ -5,12 +5,15 @@ import { CABLE_ROLL, SERVER_CORES, SERVER_DEVICES, SERVER_RACKS, SERVER_RAM, SER
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
 import { euro, meters } from '../core/format.js';
-import { AI_FEE_PER_SERVER } from '../core/ai-service.js';
+import { AI_FEE_PER_SERVER, isAIServer } from '../core/ai-service.js';
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
+// Eigener Hinweis unter einer Serien-Überschrift, wo der allgemeine („verdienen Geld mit vermieteten VMs“) nicht passt
+const SERIES_HINTS = { ai: 'nicht vermietbar – betreiben die eigene KI, Geld über das KI-Abo (App „KI“)' };
 
-export function createServerShop({ economy, servers, upgrades, rentals }) {
+// ai: KI-Dienst (core/ai-service.js) für die Kopfzeile (Stufe, KI-GPU-Server online) – ohne ihn nur die Zahl der KI-Server
+export function createServerShop({ economy, servers, upgrades, rentals, ai = null }) {
   const owned = (type) => servers.hardware.filter((f) => f.type === type).length;
   let images = null; // Produktbilder wie im Drucker-Shop, beim ersten Öffnen erzeugt
 
@@ -43,12 +46,19 @@ export function createServerShop({ economy, servers, upgrades, rentals }) {
       ...[...SERVER_RACKS, ...SERVER_DEVICES].map((t) => ({ id: t.id, name: t.name, make: () => createServerHardwareModel(t) })),
       { id: CABLE_ROLL.id, name: CABLE_ROLL.name, make: createCableRoll },
     ]);
-    const serverList = servers.hardware.filter((f) => f.type.kind === 'server');
+    // Vermietbare Server und KI-GPU-Server getrennt zählen – wie die Server-Vermietung, die nur vermietbare kennt
+    const serverList = servers.hardware.filter((f) => f.type.kind === 'server' && !isAIServer(f));
+    const aiList = servers.hardware.filter(isAIServer);
+    const onlineList = servers.onlineServers;
+    const aiText = aiList.length
+      ? ` · 🧠 KI: <strong>${ai?.level ? `Stufe ${ai.level}` : 'offline'} (${ai?.onlineCount ?? onlineList.filter(isAIServer).length} / ${aiList.length} KI-GPU-Server)</strong>`
+        + `${ai ? ` · KI-Abo <strong>${euro.format(ai.incomePerHour)} / h</strong>` : ''}`
+      : '';
     const eta = servers.nextCableArrival;
     const cableProblem = servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor);
     const kinds = (list) => list.map(card).join('');
     return `
-      <p class="slots">🖥️ Online: <strong>${servers.onlineServers.length} / ${serverList.length} Server</strong>
+      <p class="slots">🖥️ Online: <strong>${onlineList.filter((d) => !isAIServer(d)).length} / ${serverList.length} Server</strong>${aiText}
         · ☁️ VMs: <strong>${rentals.vms.length}</strong>
         · Miete <strong>${euro.format(rentals.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
         · 🔌 Kabel: ${meters(servers.cableMeters)}${eta !== null ? ` (+${meters(CABLE_ROLL.meters)} in ${Math.ceil(eta)} s)` : ''}</p>
@@ -62,7 +72,7 @@ export function createServerShop({ economy, servers, upgrades, rentals }) {
         haben einen höheren <b>Mietfaktor</b> und bringen für dieselbe VM mehr Miete.</p>
       <section><h3>Serverschränke</h3><div class="grid">${kinds(SERVER_RACKS)}</div></section>
       <section><h3>Server<span class="hint">verdienen Geld mit vermieteten VMs, solange sie online sind</span></h3>
-        ${SERVER_SERIES.map((s) => `<h4 class="server-series"${s.color ? ` style="--series:${hex(s.color)}"` : ''}>${s.name}</h4>
+        ${SERVER_SERIES.map((s) => `<h4 class="server-series"${s.color ? ` style="--series:${hex(s.color)}"` : ''}>${s.name}${SERIES_HINTS[s.id] ? `<span class="hint">${SERIES_HINTS[s.id]}</span>` : ''}</h4>
           <div class="grid">${kinds(SERVER_DEVICES.filter((d) => d.series === s.id))}</div>`).join('')}</section>
       <section><h3>Netzwerk</h3><div class="grid">${kinds(SERVER_DEVICES.filter((d) => d.kind !== 'server'))}</div></section>
       <section><h3>Kabel</h3><div class="grid">

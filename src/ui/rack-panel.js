@@ -23,7 +23,8 @@ const CLIMATE_REFRESH_MS = 500;
 // servers: core/servers.js · climate: core/server-climate.js · onClose: Fenster wurde geschlossen (zurück ins Spiel)
 // rentals: core/server-rentals.js (VMs je Server; fehlt es, zeigt das Fenster nur die Miete über servers.rentOf)
 // automation: core/climate-automation.js (fehlt es, gibt es keine Automatik-Anzeige)
-export function createRackPanel({ economy, servers, climate, automation = null, rentals = null, onClose }) {
+// ai: KI-Dienst (core/ai-service.js) – KI-GPU-Server zeigen damit, ob sie für die KI rechnen (überhitzt: nein)
+export function createRackPanel({ economy, servers, climate, automation = null, rentals = null, ai = null, onClose }) {
   const root = document.createElement('div');
   root.id = 'rack-panel';
   root.className = 'hidden';
@@ -84,7 +85,10 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
       const why = servers.offlineReason(device, reached);
       // Server mit VMs in einem privaten Schrank: läuft, aber die Kunden zahlen nicht und kündigen (core/server-rentals.js)
       const privateVms = !why && servers.isPrivateDevice(device) ? rentals?.vmsOn(device).length : 0;
-      if (why) status = `<span class="rack-status off">offline – ${why}${vmText(device, false)}</span>`;
+      // KI-GPU-Server online, aber überhitzt: die GPUs drosseln, er zählt nicht für die KI (core/ai-service.js)
+      const aiProblem = !why && t.rentable === false ? ai?.problemOf(device, reached) : null;
+      if (aiProblem) status = `<span class="rack-status off">online · ⚠️ ${aiProblem} – rechnet nicht für die KI</span>`;
+      else if (why) status = `<span class="rack-status off">offline – ${why}${vmText(device, false)}</span>`;
       else if (privateVms) {
         status = `<span class="rack-status off">online · ${rentals.vmProblem(device, reached)}
           (${privateVms} ${privateVms === 1 ? 'VM' : 'VMs'}, keine Miete)</span>`;
@@ -316,6 +320,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
   });
   economy.subscribe(() => render()); // z. B. Kabel geliefert, Server geht online
   rentals?.subscribe(() => render()); // VM vermietet, Vertrag ausgelaufen oder gekündigt
+  ai?.subscribe(() => render()); // KI-GPU-Server rechnet wieder bzw. nicht mehr (z. B. überhitzt)
 
   function open(id) {
     rackId = id;

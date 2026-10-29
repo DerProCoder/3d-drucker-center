@@ -375,8 +375,42 @@ function iconCloud(ctx, x, y, s) {
   }
 }
 
+// KI: dunkler Chip mit Anschlussbeinchen, darauf ein grün leuchtendes Gehirn (zwei Hälften mit Windungen)
+function iconAI(ctx, x, y, s) {
+  ctx.fillStyle = '#8a93a3';
+  for (let i = 0; i < 4; i++) {
+    const p = s * (0.26 + i * 0.16);
+    ctx.fillRect(x + p - s * 0.03, y + s * 0.04, s * 0.06, s * 0.14); // oben
+    ctx.fillRect(x + p - s * 0.03, y + s * 0.82, s * 0.06, s * 0.14); // unten
+    ctx.fillRect(x + s * 0.04, y + p - s * 0.03, s * 0.14, s * 0.06); // links
+    ctx.fillRect(x + s * 0.82, y + p - s * 0.03, s * 0.14, s * 0.06); // rechts
+  }
+  ctx.fillStyle = '#2a303a';
+  roundRect(ctx, x + s * 0.14, y + s * 0.14, s * 0.72, s * 0.72, s * 0.1);
+  ctx.fill();
+  ctx.fillStyle = '#23a455';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(x + s * (0.5 + side * 0.12), y + s * 0.5, s * 0.13, s * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = '#b6f5c8';
+  ctx.lineWidth = s * 0.035;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.5, y + s * 0.32);
+  ctx.lineTo(x + s * 0.5, y + s * 0.68);
+  for (const side of [-1, 1]) {
+    ctx.moveTo(x + s * (0.5 + side * 0.06), y + s * 0.42);
+    ctx.quadraticCurveTo(x + s * (0.5 + side * 0.2), y + s * 0.38, x + s * (0.5 + side * 0.16), y + s * 0.5);
+    ctx.moveTo(x + s * (0.5 + side * 0.06), y + s * 0.6);
+    ctx.quadraticCurveTo(x + s * (0.5 + side * 0.2), y + s * 0.64, x + s * (0.5 + side * 0.18), y + s * 0.56);
+  }
+  ctx.stroke();
+}
+
 const ICONS = {
-  trophy: iconTrophy, server: iconServer, cloud: iconCloud,
+  trophy: iconTrophy, server: iconServer, cloud: iconCloud, ai: iconAI,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
   wood: iconWood, snake: iconSnake,

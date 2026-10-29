@@ -47,6 +47,7 @@ import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { RentalAutomation } from './core/rental-automation.js';
 import { AIService } from './core/ai-service.js';
+import { createAdvisor } from './core/ai-advisor.js';
 import { Visitors, clockText, starsText } from './core/visitors.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
@@ -92,6 +93,8 @@ const aiService = new AIService({ economy, servers, climate });
 // Besuchergruppe: einmal am Tag, ein Azubi führt sie herum (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
 const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService };
+// KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
+const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -725,6 +728,8 @@ const shop = createShop(economy, {
   servers,
   rentals, // Server-Vermietung (VM-Anfragen, Verträge)
   rentalAutomation, // automatische Vergabe durch die privaten Server: Schalter und Status in der App
+  ai: aiService, // App „KI“: Stufe, KI-GPU-Server online, KI-Abo
+  advisor, // Antworten im KI-Chat (core/ai-advisor.js)
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
   freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
@@ -743,6 +748,7 @@ const rackPanel = createRackPanel({
   climate,
   automation, // Klima-Automatik: Anzeige, Schalter „Automatik an/aus“
   rentals, // VM-Auslastung je Server (core/server-rentals.js)
+  ai: aiService, // KI-GPU-Server: rechnet für die KI oder warum nicht (überhitzt)
   onClose: () => {
     if (gameOver) return;
     title.showResume();
