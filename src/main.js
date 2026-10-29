@@ -12,6 +12,7 @@ import { Staff } from './core/staff.js';
 import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
+import { euro } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
@@ -43,6 +44,7 @@ import { Servers } from './core/servers.js';
 import { ServerClimate } from './core/server-climate.js';
 import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
+import { RentalAutomation } from './core/rental-automation.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -81,7 +83,8 @@ const automation = new ClimateAutomation(climate, servers); // Server auf den gr
 // VMs an Kunden vermieten – einzige Einnahmequelle der Server
 const rentals = new ServerRentals(economy, servers, upgrades);
 rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals };
+const rentalAutomation = new RentalAutomation(rentals); // Server in der orangen Reihe vergeben VM-Anfragen selbst
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -265,8 +268,12 @@ const customers = createCustomers({
   orders,
   onEvent: (type, d) => {
     if (type === 'arrived' && d.request) {
-      // Server-Kunde: angenommen wird am PC (Serverwahl), nicht am Tresen
-      hud.notify(`💻 ${d.customer} möchte eine VM mieten (${d.request.ram} GB · ${d.request.cores} Cores) – am PC in „Server-Vermietung“ annehmen`, 'info');
+      // Server-Kunde: angenommen wird am PC (Serverwahl) oder – mit privatem Server – automatisch, nicht am Tresen
+      rentals.markArrived(d.request.id);
+      const vm = `${d.customer} möchte eine VM mieten (${d.request.ram} GB · ${d.request.cores} Cores)`;
+      hud.notify(rentalAutomation.isActive()
+        ? `💻 ${vm} – die privaten Server kümmern sich darum`
+        : `💻 ${vm} – am PC in „Server-Vermietung“ annehmen`, 'info');
       sound.play('pop');
     } else if (type === 'arrived') {
       const greeter = staff.receptionist?.name;
@@ -439,6 +446,23 @@ rentals.onEvent = (type, d) => {
   } else if (type === 'rental-cancelled') {
     hud.notify(`⚠️ ${d.vm.customer} hat gekündigt – Server war zu lange offline`, 'bad');
     sound.play('warn');
+  }
+};
+// Automatische Vergabe durch die privaten Server: vergeben, passt nirgends, gestoppt bzw. wieder aktiv
+const placeText = (label) => label.replace(/^🔒 /, '');
+rentalAutomation.onEvent = (type, d) => {
+  if (type === 'assigned') {
+    hud.notify(`🤖 VM für ${d.request.customer} automatisch auf ${d.server.type.name} (${placeText(d.rackLabel)}) vergeben · +${euro.format(d.rent)} / h`, 'good');
+    sound.play('pop');
+  } else if (type === 'no-fit') {
+    hud.notify(`⚠️ Automatische Vergabe: VM für ${d.request.customer} (${d.request.ram} GB · ${d.request.cores} Cores) passt auf keinen Server – bitte selbst zuweisen`, 'bad');
+    sound.play('warn');
+  } else if (type === 'stopped') {
+    hud.notify('⚠️ Automatische Vergabe gestoppt – kein privater Server online', 'bad');
+    sound.play('warn');
+  } else if (type === 'active') {
+    hud.notify(`🤖 Automatische Vergabe aktiv – ${d.server.type.name} (${placeText(d.rackLabel)}) vergibt die VM-Anfragen`, 'good');
+    sound.play('pop');
   }
 };
 const CLIMATE_MESSAGES = {
@@ -654,6 +678,7 @@ const shop = createShop(economy, {
   upgrades,
   servers,
   rentals, // Server-Vermietung (VM-Anfragen, Verträge)
+  rentalAutomation, // automatische Vergabe durch die privaten Server: Schalter und Status in der App
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
   freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
@@ -911,6 +936,7 @@ renderer.setAnimationLoop(() => {
       climate.advance(gameMinutes);
       automation.advance(gameMinutes); // nach dem Klima: regelt mit den neuen Temperaturen
       rentals.advance(gameMinutes);
+      rentalAutomation.advance(gameMinutes); // vergibt Anfragen, deren Kunde am Empfang steht
       gameClock.advance(gameMinutes);
       checkBankrupt();
     });

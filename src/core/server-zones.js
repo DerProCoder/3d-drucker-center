@@ -44,6 +44,9 @@ export const isAutomationSpot = (spot) => spotZone(spot) === 'automation';
 
 // Aufgestellter Schrank (economy.furniture, location 'server') auf einem privaten Platz – auch Automatik-Plätze
 export const isPrivateRack = (rack) => rack?.location === 'server' && isPrivateSpot(rack.slot);
+// Aufgestellter Schrank in der orangen Reihe „Private Server“ (ohne Automatik-Reihe) – vergibt VM-Anfragen
+// (core/rental-automation.js)
+export const isPrivateRowRack = (rack) => rack?.location === 'server' && spotZone(rack.slot) === 'private';
 // Aufgestellter Schrank auf einem der grünen Automatik-Plätze
 export const isAutomationRack = (rack) => rack?.location === 'server' && isAutomationSpot(rack.slot);
 

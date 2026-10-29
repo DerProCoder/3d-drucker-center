@@ -1,5 +1,6 @@
 // PC-App „Server-Vermietung“: Anfragen der Kunden am Empfang (VM mit RAM und Cores), Serverwahl und Auslastung.
-// Der Spieler wählt für jede Anfrage selbst einen Server – keine automatische Zuteilung. Unpassende Server (offline,
+// Der Spieler wählt für jede Anfrage selbst einen Server – oder die privaten Server vergeben automatisch
+// (core/rental-automation.js, oben Schalter und Status, 🤖 an automatisch vergebenen VMs). Unpassende Server (offline,
 // zu wenig frei, privat) sind ausgegraut mit Grund. Darunter je Server zwei Balken (RAM, Cores) und die laufenden
 // Verträge. Die Logik steckt in core/server-rentals.js, hier wird nur angezeigt und weitergereicht.
 import { CANCEL_AFTER_OFFLINE, RENT_PER_CORE, RENT_PER_GB } from '../core/server-rentals.js';
@@ -14,7 +15,8 @@ const VMS_VISIBLE = 4;
 const percent = (used, total) => Math.min(100, Math.round((used / total) * 100));
 
 // economy: core/economy.js · servers: core/servers.js · rentals: core/server-rentals.js
-export function createServerRentalApp({ economy, servers, rentals }) {
+// automation: core/rental-automation.js (fehlt es, gibt es keinen Schalter für die automatische Vergabe)
+export function createServerRentalApp({ economy, servers, rentals, automation = null }) {
   const chosen = new Map(); // Anfrage-ID → gewählte Server-ID (bleibt beim Neuzeichnen erhalten)
 
   // „Reihe A · Platz 3 · HE 5“ (bzw. „🔒 Privat · Platz 2“ …) – Stellplatz wie im Schrankfenster, damit man gleiche
@@ -32,6 +34,24 @@ export function createServerRentalApp({ economy, servers, rentals }) {
     const why = server && servers.isPrivateDevice(server) ? 'privater Server' : 'Server offline';
     return `⚠ ${why} – Kunde kündigt in ca. ${realTime(Math.max(0, CANCEL_AFTER_OFFLINE - vm.offlineFor))}`;
   };
+
+  // Statuszeile der automatischen Vergabe: wer vergibt, oder warum nicht
+  function autoText(reached) {
+    const { state, server, rackLabel } = automation.status(reached);
+    if (state === 'off') return { text: '✋ Automatische Vergabe aus – du vergibst die VMs selbst', on: false };
+    if (state === 'active') return { text: `🤖 Automatische Vergabe aktiv über ${server.type.name}, ${rackLabel.replace('🔒 ', '')}`, on: true };
+    return { text: 'Automatische Vergabe: kein privater Server online – Server in einen Schrank der orangen Reihe „Private Server“ einbauen und online bringen', on: false };
+  }
+
+  function autoRow(reached) {
+    if (!automation) return '';
+    const { text, on } = autoText(reached);
+    return `
+      <div class="rack-auto rental-auto">
+        <span data-rental-auto-text class="${on ? 'on' : ''}">${text}</span>
+        <button class="secondary small" data-rental-auto>${automation.enabled ? 'Automatische Vergabe aus' : 'Automatische Vergabe an'}</button>
+      </div>`;
+  }
 
   // Gewählter Server einer Anfrage, nur wenn die VM dort (noch) passt
   function validChoice(request, reached) {
@@ -92,7 +112,7 @@ export function createServerRentalApp({ economy, servers, rentals }) {
     const danger = !online && vm.offlineFor >= CANCEL_AFTER_OFFLINE * DANGER_SHARE;
     return `
       <li class="rental-vm" data-vm="${vm.id}">
-        <span><b>${vm.customer}</b></span>
+        <span>${vm.auto ? '<span title="automatisch vergeben">🤖</span> ' : ''}<b>${vm.customer}</b></span>
         <span>${vm.ram} GB · ${vm.cores} Cores</span>
         <span>${euro.format(rentals.rentPerHour(vm, server))} / h</span>
         <span data-left>${leftText(vm)}</span>
@@ -133,14 +153,15 @@ export function createServerRentalApp({ economy, servers, rentals }) {
   function render() {
     const reached = servers.reachable();
     const list = rentals.rentableServers;
-    const intro = `
+    const intro = `${autoRow(reached)}
       <p class="slots">☁️ VMs: <strong>${rentals.vms.length}</strong>
         · Miete <strong>${euro.format(rentals.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
         · Online: ${servers.onlineServers.length} / ${list.length} Server</p>
       <p class="slots">Kunden kommen mit ihrem Wunsch zum <strong>Empfang</strong>. Wähl für jede Anfrage einen Server mit genug
         freiem RAM und freien Cores und klick auf <strong>Vermieten</strong>. Die Miete kommt jede Spielstunde, solange der
         Server online ist: (${euro.format(RENT_PER_GB)} × GB + ${euro.format(RENT_PER_CORE)} × Cores) × Mietfaktor des Servers.
-        Ist ein Server zu lange am Stück offline (${realTime(CANCEL_AFTER_OFFLINE)}), kündigt der Kunde.</p>`;
+        Ist ein Server zu lange am Stück offline (${realTime(CANCEL_AFTER_OFFLINE)}), kündigt der Kunde.
+        ${automation ? 'Läuft ein Server in der orangen Reihe „Private Server“, vergibt er die Anfragen automatisch (🤖) – solange er noch nicht zugegriffen hat, kannst du trotzdem selbst vergeben.' : ''}</p>`;
     const requests = rentals.requests.length
       ? `<div class="grid rental-requests">${rentals.requests.map((r) => requestCard(r, list, reached)).join('')}</div>`
       : `<p class="empty">${rentals.requestsPossible ? 'Gerade keine Anfragen. Neue Kunden melden sich bald.'
@@ -155,6 +176,13 @@ export function createServerRentalApp({ economy, servers, rentals }) {
 
   // Restzeiten laufen mit, ohne das Fenster neu aufzubauen
   function liveUpdate(container) {
+    // Status der automatischen Vergabe (privater Server fällt aus oder kommt online, ohne dass sich Verträge ändern)
+    const autoEl = automation && container.querySelector('[data-rental-auto-text]');
+    if (autoEl) {
+      const { text, on } = autoText();
+      if (autoEl.textContent !== text) autoEl.textContent = text;
+      autoEl.className = on ? 'on' : '';
+    }
     for (const el of container.querySelectorAll('[data-request]')) {
       const request = rentals.requestById(Number(el.dataset.request));
       if (request) el.querySelector('[data-wait]').textContent = waitText(request);
@@ -170,6 +198,10 @@ export function createServerRentalApp({ economy, servers, rentals }) {
 
   // Gibt { message, render } zurück: message für die Erfolgsmeldung (oder null), render = neu zeichnen nötig
   function handleClick(e) {
+    if (automation && e.target.closest('[data-rental-auto]')) {
+      automation.setEnabled(!automation.enabled);
+      return { message: `Automatische Vergabe ${automation.enabled ? 'an' : 'aus'}`, render: true };
+    }
     const pick = e.target.closest('[data-pick]')?.dataset.pick;
     if (pick) {
       const [requestId, serverId] = pick.split(':').map(Number);

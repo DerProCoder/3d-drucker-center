@@ -1,5 +1,6 @@
 // Server-Vermietung wie bei einem Hyperscaler: Kunden kommen mit VM-Wünschen (RAM und Cores) zum Empfang, der
-// Spieler wählt selbst einen Server mit genug freiem Platz und nimmt an. Jeder Server hat SERVER_RAM GB und
+// Spieler wählt selbst einen Server mit genug freiem Platz und nimmt an (oder die privaten Server vergeben
+// automatisch, core/rental-automation.js). Jeder Server hat SERVER_RAM GB und
 // SERVER_CORES Cores (core/server-catalog.js), die VMs darauf dürfen zusammen nicht mehr belegen.
 // Miete pro Spielstunde = (RENT_PER_GB × GB + RENT_PER_CORE × Cores) × rentFactor des Servers, gezahlt zu jeder vollen
 // Spielstunde für jede VM, deren Server gerade online ist. Ein Vertrag läuft eine feste Zeit; ist sein Server zu
@@ -8,9 +9,11 @@
 // Zeiten in Spielminuten (Delta-Zeit). Ohne Three.js und DOM.
 //
 // Anfrage: { id, customer, note, ram (GB), cores, duration (Spielminuten Vertragslaufzeit), waitLeft (Spielminuten,
-//            die der Kunde am Empfang noch wartet) }
+//            die der Kunde am Empfang noch wartet), atCounter (Kunde ist am Empfang angekommen – markArrived; wird
+//            nicht gespeichert, nach dem Laden kommt der Kunde neu herein) }
 // VM (laufender Vertrag): { id, customer, note, ram, cores, serverId, duration, minutesLeft (Restlaufzeit),
-//            offlineFor (Spielminuten, die der Server gerade am Stück offline ist) }
+//            offlineFor (Spielminuten, die der Server gerade am Stück offline ist), auto (true: von den privaten
+//            Servern automatisch vergeben, core/rental-automation.js) }
 import { SERVER_CORES, SERVER_RAM } from './server-catalog.js';
 
 export const NEW_REQUEST_EVERY = 60;      // Spielminuten zwischen zwei Anfragen (echt ca. 3 min) …
@@ -162,15 +165,26 @@ export class ServerRentals {
 
   // ---------- Annehmen ----------
 
+  // Kunde der Anfrage ist am Empfang angekommen (main.js beim 'arrived' aus world/customers.js) – erst dann vergibt
+  // die automatische Vergabe (core/rental-automation.js). Gibt false zurück, wenn es die Anfrage nicht (mehr) gibt.
+  markArrived(requestId) {
+    const request = this.requestById(requestId);
+    if (!request) return false;
+    request.atCounter = true;
+    return true;
+  }
+
   // Anfrage auf dem gewählten Server annehmen: { ok: true, vm } oder { ok: false, reason }
-  acceptRequest(requestId, serverId) {
+  // auto: von der automatischen Vergabe (die VM bekommt das Kennzeichen vm.auto, die App zeigt 🤖)
+  acceptRequest(requestId, serverId, { auto = false } = {}) {
     const request = this.requestById(requestId);
     if (!request) return { ok: false, reason: 'Anfrage gibt es nicht mehr' };
     const server = this.economy.furnitureById(serverId);
     const reason = this.fitsOn(request, server);
     if (reason) return { ok: false, reason };
-    const { waitLeft, ...rest } = request;
+    const { waitLeft, atCounter, ...rest } = request;
     const vm = { ...rest, serverId: server.id, minutesLeft: request.duration, offlineFor: 0 };
+    if (auto) vm.auto = true;
     this.requests = this.requests.filter((r) => r !== request);
     this.vms.push(vm);
     this.onEvent?.('accepted', { request, vm, server });
@@ -285,7 +299,7 @@ export class ServerRentals {
 
   toJSON() {
     return {
-      requests: this.requests.map((r) => ({ ...r })),
+      requests: this.requests.map(({ atCounter, ...r }) => r), // nach dem Laden kommt der Kunde neu herein
       vms: this.vms.map((v) => ({ ...v })),
       nextId: this.nextId,
       untilNext: this.untilNext,
@@ -294,7 +308,7 @@ export class ServerRentals {
 
   // Ohne Daten (alte Spielstände): keine Anfragen, keine Mieter – alle Server sind frei
   load(data) {
-    this.requests = (data?.requests ?? []).map((r) => ({ ...r }));
+    this.requests = (data?.requests ?? []).map(({ atCounter, ...r }) => r);
     // Verträge auf Servern, die es nicht mehr gibt, verwerfen
     this.vms = (data?.vms ?? [])
       .filter((v) => this.economy.furnitureById(v.serverId)?.type.kind === 'server')

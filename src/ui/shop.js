@@ -58,11 +58,12 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // orders: Kundenaufträge (orders.js), achievements: Erfolge (achievements.js), cam: Drucker-Cam (printer-cam.js)
 // upgrades: Hallen-Ausbau (upgrades.js)
 // staff: Personal (staff.js), staffStatus(id): was ein Mitarbeiter gerade tut
+// rentalAutomation: automatische Vergabe der VM-Anfragen (core/rental-automation.js) – Schalter in „Server-Vermietung“
 // Ein/Aus-Symbol als SVG – das Zeichen ⏻ fehlt in vielen Schriften und erschien als Kästchen
 const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
 
 export function createShop(economy, {
-  orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, freePrinterSlots, freeShelfSpace, onClose,
+  orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, rentalAutomation = null, freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
   const root = document.createElement('div');
@@ -114,7 +115,7 @@ export function createShop(economy, {
   const calc = createCalcApp();
   const snake = createSnakeApp();
   const serverShop = createServerShop({ economy, servers, upgrades, rentals });
-  const rentalApp = createServerRentalApp({ economy, servers, rentals });
+  const rentalApp = createServerRentalApp({ economy, servers, rentals, automation: rentalAutomation });
 
   function buyButton(id, blockedReason) {
     return blockedReason

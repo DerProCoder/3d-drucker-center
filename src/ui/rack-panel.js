@@ -2,7 +2,8 @@
 // ihren Ports (nur Anzeige: wer woran hängt – gesteckt wird hinten am Schrank, world/server-room.js). Server zeigen,
 // ob sie online sind und warum nicht. Freie Höheneinheiten stehen als Lücken dazwischen, ▲ / ▼ verschiebt ein Gerät.
 // Geräte lassen sich ausbauen (Karton zurück in den Abstellraum; laufen auf einem Server VMs, erst nach einem zweiten
-// Klick), ein leerer Schrank abbauen. Die Kopfzeile nennt den Stellplatz (Reihe A/B, 🔒 Privat, 🌡️ Automatik-Platz).
+// Klick), ein leerer Schrank abbauen. Die Kopfzeile nennt den Stellplatz (Reihe A/B, 🔒 Privat · 🤖 Vergabe-Server,
+// 🌡️ Automatik-Platz).
 // Klima (core/server-climate.js): oben Regler für Zu- und Abluft des Schranks, je Gerät Temperatur und Lüfterregler,
 // Reparieren bzw. Neustarten nach Ausfall. Die Temperaturen laufen live mit, ohne das Fenster neu aufzubauen.
 // Klima-Automatik (core/climate-automation.js): Kopfzeile nennt den regelnden Automatik-Server, Schalter „Automatik an/aus“.
@@ -10,7 +11,7 @@
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
-import { spotLabel } from '../core/server-zones.js';
+import { isPrivateRowRack, spotLabel } from '../core/server-zones.js';
 import { CABLE_COLOR } from '../models/server-hardware.js';
 import { euro, meters } from '../core/format.js';
 
@@ -212,7 +213,8 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
       close();
       return;
     }
-    titleEl.textContent = `${rack.type.name} · ${spotLabel(rack.slot)}`;
+    // Orange Reihe: die Server darin vergeben VM-Anfragen automatisch (core/rental-automation.js)
+    titleEl.textContent = `${rack.type.name} · ${spotLabel(rack.slot)}${isPrivateRowRack(rack) ? ' · 🤖 Vergabe-Server' : ''}`;
     const reached = servers.reachable();
     const devices = servers.devicesIn(rack.id);
     const usedUnits = devices.reduce((sum, d) => sum + d.type.units, 0);

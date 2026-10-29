@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -13,7 +13,9 @@ const KEY = 'druckercenter-save';
 // 13: Schalter „Automatik an/aus“ je Serverschrank (climate.racks[].auto, core/climate-automation.js)
 // 14: Internet nur über den Wandanschluss, Kabel zwischen Schränken über das Kabelgitter (cables[].tray, Enden
 //     { id: 'wan', port }, core/cable-tray.js) und einmalige Nachricht für alte Stände (servers.wanNotice)
-const VERSION = 14;
+// 15: Schalter „Automatische Vergabe an/aus“ der privaten Server (rentalAutomation.enabled, core/rental-automation.js),
+//     automatisch vergebene VMs mit Kennzeichen (rentals.vms[].auto)
+const VERSION = 15;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -36,7 +38,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -126,6 +128,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     servers: servers?.toJSON(),
     climate: climate?.toJSON(), // Lüfter und Temperaturen im Serverraum (core/server-climate.js)
     rentals: rentals?.toJSON(), // VM-Anfragen und Mietverträge (core/server-rentals.js)
+    rentalAutomation: rentalAutomation?.toJSON(), // Schalter „Automatische Vergabe“ (core/rental-automation.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -161,7 +164,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -209,6 +212,12 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     const hasServers = (data.economy?.furniture ?? []).some((f) => f.location === 'server' || f.location === 'rack');
     if (hasServers) data.servers = { ...(data.servers ?? {}), wanNotice: true };
     data.version = 14;
+  }
+  // Version 14 kennt noch keine automatische Vergabe der VM-Anfragen: fehlt der Schalter, ist sie an. Bisherige VMs
+  // hat der Spieler selbst vergeben (kein Kennzeichen vm.auto)
+  if (data?.version === 14) {
+    data.rentalAutomation ??= { enabled: true };
+    data.version = 15;
   }
   if (data?.version !== VERSION) return false;
 
@@ -288,6 +297,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   servers?.load(data.servers);
   climate?.load(data.climate);
   rentals?.load(data.rentals); // nach servers/economy: Verträge auf fehlenden Servern fallen weg
+  rentalAutomation?.load(data.rentalAutomation);
   economy.notify();
   orders.notify();
   progress.notify();
