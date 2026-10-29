@@ -373,6 +373,8 @@ export function createShop(economy, {
     windowEl.classList.toggle('small', !!info.small);
     balanceEl.textContent = !info.live ? '' : economy.unlimited ? '∞ €' : euro.format(economy.money);
     const scroll = contentEl.scrollTop;
+    // Eigene Scrollbereiche der App (z. B. VM-Liste je Server): Position je Schlüssel über das Neuzeichnen retten
+    const inner = new Map([...contentEl.querySelectorAll('[data-keep-scroll]')].map((el) => [el.dataset.keepScroll, el.scrollTop]));
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
@@ -393,6 +395,9 @@ export function createShop(economy, {
     }
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     if (app === 'snake') snake.attach(contentEl.querySelector('[data-snake]'));
+    for (const el of contentEl.querySelectorAll('[data-keep-scroll]')) {
+      if (inner.has(el.dataset.keepScroll)) el.scrollTop = inner.get(el.dataset.keepScroll);
+    }
     contentEl.scrollTop = scroll;
     const input = focus && contentEl.querySelector(`[data-keep-focus="${focus.key}"]`);
     if (input) {
@@ -463,6 +468,7 @@ export function createShop(economy, {
   function openApp(id) {
     app = id;
     contentEl.scrollTop = 0;
+    for (const el of contentEl.querySelectorAll('[data-keep-scroll]')) el.scrollTop = 0; // frisch geöffnet: Listen oben
     render();
   }
 

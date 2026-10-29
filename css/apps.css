@@ -231,7 +231,30 @@
 .rental-meter { display: grid; grid-template-columns: 48px 1fr 92px; align-items: center; gap: 8px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .rental-meter .progress { margin-top: 0; height: 8px; }
 .rental-meter span:last-child { text-align: right; opacity: 0.8; }
-.rental-vms { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+/* Server-Karten nicht auf die Höhe der längsten in der Reihe strecken */
+.rental-hosts { align-items: start; }
+/* VM-Liste: höchstens etwa 4 Zeilen hoch, darüber scrollt nur die Liste (Kopf mit Balken und Fuß bleiben stehen).
+   Schatten oben/unten zeigen, dass es dort weitergeht; die „local“-Verläufe decken sie am jeweiligen Ende ab. */
+.rental-vms {
+  flex: none;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 202px; /* genau 4 Zeilen (je ca. 46 px) plus 3 Abstände */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4a5160 transparent;
+  background:
+    linear-gradient(#2a2e36 30%, rgba(42, 46, 54, 0)) top / 100% 24px no-repeat local,
+    linear-gradient(rgba(42, 46, 54, 0), #2a2e36 70%) bottom / 100% 24px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.55), transparent) top / 100% 10px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.55), transparent) bottom / 100% 10px no-repeat scroll;
+}
+.rental-vms > .rental-vm { flex: none; }
+.rental-more { opacity: 0.75; }
 .rental-vm {
   display: flex;
   flex-wrap: wrap;

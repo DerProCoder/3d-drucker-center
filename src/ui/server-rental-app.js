@@ -8,6 +8,8 @@ import { euro, realTime } from '../core/format.js';
 
 // Ab so viel Offline-Zeit (Anteil an CANCEL_AFTER_OFFLINE) wird die Warnung rot
 const DANGER_SHARE = 0.5;
+// So viele VM-Zeilen zeigt die Liste einer Server-Karte ohne Scrollen (Höhe von .rental-vms in css/apps.css)
+const VMS_VISIBLE = 4;
 
 const percent = (used, total) => Math.min(100, Math.round((used / total) * 100));
 
@@ -119,10 +121,10 @@ export function createServerRentalApp({ economy, servers, rentals }) {
         ${meter('RAM', rentals.usedRam(server), ram, ' GB')}
         ${meter('Cores', rentals.usedCores(server), cores, '')}
         ${vms.length
-          ? `<ul class="rental-vms">${vms.map((vm) => vmRow(vm, server, serving)).join('')}</ul>`
+          ? `<ul class="rental-vms" data-keep-scroll="rental-vms:${server.id}">${vms.map((vm) => vmRow(vm, server, serving)).join('')}</ul>`
           : '<p class="empty">Frei – noch keine VM.</p>'}
         <div class="card-foot">
-          <span class="stock">${vms.length} ${vms.length === 1 ? 'VM' : 'VMs'}</span>
+          <span class="stock">${vms.length} ${vms.length === 1 ? 'VM' : 'VMs'}${vms.length > VMS_VISIBLE ? ' <span class="rental-more">· Liste scrollt ↕</span>' : ''}</span>
           <span class="price">${euro.format(rentals.rentOn(server))} / h</span>
         </div>
       </div>`;
@@ -144,7 +146,7 @@ export function createServerRentalApp({ economy, servers, rentals }) {
       : `<p class="empty">${rentals.requestsPossible ? 'Gerade keine Anfragen. Neue Kunden melden sich bald.'
         : 'Noch keine Anfragen – Kunden kommen erst, wenn die zweite Etage steht und ein Server eingebaut ist.'}</p>`;
     const hosts = list.length
-      ? `<div class="grid">${list.map((s) => serverCard(s, reached)).join('')}</div>`
+      ? `<div class="grid rental-hosts">${list.map((s) => serverCard(s, reached)).join('')}</div>`
       : '<p class="empty">Noch kein Server eingebaut – im Server-Shop kaufen und in einen Schrank einbauen.</p>';
     return `${intro}
       <section><h3>Anfragen <span class="hint">älteste zuerst</span></h3>${requests}</section>
