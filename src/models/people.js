@@ -2,24 +2,28 @@
 // assets/people/. Jede Datei bringt ihre eigenen Animationen mit (Idle, Idle_Neutral, Walk, Run, Interact, Wave).
 // Sitzen, Tragen und Controller-Halten gibt es als Clip nicht – diese Posen setzt Person selbst über die Knochen,
 // jeweils nach dem Abspielen der Animation. Figuren werden erst geladen, wenn jemand sie braucht.
+// Für Menschenmengen (Besuchergruppen, world/visitors.js) gibt es eine sparsame Fassung: alle Teile einer Figur zu
+// einem Mesh zusammengefasst, Farben in den Ecken statt eigener Materialien, ein Material für alle, keine Schatten.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-// gender: 'm' | 'w' · roles: wofür die Figur passt (staff = Azubi, customer = Kunde, passer = Passant)
+// gender: 'm' | 'w' · roles: wofür die Figur passt (staff = Azubi, customer = Kunde, passer = Passant,
+// visitor = Besuchergruppe, pupil = auch als Schulkind, dann kleiner skaliert)
 export const PEOPLE = [
-  { id: 'casual-man', gender: 'm', roles: ['staff', 'customer', 'passer'] },
-  { id: 'hoodie-man', gender: 'm', roles: ['staff', 'customer', 'passer'] },
-  { id: 'punk-man', gender: 'm', roles: ['staff', 'passer'] },
-  { id: 'business-man', gender: 'm', roles: ['customer', 'passer'] },
+  { id: 'casual-man', gender: 'm', roles: ['staff', 'customer', 'passer', 'visitor', 'pupil'] },
+  { id: 'hoodie-man', gender: 'm', roles: ['staff', 'customer', 'passer', 'visitor', 'pupil'] },
+  { id: 'punk-man', gender: 'm', roles: ['staff', 'passer', 'visitor', 'pupil'] },
+  { id: 'business-man', gender: 'm', roles: ['customer', 'passer', 'visitor'] },
   { id: 'worker-man', gender: 'm', roles: ['customer', 'passer'] },
-  { id: 'farmer-man', gender: 'm', roles: ['customer', 'passer'] },
-  { id: 'beach-man', gender: 'm', roles: ['passer'] },
-  { id: 'casual-woman', gender: 'w', roles: ['staff', 'customer', 'passer'] },
-  { id: 'punk-woman', gender: 'w', roles: ['staff', 'customer', 'passer'] },
-  { id: 'formal-woman', gender: 'w', roles: ['customer', 'passer'] },
-  { id: 'suit-woman', gender: 'w', roles: ['customer', 'passer'] },
-  { id: 'worker-woman', gender: 'w', roles: ['customer', 'passer'] },
+  { id: 'farmer-man', gender: 'm', roles: ['customer', 'passer', 'visitor'] },
+  { id: 'beach-man', gender: 'm', roles: ['passer', 'visitor', 'pupil'] },
+  { id: 'casual-woman', gender: 'w', roles: ['staff', 'customer', 'passer', 'visitor', 'pupil'] },
+  { id: 'punk-woman', gender: 'w', roles: ['staff', 'customer', 'passer', 'visitor', 'pupil'] },
+  { id: 'formal-woman', gender: 'w', roles: ['customer', 'passer', 'visitor'] },
+  { id: 'suit-woman', gender: 'w', roles: ['customer', 'passer', 'visitor'] },
+  { id: 'worker-woman', gender: 'w', roles: ['customer', 'passer', 'visitor'] },
 ];
 
 export const peopleFor = (role, gender = null) => PEOPLE.filter((p) => p.roles.includes(role) && (!gender || p.gender === gender));
@@ -48,6 +52,124 @@ export async function createPerson(id) {
   return new Person(await load(id));
 }
 
+// ---------- Menschenmenge: zusammengefasste Figuren ----------
+
+// Ein Material für alle Figuren einer Menge – die Farben stecken in den Ecken. Matt wie bei Person.
+const crowdMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0, roughness: 0.85 });
+const crowdTemplates = new Map(); // id → Promise<{ scene, animations }>
+const crowdReady = new Map();     // id → { scene, animations }, sobald fertig
+
+// Alle Teile einer Figur (je Material ein SkinnedMesh, teils mit eigenem Skelett) zu einem SkinnedMesh mit einem
+// Skelett zusammenfassen: ein Draw Call statt zehn, ein Knochensatz statt vier. Die Farbe des Materials wandert in die
+// Ecken. Geometrie und Material teilen sich danach alle Kopien.
+function mergeFigure(gltf) {
+  const scene = SkeletonUtils.clone(gltf.scene);
+  const meshes = [];
+  scene.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+  const bones = [];
+  const inverses = [];
+  const parts = [];
+  for (const mesh of meshes) {
+    // Knochen dieses Teils auf den gemeinsamen Knochensatz abbilden
+    // Teile können in einer anderen Ruhelage gebunden sein (andere Inverse je Knochen). Unterscheiden sie sich für alle
+    // Knochen um dieselbe Verschiebung/Drehung, wird die Geometrie des Teils einfach mit umgerechnet.
+    const ownInverses = mesh.skeleton.boneInverses;
+    let offset = null; // Ruhelage des Teils → gemeinsame Ruhelage
+    const map = mesh.skeleton.bones.map((bone, i) => {
+      let k = bones.indexOf(bone);
+      if (k < 0) {
+        k = bones.push(bone) - 1;
+        inverses.push(ownInverses[i].clone());
+      } else {
+        offset ??= inverses[k].clone().invert().multiply(ownInverses[i]);
+      }
+      return k;
+    });
+    const src = mesh.geometry;
+    const n = src.attributes.position.count;
+    if (offset) {
+      // Nur Knochen prüfen, die das Teil wirklich bewegen
+      const check = new THREE.Matrix4();
+      const used = new Set();
+      const si0 = src.attributes.skinIndex;
+      const sw0 = src.attributes.skinWeight;
+      for (let v = 0; v < n; v++) {
+        for (let c = 0; c < 4; c++) if (sw0.getComponent(v, c) > 0) used.add(si0.getComponent(v, c));
+      }
+      for (const i of used) {
+        check.copy(inverses[map[i]]).invert().multiply(ownInverses[i]);
+        if (check.elements.some((e, j) => Math.abs(e - offset.elements[j]) > 1e-3)) {
+          throw new Error('Figur lässt sich nicht zusammenfassen (Ruheposen verschieden)');
+        }
+      }
+    }
+    const part = new THREE.BufferGeometry();
+    part.setAttribute('position', src.attributes.position.clone());
+    part.setAttribute('normal', src.attributes.normal.clone());
+    const skinIndex = new Uint16Array(n * 4);
+    const skinWeight = new Float32Array(n * 4);
+    const si = src.attributes.skinIndex;
+    const sw = src.attributes.skinWeight;
+    for (let v = 0; v < n; v++) {
+      skinIndex.set([map[si.getX(v)], map[si.getY(v)], map[si.getZ(v)], map[si.getW(v)]], v * 4);
+      skinWeight.set([sw.getX(v), sw.getY(v), sw.getZ(v), sw.getW(v)], v * 4);
+    }
+    part.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+    part.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+    const colors = new Float32Array(n * 3);
+    const c = mesh.material.color;
+    const own = mesh.material.vertexColors ? src.attributes.color : null;
+    for (let v = 0; v < n; v++) {
+      colors.set(own ? [c.r * own.getX(v), c.g * own.getY(v), c.b * own.getZ(v)] : [c.r, c.g, c.b], v * 3);
+    }
+    part.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    if (src.index) part.setIndex(src.index.clone());
+    part.applyMatrix4(offset ? offset.multiply(mesh.bindMatrix) : mesh.bindMatrix); // in die gemeinsame Ruhelage
+    parts.push(part);
+  }
+  const indexed = parts.every((p) => p.index);
+  const geometry = mergeGeometries(indexed ? parts : parts.map((p) => (p.index ? p.toNonIndexed() : p)));
+  for (const mesh of meshes) mesh.removeFromParent();
+  const merged = new THREE.SkinnedMesh(geometry, crowdMaterial);
+  merged.name = 'crowd-figure';
+  scene.add(merged);
+  scene.updateMatrixWorld(true);
+  merged.bind(new THREE.Skeleton(bones, inverses), new THREE.Matrix4());
+  // Hülle einmal hier berechnen (wie in Person: großzügig) – Kopien übernehmen sie
+  merged.skeleton.update();
+  merged.computeBoundingSphere();
+  merged.boundingSphere.radius *= 2;
+  return { scene, animations: gltf.animations };
+}
+
+// Zusammengefasste Figuren laden (z. B. vor der Ankunft einer Besuchergruppe), damit es dann nicht ruckelt
+export function loadCrowd(ids) {
+  return Promise.all(ids.map((id) => {
+    if (!crowdTemplates.has(id)) {
+      const promise = load(id).then((gltf) => {
+        let template;
+        try {
+          template = mergeFigure(gltf);
+        } catch (err) {
+          console.warn(`: Figur nicht zusammengefasst`, err);
+          template = gltf;
+        }
+        crowdReady.set(id, template);
+        return template;
+      });
+      crowdTemplates.set(id, promise);
+    }
+    return crowdTemplates.get(id);
+  }));
+}
+
+// Figur für eine Menschenmenge sofort anlegen (null, solange loadCrowd sie noch nicht fertig hat): geteilte Geometrie
+// und geteiltes Material, wirft keine Schatten
+export function crowdPerson(id) {
+  const template = crowdReady.get(id);
+  return template ? new Person(template, { shared: true, shadows: false }) : null;
+}
+
 const FADE = 0.25; // s Überblendung zwischen zwei Animationen
 const OFFSCREEN_STEP = 0.2; // s – so oft wird eine Figur außerhalb des Bildes weiterbewegt
 const _a = new THREE.Vector3();
@@ -74,7 +196,8 @@ function pointBone(bone, end, dir) {
 }
 
 export class Person {
-  constructor(gltf) {
+  // shared: Geometrie und Material nicht kopieren (Menschenmenge, siehe crowdPerson) · shadows: wirft Schatten
+  constructor(gltf, { shared = false, shadows = true } = {}) {
     this.object = new THREE.Group();     // Ursprung zwischen den Füßen, Blick nach +z
     this.body = SkeletonUtils.clone(gltf.scene);
     this.object.add(this.body);
@@ -83,16 +206,17 @@ export class Person {
     this.pendingDt = 0;     // aufgesparte Zeit, solange die Animation pausiert
     this.body.traverse((o) => {
       if (o.isMesh) {
-        o.castShadow = true;
+        o.castShadow = shadows;
         o.receiveShadow = true;
         // Animierte Figuren ragen aus der Hülle ihrer Ruhepose heraus – die Hülle großzügig vergrößern, statt
         // die Figur immer zu zeichnen (auch hinter Wänden und hinter dem Rücken des Spielers)
-        if (o.isSkinnedMesh) {
+        if (o.isSkinnedMesh && !(shared && o.boundingSphere)) {
           o.skeleton.update();
           o.computeBoundingSphere();
           o.boundingSphere.radius *= 2;
         }
         o.onBeforeRender = () => { this.lastSeen = performance.now(); };
+        if (shared) return;
         // Die Dateien bringen halb metallische Materialien mit – Haut und Stoff sollen matt sein, nicht glänzen
         o.material = o.material.clone();
         o.material.metalness = 0;

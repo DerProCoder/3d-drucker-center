@@ -1,6 +1,6 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -15,7 +15,8 @@ const KEY = 'druckercenter-save';
 //     { id: 'wan', port }, core/cable-tray.js) und einmalige Nachricht für alte Stände (servers.wanNotice)
 // 15: Schalter „Automatische Vergabe an/aus“ der privaten Server (rentalAutomation.enabled, core/rental-automation.js),
 //     automatisch vergebene VMs mit Kennzeichen (rentals.vms[].auto)
-const VERSION = 15;
+// 16: Besuchergruppen (core/visitors.js) – Termin der heutigen Gruppe und die letzten Bewertungen
+const VERSION = 16;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -38,7 +39,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -129,6 +130,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     climate: climate?.toJSON(), // Lüfter und Temperaturen im Serverraum (core/server-climate.js)
     rentals: rentals?.toJSON(), // VM-Anfragen und Mietverträge (core/server-rentals.js)
     rentalAutomation: rentalAutomation?.toJSON(), // Schalter „Automatische Vergabe“ (core/rental-automation.js)
+    visitors: visitors?.toJSON(), // Termin der Besuchergruppe und letzte Bewertungen (core/visitors.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -164,7 +166,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -218,6 +220,12 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 14) {
     data.rentalAutomation ??= { enabled: true };
     data.version = 15;
+  }
+  // Version 15 kennt noch keine Besuchergruppen: kein Termin, keine Bewertungen – visitors.load ohne Daten plant
+  // für heute noch eine Gruppe, wenn es vor 16 Uhr ist und ein Azubi da ist
+  if (data?.version === 15) {
+    data.visitors ??= null;
+    data.version = 16;
   }
   if (data?.version !== VERSION) return false;
 
@@ -310,6 +318,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
   clock.notify();
   staff?.notify();
+  // Nach staff: eine laufende Führung wird nicht fortgesetzt, der Azubi ist frei, ein angekündigter Termin bleibt
+  visitors?.load(data.visitors);
   return true;
 }
 

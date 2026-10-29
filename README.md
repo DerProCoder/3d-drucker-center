@@ -229,6 +229,16 @@ Ohne Arbeit gehen sie in ihr **Büro** hinter der Ostwand (Tür mit dem Schild �
 
 Die Azubis sind echte animierte Menschen: Lea, Sophie und Aylin sind Frauen, Kevin, Mehmet und Finn Männer, und jeder sieht anders aus. Sie laufen in ihrem eigenen Tempo, drehen sich weich um, hantieren mit den Händen am Drucker, tragen Spulen vor dem Bauch, sitzen auf Stuhl und Couch und halten beim Zocken den Controller.
 
+## Besuchergruppen
+
+Einmal pro Spieltag kommt eine **Besuchergruppe** mit 40–50 Leuten, z. B. „Schulklasse 7b“, „Maker-Club Nord“ oder „Seniorenverein Abendrot“. Beim Tageswechsel gibt es die Ankündigung „🚌 Heute um 14:00 kommt eine Besuchergruppe: … (46 Personen)“ – die Uhrzeit liegt zufällig zwischen 9 und 16 Uhr.
+
+- **Azubi nötig:** Ein Azubi führt die Gruppe herum (die Empfangskraft nicht). Ohne Azubi kommt keine Gruppe – dann erscheint einmal am Tag „Für Besuchergruppen brauchst du einen Azubi (Personal-App)“. Stellst du bis 15:30 einen ein, kommt noch am selben Tag eine Gruppe. Während der Führung nimmt der Azubi keine Aufgaben an; in der App **Personal** steht dann „führt eine Besuchergruppe“. Entlässt du ihn mitten in der Führung, geht die Gruppe ohne Bewertung.
+- **Eintritt:** Am Empfang zahlt die Gruppe **15 € pro Person** („🎟️ Eintritt: 46 × 15 € = 690 €“).
+- **Rundgang:** Empfang → Druckhalle → Lager → **Serverraum** (nur, wenn die zweite Etage gebaut ist) → Ausgang. An jeder Station bleibt die Gruppe 3 Spielminuten stehen. Die Gruppe kommt über den Gehweg und sammelt sich auf der Wiese vor dem Eingang, dort holt der Azubi sie ab. Sie folgt ihm als lockere Traube, in Türen und auf der Treppe einzeln hintereinander; oben und unten an der Treppe wartet er, bis alle da sind. Besucher halten dich nicht auf – sie weichen dir aus, und die Kunden am Tresen werden weiter bedient.
+- **Bewertung:** In der Druckhalle zählt, wie viele Drucker gerade drucken; Fehldrucke, verstopfte Düsen, volle Mülleimer und Teile auf dem Boden geben Abzug. Im Serverraum zählt, wie viele Server online sind; defekte, eingefrorene und heiße Geräte (über 60 °C) geben Abzug. Eine Halle ohne Drucker bzw. ein Serverraum ohne Server zählt neutral. Am Ende gibt es 1–5 ★ („⭐ … bewertet euch mit ★★★★☆“) und **Bonus-XP**: 5 XP je Stern über 2 (4 ★ = 10 XP, 5 ★ = 15 XP). Eine schlechte Bewertung kostet nichts außer den XP. Die erste 5-Sterne-Führung schaltet einen Erfolg frei.
+- **Speichern:** Der Termin der heutigen Gruppe und die letzten 5 Bewertungen werden gespeichert. Eine laufende Führung wird beim Laden nicht fortgesetzt (der Eintritt ist schon bezahlt, die Gruppe gilt als gegangen, der Azubi ist wieder frei).
+
 ## Halle ausbauen
 
 Platz kostet Geld – Tische, Regalebenen, eine zweite Etage und einen Fahrstuhl kauft man in der PC-App **Ausbau**:
@@ -306,7 +316,8 @@ src/
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
     upgrades.js       Ausbau: Drucktische, Regalebenen, zweite Etage, Fahrstuhl
-    staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
+    staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken, Azubi für eine Führung reservieren
+    visitors.js       Besuchergruppen: täglicher Termin, Ablauf (Ankunft, Stationen, Ausgang), Eintritt, Bewertung, Bonus-XP
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung
     snake.js          Mini-Spiel Snake: Raster, Schlange, Spulen als Futter, Tempo
     snake-autopilot.js  Auto-Modus für Snake: Rundweg über alle Felder mit sicheren Abkürzungen
@@ -341,12 +352,13 @@ src/
     pedestrians.js    Passanten auf den Gehwegen
     reception.js      Einrichtung des Empfangs: Tresen, Wartestühle, Abholregal mit Paketen, Klick-Aktionen
     customers.js      Kunden als Figuren: kommen zum Tresen, warten, holen Pakete ab und zahlen
+    visitors.js       Besuchergruppe als Figuren: Garten, Rundgang hinter dem Azubi, Treppe, Stationen, Ausgang
     office.js         Büro der Azubis: Werkbank, Couch, Fernseher mit Konsole
     carry.js          Was der Spieler trägt: ein Karton, bis zu 5 Spulen, eine Düse oder bis zu 5 Holzplatten
     cat.js            Kater Düsentrieb
     throwing.js       Drucker werfen: Flugbahn, Aufprall, Treffer, Drucker auf dem Boden
     receptionist.js   Empfangskraft hinter dem Tresen: begrüßt Kunden, nimmt Aufträge an, kassiert
-    workers.js        Azubis als Figuren: Laufwege durch Halle, Lager und Büro, Arbeiten, Spule tragen, Sitzen, Zocken
+    workers.js        Azubis als Figuren: Laufwege durch Halle, Lager und Büro, Arbeiten, Spule tragen, Sitzen, Zocken, Führung
     interaction.js    Linksklick-Interaktion per Strahl aus der Bildmitte
     room-culling.js   Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
     collision.js      Kollision der Spielfigur
@@ -377,7 +389,7 @@ src/
     peripherals.js    Tastatur, Maus, Mauspad, Kabel
     office-furniture.js  Büromöbel: Werkbank, Bürostuhl, Couch, Lowboard, Fernseher, Konsole, Controller, Pflanze
     merge-static.js   Unbewegliche Einzelteile pro Material zu einem Mesh verschmelzen (weniger Draw Calls)
-    people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen
+    people.js         Menschenfiguren laden, Animationen abspielen, Sitzen/Tragen/Controller über die Knochen, sparsame Figuren für Menschenmengen
     name-tag.js       Namensschild über dem Kopf von Figuren (Azubis, Empfang)
     reception-furniture.js  Tresen, Wartestuhl, Abholregal, Paket mit Etikett
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen

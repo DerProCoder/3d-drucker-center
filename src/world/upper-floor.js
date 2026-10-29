@@ -18,7 +18,7 @@ export const FLOOR_Y = ROOM_HEIGHT + ROOF; // Fußboden der zweiten Etage (Oberk
 export const STAIRS = { x0: HALF - 1.25, x1: HALF - 0.05, zLow: -2.0, zHigh: -7.6 };
 // Fahrstuhlschacht an der Nordwand links neben dem Treppenabsatz, Tür nach Süden
 export const ELEVATOR = { x0: 7.1, x1: STAIRS.x0 - 0.05, z0: -HALF, z1: -8.6 };
-const STEPS = 20;
+export const STEPS = 20;         // Stufen der Treppe (Figuren steigen Stufe für Stufe, world/visitors.js)
 const RAIL = 0.05;          // Dicke der Geländer (als Hindernis)
 const RAIL_HEIGHT = 1.0;
 const LIGHT_ON = 22;        // Helligkeit der Deckenspots oben, sobald die Etage steht

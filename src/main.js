@@ -12,7 +12,7 @@ import { Staff } from './core/staff.js';
 import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
-import { euro } from './core/format.js';
+import { euro, euroRound } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
@@ -30,6 +30,7 @@ import { Carry } from './world/carry.js';
 import { createCat } from './world/cat.js';
 import { createThrowing } from './world/throwing.js';
 import { createWorkers } from './world/workers.js';
+import { createVisitorGroup } from './world/visitors.js';
 import { createOffice } from './world/office.js';
 import { createEntrance } from './world/entrance.js';
 import { createOutdoor } from './world/outdoor.js';
@@ -45,6 +46,7 @@ import { ServerClimate } from './core/server-climate.js';
 import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { RentalAutomation } from './core/rental-automation.js';
+import { Visitors, clockText, starsText } from './core/visitors.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -84,7 +86,9 @@ const automation = new ClimateAutomation(climate, servers); // Server auf den gr
 const rentals = new ServerRentals(economy, servers, upgrades);
 rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
 const rentalAutomation = new RentalAutomation(rentals); // Server in der orangen Reihe vergeben VM-Anfragen selbst
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation };
+// Besuchergruppe: einmal am Tag, ein Azubi führt sie herum (Eintritt, Bewertung, Bonus-XP)
+const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors };
 const saveFound = hasSave();
 if (saveFound) {
   loadGame(game);
@@ -97,6 +101,8 @@ gameClock.onNewHour = () => {
   economy.payHourlyBill();
   rentals.payHour(); // Miete der VMs auf Online-Servern
 };
+// Neuer Tag: Termin der Besuchergruppe festlegen
+gameClock.onNewDay = (day) => visitors.onNewDay(day);
 const sound = createSound();
 progress.onLevelUp = (level, title) => {
   hud.showLevelUp(level, title);
@@ -465,6 +471,27 @@ rentalAutomation.onEvent = (type, d) => {
     sound.play('pop');
   }
 };
+// Besuchergruppe: Ankündigung, Ankunft, Eintritt und Bewertung melden
+visitors.onEvent = (type, d) => {
+  const g = d.group;
+  if (type === 'announced') {
+    hud.notify(`🚌 Heute um ${clockText(g.time)} kommt eine Besuchergruppe: ${g.name} (${g.size} Personen)`, 'info');
+  } else if (type === 'no-guide' && d.reason === 'fired') {
+    hud.notify(`🚌 ${g.name} hat keinen Führer mehr und geht wieder – keine Bewertung`, 'bad');
+    sound.play('warn');
+  } else if (type === 'no-guide') {
+    hud.notify(`🚌 ${g ? `${g.name} sagt ab – f` : 'F'}ür Besuchergruppen brauchst du einen Azubi (Personal-App)`, 'info');
+  } else if (type === 'arriving') {
+    hud.notify(`🚶 ${g.name} ist da – Azubi ${d.worker.name} holt die Gruppe am Empfang ab`, 'info');
+  } else if (type === 'paid') {
+    hud.notify(`🎟️ Eintritt: ${g.size} × ${euroRound.format(d.perPerson)} = ${euroRound.format(d.fee)}`, 'good');
+    sound.play('cash');
+  } else if (type === 'rated') {
+    hud.notify(`⭐ ${g.name} bewertet euch mit ${starsText(d.stars)}${d.xp ? ` · +${d.xp} XP` : ''}`, d.stars >= 3 ? 'good' : 'bad');
+    if (d.stars === 5) achievements.add('fiveStarTours');
+    sound.play(d.stars >= 4 ? 'done' : 'pop');
+  }
+};
 const CLIMATE_MESSAGES = {
   hot: (name) => `🌡️ ${name} wird zu heiß – Lüfter im Schrankfenster hochdrehen!`,
   cold: (name) => `❄️ ${name} wird zu kalt – Lüfter im Schrankfenster herunterdrehen!`,
@@ -547,6 +574,10 @@ scene.add(office.group);
 // Azubis laufen durch Halle und Lager und helfen mit (Aufgaben aus core/staff.js), ohne Arbeit sitzen sie im Büro
 const workers = createWorkers({ economy, staff });
 scene.add(workers.group);
+// Besuchergruppe als Figuren: kommt über den Garten, folgt dem führenden Azubi durch Halle und Serverraum
+// (meldet arrived, reachedStation und finished an core/visitors.js). Figuren werden schon bei der Ankündigung geladen.
+const visitorGroup = createVisitorGroup({ visitors, workers, collision, upperFloor, onReady: () => precompileShaders() });
+scene.add(visitorGroup.group);
 staff.onEvent = (type, d) => {
   const who = d.worker ? `Azubi ${d.worker.name}` : 'Ein Azubi';
   if (type === 'hired' && d.receptionist) hud.notify(`💁 ${d.receptionist.name} steht jetzt am Empfang und nimmt die Kunden in Empfang`, 'good');
@@ -728,7 +759,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, upperFloor.group, serverRoom.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group],
+  targets: [room, upperFloor.group, serverRoom.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group, visitorGroup.group],
 });
 
 // Tablet: kein Esc – abbrechen geht dort per Tippen auf den gewählten Port oder ⏸
@@ -894,7 +925,7 @@ function checkBankrupt() {
 for (const [name, object] of Object.entries({
   room, entrance: entrance.group, outdoor: outdoor.group, customers: customers.group, reception: receptionDesk.group,
   hall: hall.group, computerDesk, workshop: workshop.group, storage: storage.group, cat: cat.group,
-  office: office.group, workers: workers.group,
+  office: office.group, workers: workers.group, visitors: visitorGroup.group,
 })) object.name ||= name;
 const perf = createPerfOverlay({ renderer, scene });
 const frameClock = new THREE.Clock();
@@ -938,6 +969,7 @@ renderer.setAnimationLoop(() => {
       rentals.advance(gameMinutes);
       rentalAutomation.advance(gameMinutes); // vergibt Anfragen, deren Kunde am Empfang steht
       gameClock.advance(gameMinutes);
+      visitors.advance(gameMinutes); // nach der Uhr: Termin und Ankunft hängen an der Uhrzeit
       checkBankrupt();
     });
   }
@@ -951,8 +983,9 @@ renderer.setAnimationLoop(() => {
   safely('Werfen', () => throwing.update(dt));
   safely('Azubis', () => workers.update(dt));
   safely('Büro', () => office.update(dt, workers.gaming()));
-  safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions()]));
+  safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions(), ...visitorGroup.positions()]));
   safely('Räume', () => culling.update());
+  safely('Besuchergruppe', () => visitorGroup.update(dt, camera, culling)); // nach den Räumen: blendet mit aus
   safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
   safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));
   safely('Kunden', () => customers.update(dt, outdoor.group.visible));

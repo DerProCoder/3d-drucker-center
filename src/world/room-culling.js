@@ -84,5 +84,12 @@ export function createRoomCulling(camera, rooms, onShow = () => {}) {
     }
   }
 
-  return { update, outdoorVisible: () => outdoor };
+  // Ist der Bereich (Halle, Anbau oder draußen), in dem der Punkt p (x/z) liegt, gerade zu sehen? Für Figuren, die
+  // durch mehrere Räume laufen und deshalb in keiner der Gruppen oben stecken (world/visitors.js)
+  function visibleAt(p) {
+    const name = Object.keys(AREAS).find((n) => within(p, AREAS[n], 0.1)); // 0,1: halbe Wanddicke, auch in Türen
+    return name ? state[name] !== false : outdoor;
+  }
+
+  return { update, outdoorVisible: () => outdoor, visibleAt };
 }
