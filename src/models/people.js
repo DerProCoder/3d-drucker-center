@@ -54,8 +54,9 @@ export async function createPerson(id) {
 
 // ---------- Menschenmenge: zusammengefasste Figuren ----------
 
-// Ein Material für alle Figuren einer Menge – die Farben stecken in den Ecken. Matt wie bei Person.
-const crowdMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0, roughness: 0.85 });
+// Ein Material für alle Figuren einer Menge – die Farben stecken in den Ecken. Matt wie bei Person; Lambert statt PBR,
+// weil die Figuren in der Halle sonst je Pixel teuer werden (viele Lampen).
+const crowdMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
 const crowdTemplates = new Map(); // id → Promise<{ scene, animations }>
 const crowdReady = new Map();     // id → { scene, animations }, sobald fertig
 
@@ -251,7 +252,7 @@ export class Person {
     this.body.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = shadows;
-        o.receiveShadow = true;
+        o.receiveShadow = shadows; // Menge: auch keine Schatten empfangen (spart je Pixel die Schattenkarten)
         // Animierte Figuren ragen aus der Hülle ihrer Ruhepose heraus – die Hülle großzügig vergrößern, statt
         // die Figur immer zu zeichnen (auch hinter Wänden und hinter dem Rücken des Spielers)
         if (o.isSkinnedMesh && !(shared && o.boundingSphere)) {

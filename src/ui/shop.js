@@ -1,7 +1,7 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör), „Drucker-Shop“ und „Holzshop“ (Laser R1 und Holzplatten) zum Einkaufen,
-// „Aufträge“ und „Druckermenü“ zum Steuern, „Server-Shop“ und „Server-Vermietung“ (VM-Anfragen der Kunden), „KI“ (Chat),
-// „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+// „Aufträge“ und „Druckermenü“ zum Steuern, „Server-Shop“, „Teile-Shop“ (Server-Bauteile) und „Server-Vermietung“
+// (VM-Anfragen der Kunden), „KI“ (Chat), „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
@@ -18,6 +18,7 @@ import { createStaffMenu } from './staff-menu.js';
 import { createCalcApp, createNotesApp } from './pc-apps.js';
 import { createSnakeApp } from './snake-app.js';
 import { createServerShop } from './server-shop.js';
+import { createPartsShop } from './parts-shop.js';
 import { createServerRentalApp } from './server-rental-app.js';
 import { createAIApp } from './ai-app.js';
 import { createAdvisor } from '../core/ai-advisor.js';
@@ -37,6 +38,7 @@ const APPS = [
   { id: 'printers', name: 'Drucker-Shop', icon: 'printer', live: true },
   { id: 'wood', name: 'Holzshop', icon: 'wood', live: true },
   { id: 'servers', name: 'Server-Shop', icon: 'server', live: true },
+  { id: 'parts', name: 'Teile-Shop', icon: 'parts', live: true },
   { id: 'rentals', name: 'Server-Vermietung', icon: 'cloud', live: true },
   { id: 'ai', name: 'KI', icon: 'ai', live: false }, // nicht live: Chat-Verlauf und Eingabe bleiben stehen, Kopf per liveUpdate
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
@@ -62,13 +64,14 @@ const appById = (id) => APPS.find((a) => a.id === id);
 // upgrades: Hallen-Ausbau (upgrades.js)
 // staff: Personal (staff.js), staffStatus(id): was ein Mitarbeiter gerade tut
 // rentalAutomation: automatische Vergabe der VM-Anfragen (core/rental-automation.js) – Schalter in „Server-Vermietung“
+// serverParts: Server-Bauteile und Teilelager (core/server-parts.js) – App „Teile-Shop“
 // ai: KI aus den KI-GPU-Servern (core/ai-service.js; fehlt sie, ist die App „KI“ offline)
 // advisor: Antworten der KI (core/ai-advisor.js) – fehlt er, baut die App einen aus den Systemen, die hier ankommen
 // Ein/Aus-Symbol als SVG – das Zeichen ⏻ fehlt in vielen Schriften und erschien als Kästchen
 const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
 
 export function createShop(economy, {
-  orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, rentalAutomation = null, ai = null, advisor = null,
+  orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, rentalAutomation = null, storageRentals = null, ai = null, advisor = null, serverParts = null,
   freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
@@ -121,7 +124,8 @@ export function createShop(economy, {
   const calc = createCalcApp();
   const snake = createSnakeApp();
   const serverShop = createServerShop({ economy, servers, upgrades, rentals, ai });
-  const rentalApp = createServerRentalApp({ economy, servers, rentals, automation: rentalAutomation });
+  const partsShop = createPartsShop({ economy, servers, serverParts, upgrades });
+  const rentalApp = createServerRentalApp({ economy, servers, rentals, automation: rentalAutomation, storage: storageRentals });
   const aiApp = createAIApp({
     ai,
     advisor: advisor ?? createAdvisor({ economy, orders, upgrades, staff, servers, rentals, rentalAutomation, ai }),
@@ -370,7 +374,7 @@ export function createShop(economy, {
 
   function render() {
     // Zähler an den Symbolen „Aufträge“ (offene Aufträge) und „Server-Vermietung“ (wartende Anfragen)
-    const counts = { orders: orders.open.length, rentals: rentals.requests.length };
+    const counts = { orders: orders.open.length, rentals: rentals.requests.length + (storageRentals?.requests.length ?? 0) };
     for (const badge of root.querySelectorAll('[data-badge]')) {
       badge.textContent = counts[badge.dataset.badge] || '';
     }
@@ -389,7 +393,7 @@ export function createShop(economy, {
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
-      cam: cam.render, dev: renderDev, servers: serverShop.render, rentals: rentalApp.render, ai: aiApp.render,
+      cam: cam.render, dev: renderDev, servers: serverShop.render, parts: partsShop.render, rentals: rentalApp.render, ai: aiApp.render,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
     const typing = document.activeElement?.closest?.('[data-keep-focus]');
@@ -535,7 +539,7 @@ export function createShop(economy, {
     if (app === 'ai') aiApp.liveUpdate(contentEl); // Stufe, Server online, Einnahmen, Sperre
     // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
     if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)
-      || (app === 'servers' && servers.deliveries.length)) {
+      || (app === 'servers' && servers.deliveries.length) || (app === 'parts' && serverParts?.deliveries.length)) {
       if ((liveTicks = (liveTicks + 1) % 4) === 0) render();
     }
   }, 250);
@@ -556,6 +560,12 @@ export function createShop(economy, {
     }
     if (app === 'servers') {
       const message = serverShop.handleClick(e);
+      if (message) toast(message);
+      return;
+    }
+    if (app === 'parts') {
+      const { message, render: redraw } = partsShop.handleClick(e);
+      if (redraw) render();
       if (message) toast(message);
       return;
     }
@@ -639,6 +649,7 @@ export function createShop(economy, {
   upgrades.subscribe(refresh);
   staff.subscribe(refresh);
   rentals.subscribe(refresh);
+  storageRentals?.subscribe(refresh); // Speicher-Anfragen und -Verträge (#47)
   ai?.subscribe(refresh); // KI-Stufe im Server-Shop
 
   return { open, close, isOpen };

@@ -3,9 +3,7 @@ import { HIRE_FEE, MAX_WORKERS, RECEPTION_HIRE_FEE, RECEPTION_WAGE, WAGE_PER_HOU
 import { euro } from '../core/format.js';
 
 // getStatus(workerId) → Text, was der Mitarbeiter gerade tut (aus world/workers.js)
-export function createStaffMenu(staff, getWorkerStatus) {
-  // Führt der Azubi gerade eine Besuchergruppe (core/visitors.js), steht das statt der Aufgabe da
-  const getStatus = (id) => (staff.reservedFor(id) === 'tour' ? 'Gerade: führt eine Besuchergruppe' : getWorkerStatus(id));
+export function createStaffMenu(staff, getStatus) {
 
   function card(worker) {
     return `
@@ -66,7 +64,8 @@ export function createStaffMenu(staff, getWorkerStatus) {
       <p class="slots">Azubis räumen Fehldrucke weg und starten den Druck gleich neu, stechen verstopfte Düsen frei,
         nehmen fertige Teile ab, heben runtergefallene Teile auf und holen neues Filament aus dem Lager, wenn ein
         Drucker darauf wartet. Ohne Arbeit sitzen sie in ihrem Büro hinter der Ostwand – an der Werkbank oder zum
-        Zocken auf der Couch. Einmal am Tag führt ein Azubi die Besuchergruppe durch die Halle.</p>
+        Zocken auf der Couch. Besucher-Grüppchen gehen allein durch die Halle – dafür
+        brauchst du keinen Azubi.</p>
       <div class="grid">
         ${staff.workers.map(card).join('')}
         <div class="card staff hire">

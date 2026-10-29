@@ -36,9 +36,6 @@ export class Staff {
     this.receptionist = null; // { name } – Empfangskraft am Tresen
     this.nextId = 1;
     this.retries = new Map(); // Drucker-ID → { templateId, count }: Fehldruck weggeräumt, Neustart steht noch aus
-    // Azubi-ID → Grund ('tour': führt eine Besuchergruppe, core/visitors.js). Reservierte Azubis bekommen keine
-    // Aufgaben; wird nicht gespeichert (eine laufende Führung endet beim Laden).
-    this.reserved = new Map();
     this.listeners = new Set();
     this.onEvent = null; // (type, data) => void – 'hired' | 'fired' | 'restarted' | 'restart-blocked'
   }
@@ -69,7 +66,6 @@ export class Staff {
     const worker = this.workers.find((w) => w.id === id);
     if (!worker) return;
     this.workers = this.workers.filter((w) => w !== worker);
-    this.reserved.delete(id);
     this.syncWages();
     this.notify();
     this.onEvent?.('fired', { worker });
@@ -104,46 +100,8 @@ export class Staff {
     this.economy.wagesPerHour = this.wagesPerHour;
   }
 
-  // ---------- Azubi für etwas anderes reservieren (z. B. Führung einer Besuchergruppe) ----------
-
-  // Azubi reservieren: Er nimmt keine neuen Aufgaben an. Eine laufende Aufgabe beendet bzw. bricht world/workers.js
-  // ab (isReserved prüfen, getragene Spule per abortTask zurück ins Lager). Gibt true zurück, wenn es geklappt hat.
-  reserve(id, reason = 'tour') {
-    if (!this.workers.some((w) => w.id === id) || this.reserved.has(id)) return false;
-    this.reserved.set(id, reason);
-    this.notify();
-    return true;
-  }
-
-  release(id) {
-    if (!this.reserved.delete(id)) return;
-    this.notify();
-  }
-
-  isReserved(id) {
-    return this.reserved.has(id);
-  }
-
-  // Grund der Reservierung ('tour') oder null
-  reservedFor(id) {
-    return this.reserved.get(id) ?? null;
-  }
-
-  // Azubis, die Aufgaben annehmen
-  get freeWorkers() {
-    return this.workers.filter((w) => !this.reserved.has(w.id));
-  }
-
-  // Aufgabe abbrechen (z. B. weil der Azubi eine Führung übernimmt): getragene Spule zurück ins Lager.
-  // Weggeräumte Fehldrucke merkt sich retries – der Neustart holt ein anderer Azubi nach.
-  abortTask(task, carried = null) {
-    if (carried) this.economy.returnFilamentToStorage(carried);
-  }
-
   // Nächste Aufgabe, die noch niemand übernommen hat (reserved: Set der Aufgaben-Schlüssel) oder null.
-  // workerId: wer fragt – ein reservierter Azubi (Führung) bekommt nichts.
-  findTask(reserved, workerId = null) {
-    if (workerId !== null && this.reserved.has(workerId)) return null;
+  findTask(reserved) {
     const e = this.economy;
     this.dropStaleRetries();
     const free = (task) => !reserved.has(taskKey(task));

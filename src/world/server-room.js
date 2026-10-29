@@ -12,6 +12,10 @@
 // Zwischen zwei Schränken und zum Internet-Anschluss an der Westwand laufen Kabel über das Kabelgitter unter der
 // Decke (world/cable-tray.js): ersten Port anklicken, dann Gitterfelder (nochmal: wieder heraus), dann den Port im
 // anderen Schrank bzw. am Wandkasten. Ein halb durchsichtiges Kabel zeigt dabei den Weg bis hierher.
+// NAS (#48, Logik in core/nas.js): Festplatten stecken vorn in Schächten. Bei offener Glastür und leeren Händen setzt
+// ein Klick auf einen leeren Schacht die größte Platte aus dem Teilelager ein, ein Klick auf eine Platte nimmt sie
+// heraus (Hot-Swap). Ein Rahmen zeigt den angezielten Schacht (grün: einsetzen, gelb: herausnehmen, rot: geht nicht);
+// geht es nicht, meldet onNotice den Grund. Die Platten einer NAS werden nur neu gebaut, wenn sie sich ändern.
 import * as THREE from 'three';
 import { SERVER_SPOTS } from '../core/servers.js';
 import { WAN_FIELD, fieldAbove, fieldLabel, isWanRef, toggleWaypoint, trayPath, wanPortName } from '../core/cable-tray.js';
@@ -19,11 +23,13 @@ import { spotPosition, spotsInZone } from '../core/server-zones.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { meters } from '../core/format.js';
 import { isServerHardware, portName } from '../core/server-catalog.js';
+import { isNas, storageText } from '../core/nas.js';
 import {
   CABLE_COLOR, FRONT_WIDTH, RACK_FOOTPRINT, UNIT, cableRoute, clipCount, clipPosition, createServerDevice, createServerRack, devicePlacement,
-  portPositions,
+  nasBays, portPositions, setNasDisks,
   unitAtHeight,
 } from '../models/server-hardware.js';
+import { pulseNasDisks } from '../models/nas-front.js';
 import { MAX_FAN_SPEED } from '../models/server-fans.js';
 import { FLOOR_Y } from './upper-floor.js';
 import {
@@ -130,7 +136,9 @@ function createSpotMarker() {
 // economy, servers (core/servers.js), carry: was man trägt, upgrades: ob die Etage steht,
 // collision: Schränke als Hindernis oben, onOpenRack(rackId): Schrankfenster öffnen
 // climate: core/server-climate.js – wie schnell sich die Lüfter drehen
-export function createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack }) {
+// nas: core/nas.js (Nas) – Platten in den Schächten der NAS; ohne sie sind die Schächte nicht anklickbar
+// onNotice(text, tone): Meldung, wenn eine Platte nicht hinein- oder herausgeht (tone 'bad'), z. B. an hud.notify
+export function createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack, nas = null, onNotice = null }) {
   const group = new THREE.Group();
   group.position.y = FLOOR_Y;
   const markers = new THREE.Group();
@@ -225,6 +233,103 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         if (carry.isEmpty) onOpenRack(rack.id);
       },
     };
+  }
+
+  // ---------- NAS: Festplatten in den Schächten einsetzen und herausnehmen ----------
+
+  // Rahmen um den angezielten Schacht (nicht anklickbar); Farbe je nach dem, was ein Klick täte
+  const BAY_COLORS = { insert: 0x4be08a, remove: 0xffd84a, blocked: 0xff5a4a };
+  const bayMarker = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 0.012),
+    new THREE.MeshBasicMaterial({ color: BAY_COLORS.insert, transparent: true, opacity: 0.4, depthWrite: false })
+  );
+  bayMarker.raycast = () => {};
+  bayMarker.visible = false;
+  group.add(bayMarker);
+  // Unsichtbare Klickflächen je Schachtgröße (alle Schächte sind gleich groß)
+  const bayHitGeometries = new Map();
+  const bayHitGeometry = (b) => {
+    const key = `${b.w}|${b.h}`;
+    if (!bayHitGeometries.has(key)) {
+      const geometry = new THREE.BoxGeometry(b.w, b.h, 0.014);
+      bayHitGeometries.set(key, geometry);
+      SHARED_GEOMETRY.add(geometry);
+    }
+    return bayHitGeometries.get(key);
+  };
+
+  // Was ein Klick auf den Schacht täte: { mode: 'insert' | 'remove' | 'blocked', text }
+  function bayAction(device, index) {
+    const bay = nas.baysOf(device)[index];
+    const label = `Schacht ${index + 1}`;
+    if (!bay) return { mode: 'blocked', text: `${label} – gibt es nicht` };
+    if (bay.part) {
+      const what = `${storageText(bay.gb)}${bay.broken ? ', defekt' : ''}`;
+      const problem = nas.canRemoveDisk(device, index);
+      if (problem) return { mode: 'blocked', text: `${label} (${what}) – ${problem}` };
+      const where = bay.broken ? 'wird entsorgt' : 'zurück ins Teilelager';
+      return { mode: 'remove', text: `Linksklick: Festplatte herausnehmen (${label}, ${what} – ${where})` };
+    }
+    const problem = nas.canInsertDisk(device, index);
+    if (problem) return { mode: 'blocked', text: `${label} leer – ${problem}` };
+    return { mode: 'insert', text: `Linksklick: Festplatte einsetzen (${storageText(nas.bestDisk.gb)} aus Teilelager)` };
+  }
+
+  // Klickfläche eines Schachts. Mit Karton in der Hand oder bei zu Tür gilt, was der Schrank selbst tut (Gerät einbauen
+  // bzw. Schrankfenster), damit die Schächte nicht im Weg sind.
+  function bayInteraction(rack, device, index, rackI, at) {
+    const door = doorState(rack.id);
+    const active = () => carry.isEmpty && door.open;
+    return {
+      hint: (hit) => (active() ? bayAction(device, index).text : rackI.hint(hit)),
+      hover: (hit) => {
+        if (!active()) {
+          bayMarker.visible = false;
+          rackI.hover(hit);
+          return;
+        }
+        preview.visible = false;
+        const b = nasBays(device.type)[index];
+        const { x, z } = spotPosition(rack.slot);
+        bayMarker.material.color.setHex(BAY_COLORS[bayAction(device, index).mode]);
+        bayMarker.position.copy(at).add(new THREE.Vector3(x + b.x, b.y, z + 0.006));
+        bayMarker.scale.set(b.w + 0.003, b.h + 0.003, 1);
+        bayMarker.visible = true;
+      },
+      unhover: () => {
+        bayMarker.visible = false;
+        rackI.unhover();
+      },
+      action: (hit) => {
+        if (!active()) {
+          rackI.action(hit);
+          return;
+        }
+        const bay = nas.baysOf(device)[index];
+        const result = bay?.part ? nas.removeDisk(device.id, index) : nas.insertDisk(device.id, index);
+        if (!result.ok) onNotice?.(`💽 ${device.type.name}, Schacht ${index + 1}: ${result.reason}`, 'bad');
+      },
+    };
+  }
+
+  // Platten der NAS in einem Schrank aktuell halten: nur neu bauen, wenn sich etwas geändert hat
+  let disksBroken = false;
+  let diskTime = 0;
+  const baysKey = (bays) => bays.map((b) => (b.part ? `${b.gb}${b.broken ? '!' : ''}` : '-')).join(',');
+  function syncDisks() {
+    if (!nas) return;
+    disksBroken = false;
+    for (const cached of rackCache.values()) {
+      for (const view of cached.nasViews) {
+        const bays = nas.baysOf(view.device);
+        const key = baysKey(bays);
+        if (key !== view.key) {
+          view.key = key;
+          setNasDisks(view.mesh, view.device.type, bays);
+        }
+        disksBroken ||= view.mesh.userData.disks?.userData.hasBroken;
+      }
+    }
   }
 
   // ---------- Verkabeln: ersten Port anklicken, wahlweise Clips bzw. Gitterfelder, dann den zweiten Port ----------
@@ -534,11 +639,26 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     for (const which of ['top', 'bottom']) {
       for (const rotor of shell.userData.fans[which]) rackFans.push({ rotor, speed: () => climate.rack(rack.id)[which] });
     }
+    const rackI = rackInteraction(rack);
+    const nasViews = []; // NAS mit ihren Platten: { device, mesh, key } (syncDisks)
     for (const device of servers.devicesIn(rack.id)) {
-      const mesh = createServerDevice(device.type, { online: servers.isOnline(device, reached) });
+      const withBays = !!nas && isNas(device);
+      const bays = withBays ? nas.baysOf(device) : null;
+      const mesh = createServerDevice(device.type, { online: servers.isOnline(device, reached), bays });
       const at = devicePlacement(rack.type, device.unit, device.type.units);
       mesh.position.copy(at);
       g.add(mesh);
+      if (withBays) {
+        nasViews.push({ device, mesh, key: baysKey(bays) });
+        // Unsichtbare Klickflächen vor den Schächten (vor der Zielfläche des Schranks, damit sie zuerst getroffen werden)
+        nasBays(device.type).forEach((b, index) => {
+          const hitbox = new THREE.Mesh(bayHitGeometry(b), PORT_HIT_MATERIAL);
+          hitbox.position.copy(at).add(new THREE.Vector3(b.x, b.y, 0.004));
+          hitbox.name = `bay:${device.id}:${index}`;
+          hitbox.userData.interaction = bayInteraction(rack, device, index, rackI, at);
+          g.add(hitbox);
+        });
+      }
       // Defekte Geräte stehen still
       const speed = () => (climate.device(device.id).status === 'broken' ? 0 : climate.device(device.id).fan);
       for (const rotor of mesh.userData.fans) rackFans.push({ rotor, speed });
@@ -571,8 +691,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         g.add(hitbox);
       }
     }
-    g.userData.interaction = rackInteraction(rack);
-    return { group: g, ports, fans: rackFans };
+    g.userData.interaction = rackI;
+    return { group: g, ports, fans: rackFans, nasViews };
   }
 
   function syncRacks(reached) {
@@ -697,6 +817,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     if (!group.visible) return;
     animateDoors(dt);
     spinFans(dt);
+    if (disksBroken) pulseNasDisks((diskTime += dt));
     const carrying = carryingRack();
     if (carrying !== lastCarrying || dirty) {
       lastCarrying = carrying;
@@ -710,9 +831,11 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       servers.installed.map((d) => [d.id, d.rackId, d.unit, d.type.id, reached.has(d.id)]),
       servers.cables,
     ]);
-    if (key === lastKey) return;
-    lastKey = key;
-    buildRoom();
+    if (key !== lastKey) {
+      lastKey = key;
+      buildRoom();
+    }
+    syncDisks(); // Platten eingesetzt oder herausgenommen: nur die Platten dieser NAS neu bauen
   }
 
   // Angefangenes Verlegen abbrechen (Esc, Pause, Etage verlassen) – true, wenn etwas gewählt war

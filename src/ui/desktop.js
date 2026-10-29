@@ -409,8 +409,40 @@ function iconAI(ctx, x, y, s) {
   ctx.stroke();
 }
 
+// Teile-Shop: grüner RAM-Riegel mit schwarzen Chips und Goldkontakten, davor ein grauer Lüfter
+function iconParts(ctx, x, y, s) {
+  ctx.fillStyle = '#1f8a4c';
+  roundRect(ctx, x + s * 0.04, y + s * 0.12, s * 0.92, s * 0.36, s * 0.04);
+  ctx.fill();
+  ctx.fillStyle = '#d9b44a';
+  for (let i = 0; i < 9; i++) ctx.fillRect(x + s * (0.1 + i * 0.09), y + s * 0.4, s * 0.05, s * 0.08);
+  ctx.fillStyle = '#16191f';
+  for (let i = 0; i < 4; i++) ctx.fillRect(x + s * (0.1 + i * 0.12), y + s * 0.18, s * 0.09, s * 0.16);
+  // Lüfter: Rahmen, Kreis, vier Flügel und Nabe
+  ctx.fillStyle = '#3a4250';
+  roundRect(ctx, x + s * 0.44, y + s * 0.42, s * 0.52, s * 0.52, s * 0.08);
+  ctx.fill();
+  const cx = x + s * 0.7;
+  const cy = y + s * 0.68;
+  ctx.fillStyle = '#1b1f26';
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#8a93a3';
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2 + 0.4;
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.cos(a) * s * 0.11, cy + Math.sin(a) * s * 0.11, s * 0.1, s * 0.045, a + 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#3aa0ff';
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 const ICONS = {
-  trophy: iconTrophy, server: iconServer, cloud: iconCloud, ai: iconAI,
+  trophy: iconTrophy, server: iconServer, cloud: iconCloud, ai: iconAI, parts: iconParts,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
   wood: iconWood, snake: iconSnake,

@@ -39,16 +39,23 @@ import { RECEPTION_SPOTS, createReceptionDesk } from './world/reception.js';
 import { createCustomers } from './world/customers.js';
 import { createRoomCulling } from './world/room-culling.js';
 import { createUpperFloor } from './world/upper-floor.js';
+import { createBasement } from './world/basement.js';
 import { createServerRoom } from './world/server-room.js';
 import { createRackPanel } from './ui/rack-panel.js';
+import { createWorkbenchPanel } from './ui/workbench-panel.js';
+import { createWorkbenchStation } from './world/workbench.js';
+import { Workbench } from './core/workbench.js';
 import { Servers } from './core/servers.js';
 import { ServerClimate } from './core/server-climate.js';
+import { ServerParts } from './core/server-parts.js';
+import { Nas, storageText } from './core/nas.js';
+import { StorageRentals } from './core/storage-rentals.js';
 import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { RentalAutomation } from './core/rental-automation.js';
 import { AIService } from './core/ai-service.js';
 import { createAdvisor } from './core/ai-advisor.js';
-import { Visitors, clockText, starsText } from './core/visitors.js';
+import { Visitors, partyText, starsText } from './core/visitors.js';
 import { createScreenFade } from './ui/screen-fade.js';
 import { createReceptionist } from './world/receptionist.js';
 import { onPersonLoaded } from './models/people.js';
@@ -83,16 +90,22 @@ const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
 const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
+const serverParts = new ServerParts(economy, servers, climate); // Server aus Bauteilen: Ausstattung, Teilelager, Defekte
+const nas = new Nas(serverParts); // NAS: Speicher, Festplatten im Schrank tauschen (#46)
+const workbench = new Workbench(economy, serverParts, upgrades); // Werkbank im Serverraum: Server ablegen, Teile tauschen
 const automation = new ClimateAutomation(climate, servers); // Server auf den grünen Plätzen regeln die Lüfter selbst
 // VMs an Kunden vermieten – einzige Einnahmequelle der Server
 const rentals = new ServerRentals(economy, servers, upgrades);
 rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele Wartende, wie Tresen und Stühle Platz haben
-const rentalAutomation = new RentalAutomation(rentals); // Server in der orangen Reihe vergeben VM-Anfragen selbst
-// Eigene KI auf den KI-GPU-Servern: Stufe 1–5 je nach Anzahl online, Einnahmen über das KI-Abo
-const aiService = new AIService({ economy, servers, climate });
-// Besuchergruppe: einmal am Tag, ein Azubi führt sie herum (Eintritt, Bewertung, Bonus-XP)
+// Speicherplatz auf den NAS vermieten (#47) – setzt nas.rentedStorageOf, Speicher-Kunden zählen bei maxWaiting mit
+const storageRentals = new StorageRentals(economy, servers, upgrades, rentals, nas);
+const rentalAutomation = new RentalAutomation(rentals, storageRentals); // Server in der orangen Reihe vergeben VM- und Speicher-Anfragen selbst
+// Eigene KI auf den KI-GPU-Servern: Stufe 1–10 je nach Anzahl online, Einnahmen über das KI-Abo.
+// Aufträge, Uhr und XP braucht sie für den Tagesverlauf (Vergleich mit gestern, Prognose über Tage)
+const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
+// Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -106,9 +119,10 @@ const hud = createHud(economy, orders, progress, gameClock);
 gameClock.onNewHour = () => {
   economy.payHourlyBill();
   rentals.payHour(); // Miete der VMs auf Online-Servern
+  storageRentals.payHour(); // Miete der Speicher-Verträge auf Online-NAS
   aiService.payHour(); // KI-Abo der KI-GPU-Server (0 €, solange keiner online ist)
 };
-// Neuer Tag: Termin der Besuchergruppe festlegen
+// Neuer Tag: Tagesbilanz der Besucher und Tagesplan für den neuen Tag
 gameClock.onNewDay = (day) => visitors.onNewDay(day);
 const sound = createSound();
 progress.onLevelUp = (level, title) => {
@@ -277,16 +291,19 @@ outdoor.group.add(pedestrians.group); // nur sichtbar, wenn man nach draußen sc
 // Empfang: Kunden geben Aufträge am Tresen ab und holen sie am Abholregal wieder ab
 const customers = createCustomers({
   reception,
-  rentals, // Server-Kunden (VM-Anfragen) kommen ebenfalls zum Empfang
+  rentals: storageRentals.desk, // Server-Kunden (VM- und Speicher-Anfragen) kommen ebenfalls zum Empfang
   orders,
   onEvent: (type, d) => {
     if (type === 'arrived' && d.request) {
       // Server-Kunde: angenommen wird am PC (Serverwahl) oder – mit privatem Server – automatisch, nicht am Tresen
-      rentals.markArrived(d.request.id);
-      const vm = `${d.customer} möchte eine VM mieten (${d.request.ram} GB · ${d.request.cores} Cores)`;
+      storageRentals.desk.markArrived(d.request.id);
+      const what = d.request.kind === 'storage'
+        ? `${storageText(d.request.storage)} Speicher mieten`
+        : `eine VM mieten (${d.request.ram} GB · ${d.request.cores} Cores)`;
+      const vm = `${d.customer} möchte ${what}`;
       hud.notify(rentalAutomation.isActive()
-        ? `💻 ${vm} – die privaten Server kümmern sich darum`
-        : `💻 ${vm} – am PC in „Server-Vermietung“ annehmen`, 'info');
+        ? `${d.request.kind === 'storage' ? '💾' : '💻'} ${vm} – die privaten Server kümmern sich darum`
+        : `${d.request.kind === 'storage' ? '💾' : '💻'} ${vm} – am PC in „Server-Vermietung“ annehmen`, 'info');
       sound.play('pop');
     } else if (type === 'arrived') {
       const greeter = staff.receptionist?.name;
@@ -296,7 +313,7 @@ const customers = createCustomers({
   },
 });
 scene.add(customers.group);
-const receptionDesk = createReceptionDesk({ reception, orders, customers, collision, staff, rentals });
+const receptionDesk = createReceptionDesk({ reception, orders, customers, collision, staff, rentals: storageRentals.desk });
 scene.add(receptionDesk.group);
 // Empfangskraft hinter dem Tresen (falls eingestellt): begrüßt Kunden, nimmt Aufträge an, kassiert
 const receptionist = createReceptionist({ staff, reception, customers });
@@ -337,6 +354,8 @@ const DELIVERED = {
   shelf: '📦 Neue Regalebene im Abstellraum eingebaut',
   floor: '🏗️ Zweite Etage fertig – die Treppe ist rechts hinten in der Halle',
   elevator: '🛗 Fahrstuhl eingebaut – neben der Treppe, Ruftaster rechts an der Tür',
+  basement: '🏗️ Keller fertig – das Treppenhaus nach unten ist links hinten in der Halle (70 m)',
+  basementElevator: '🛗 Keller-Fahrstuhl eingebaut – neben dem Treppenhaus, Ruftaster rechts an der Tür',
 };
 upgrades.onEvent = (type, d) => {
   if (type !== 'delivered') return;
@@ -346,7 +365,7 @@ upgrades.onEvent = (type, d) => {
 
 // Zweite Etage mit Treppe und Fahrstuhl (Ausbau) – baut sich selbst, sobald sie geliefert ist
 const screenFade = createScreenFade();
-let playerLevel = 0;  // Stockwerk der Spielfigur: 0 = Halle, 1 = zweite Etage
+let playerLevel = 0;  // Stockwerk der Spielfigur: 0 = Halle, 1 = zweite Etage, −1 = Treppenhaus, −2 = Keller
 let groundY = 0;      // Bodenhöhe unter der Spielfigur (auf der Treppe dazwischen)
 let eyeHeight = EYE_HEIGHT;
 const upperFloor = createUpperFloor({ upgrades, collision, room, outdoor, onRide: rideElevator });
@@ -356,6 +375,21 @@ scene.add(upperFloor.group);
 function rideElevator(level) {
   screenFade.run(level ? '🛗 Fahrstuhl fährt nach oben …' : '🛗 Fahrstuhl fährt nach unten …', () => {
     const exit = upperFloor.elevatorExit(level);
+    playerLevel = level;
+    groundY = exit.y;
+    camera.position.set(exit.x, groundY + eyeHeight, exit.z);
+  });
+}
+
+// Keller 70 m unter der Halle mit Treppenhaus und eigenem Fahrstuhl (Ausbau) – baut sich selbst, sobald er geliefert
+// ist. Vor setupGraphics anlegen: Seine Lichter sind von Anfang an da (Zahl der Lichter bleibt gleich).
+const basement = createBasement({ upgrades, collision, room, sun, outdoor, onRide: rideBasementElevator });
+scene.add(basement.group, basement.hallGroup);
+
+// Keller-Fahrstuhl: wie oben, nur zwischen Halle (0) und Keller (−2)
+function rideBasementElevator(level) {
+  screenFade.run(level ? '🛗 Fahrstuhl fährt hinunter in den Keller …' : '🛗 Fahrstuhl fährt nach oben in die Halle …', () => {
+    const exit = basement.elevatorExit(level);
     playerLevel = level;
     groundY = exit.y;
     camera.position.set(exit.x, groundY + eyeHeight, exit.z);
@@ -447,8 +481,15 @@ const carry = new Carry(camera, economy, document.getElementById('carry-info'));
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
 // Serverschränke in der zweiten Etage – verkabelt wird hinten am Schrank, ein Klick auf den Schrank öffnet das Schrankfenster
-const serverRoom = createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack: openRack });
+const serverRoom = createServerRoom({
+  economy, servers, climate, carry, upgrades, collision, onOpenRack: openRack,
+  nas, // NAS-Schächte vorn: Platten per Klick einsetzen und herausnehmen (#48)
+  onNotice: (text, tone) => { hud.notify(text, tone); sound.play('warn'); },
+});
 scene.add(serverRoom.group);
+// Werkbank an der Südwand des Serverraums (fest da, sobald die zweite Etage steht): Klick öffnet das Werkbank-Menü
+const workbenchStation = createWorkbenchStation({ economy, bench: workbench, parts: serverParts, carry, upgrades, collision, onOpen: openWorkbench });
+scene.add(workbenchStation.group);
 servers.onEvent = (type, d) => {
   if (type === 'cables-delivered') hud.notify(`🔌 ${d.meters} m Kabel geliefert – im Vorrat`, 'good');
 };
@@ -461,64 +502,115 @@ rentals.onEvent = (type, d) => {
     sound.play('warn');
   }
 };
+// Speicher-Vermietung auf den NAS (#47): Vertragsende und Kündigung melden
+storageRentals.onEvent = (type, d) => {
+  if (type === 'rental-ended') {
+    hud.notify(`📄 Speicher-Vertrag mit ${d.contract.customer} ist ausgelaufen – ${storageText(d.contract.storage)} auf ${d.server?.type.name ?? 'der NAS'} wieder frei`, 'info');
+  } else if (type === 'rental-cancelled') {
+    hud.notify(`⚠️ ${d.contract.customer} hat den Speicher gekündigt – NAS war zu lange offline`, 'bad');
+    sound.play('warn');
+  }
+};
+// NAS (#46): Festplatten im Schrank einsetzen und herausnehmen
+const nasScrapped = new Set(); // NAS-IDs, deren defekte Platte gerade entsorgt wurde – dann meldet nur nas.onEvent
+// Nach dem Entsorgen einer defekten Platte: „läuft wieder“ nur, wenn die NAS wirklich ohne Problem online ist
+function scrappedDiskText(device, part) {
+  const why = servers.workProblem(device);
+  if (why) return `🗑️ Defekte ${part.name} entsorgt – Schacht frei, ${device.type.name} läuft noch nicht: ${why}`;
+  return servers.isOnline(device) ? `🗑️ Defekte ${part.name} entsorgt – ${device.type.name} läuft wieder` : `🗑️ Defekte ${part.name} entsorgt – Schacht frei`;
+}
+nas.onEvent = (type, d) => {
+  if (type === 'disk-inserted') {
+    hud.notify(`💽 ${d.part.name} in ${d.device.type.name} eingesetzt (Schacht ${d.bay + 1})`, 'good');
+  } else if (type === 'disk-removed' && d.scrapped) {
+    nasScrapped.add(d.device.id);
+    queueMicrotask(() => nasScrapped.delete(d.device.id)); // nach 'fixed' (falls es kam) wieder vergessen
+    const text = scrappedDiskText(d.device, d.part);
+    hud.notify(text, text.includes('läuft wieder') ? 'good' : 'info');
+  } else if (type === 'disk-removed') {
+    hud.notify(`💽 ${d.part.name} herausgenommen – im Teilelager`, 'info');
+  }
+};
 // Automatische Vergabe durch die privaten Server: vergeben, passt nirgends, gestoppt bzw. wieder aktiv
 const placeText = (label) => label.replace(/^🔒 /, '');
 rentalAutomation.onEvent = (type, d) => {
+  const disk = d.request?.kind === 'storage'; // Speicher-Anfrage (#47) statt VM
   if (type === 'assigned') {
-    hud.notify(`🤖 VM für ${d.request.customer} automatisch auf ${d.server.type.name} (${placeText(d.rackLabel)}) vergeben · +${euro.format(d.rent)} / h`, 'good');
+    const what = disk ? `${storageText(d.request.storage)} Speicher` : 'VM';
+    hud.notify(`🤖 ${what} für ${d.request.customer} automatisch auf ${d.server.type.name} (${placeText(d.rackLabel)}) vergeben · +${euro.format(d.rent)} / h`, 'good');
     sound.play('pop');
   } else if (type === 'no-fit') {
-    hud.notify(`⚠️ Automatische Vergabe: VM für ${d.request.customer} (${d.request.ram} GB · ${d.request.cores} Cores) passt auf keinen Server – bitte selbst zuweisen`, 'bad');
+    hud.notify(disk
+      ? `⚠️ Automatische Vergabe: ${storageText(d.request.storage)} Speicher für ${d.request.customer} passt auf keine NAS – bitte selbst zuweisen`
+      : `⚠️ Automatische Vergabe: VM für ${d.request.customer} (${d.request.ram} GB · ${d.request.cores} Cores) passt auf keinen Server – bitte selbst zuweisen`, 'bad');
     sound.play('warn');
   } else if (type === 'stopped') {
     hud.notify('⚠️ Automatische Vergabe gestoppt – kein privater Server online', 'bad');
     sound.play('warn');
   } else if (type === 'active') {
-    hud.notify(`🤖 Automatische Vergabe aktiv – ${d.server.type.name} (${placeText(d.rackLabel)}) vergibt die VM-Anfragen`, 'good');
+    hud.notify(`🤖 Automatische Vergabe aktiv – ${d.server.type.name} (${placeText(d.rackLabel)}) vergibt VM- und Speicher-Anfragen`, 'good');
     sound.play('pop');
   }
 };
 // KI: Stufenwechsel melden (das KI-Abo wird wie die Miete still gutgeschrieben, 'income')
 aiService.onEvent = (type, d) => {
+  // Stufe nach Start oder Laden: still, nur der Erfolg „Superintelligenz“ (Stufe 10), falls er noch fehlt
+  if (type === 'level-initial') achievements.max('aiLevel', d.level);
   if (type !== 'level-changed') return;
   if (d.level > d.previous) {
     hud.notify(d.previous === 0 ? `🧠 KI ist online – Stufe ${d.level}` : `🧠 KI ist jetzt Stufe ${d.level}`, 'good');
     sound.play('pop');
+    achievements.max('aiLevel', d.level); // Erfolg „Superintelligenz“ auf Stufe 10
   } else {
     hud.notify(d.level === 0 ? '⚠️ KI ist offline – kein KI-GPU-Server online' : `⚠️ KI fällt auf Stufe ${d.level} zurück – weniger KI-GPU-Server online`, 'bad');
     sound.play('warn');
   }
 };
-// Besuchergruppe: Ankündigung, Ankunft, Eintritt und Bewertung melden
+// KI ab Stufe 9: warnt von selbst (gedrosselt in core/ai-advisor.js – dieselbe Warnung höchstens alle 2 Spielstunden)
+advisor.onEvent = (type, d) => {
+  if (type !== 'warning') return;
+  hud.notify(`🧠 KI-Warnung: ${d.text}`, 'bad');
+  sound.play('warn');
+};
+// Besucher-Grüppchen: bei 12–15 Grüppchen am Tag nur leise Meldungen (ohne Ton), Ton nur bei 5 Sternen
 visitors.onEvent = (type, d) => {
-  const g = d.group;
-  if (type === 'announced') {
-    hud.notify(`🚌 Heute um ${clockText(g.time)} kommt eine Besuchergruppe: ${g.name} (${g.size} Personen)`, 'info');
-  } else if (type === 'no-guide' && d.reason === 'fired') {
-    hud.notify(`🚌 ${g.name} hat keinen Führer mehr und geht wieder – keine Bewertung`, 'bad');
-    sound.play('warn');
-  } else if (type === 'no-guide') {
-    hud.notify(`🚌 ${g ? `${g.name} sagt ab – f` : 'F'}ür Besuchergruppen brauchst du einen Azubi (Personal-App)`, 'info');
-  } else if (type === 'arriving') {
-    hud.notify(`🚶 ${g.name} ist da – Azubi ${d.worker.name} holt die Gruppe am Empfang ab`, 'info');
+  const who = d.party ? partyText(d.party) : '';
+  if (type === 'first-today') {
+    hud.notify('🚶 Die ersten Besucher sind da', 'info');
   } else if (type === 'paid') {
-    hud.notify(`🎟️ Eintritt: ${g.size} × ${euroRound.format(d.perPerson)} = ${euroRound.format(d.fee)}`, 'good');
-    sound.play('cash');
+    hud.notify(`🎟️ Eintritt: ${d.party.size} × ${euroRound.format(d.perPerson)} = ${euroRound.format(d.fee)}`, 'info');
   } else if (type === 'rated') {
-    hud.notify(`⭐ ${g.name} bewertet euch mit ${starsText(d.stars)}${d.xp ? ` · +${d.xp} XP` : ''}`, d.stars >= 3 ? 'good' : 'bad');
-    if (d.stars === 5) achievements.add('fiveStarTours');
-    sound.play(d.stars >= 4 ? 'done' : 'pop');
+    hud.notify(`⭐ ${who}: ${starsText(d.stars)}${d.xp ? ` · +${d.xp} XP` : ''}`, d.stars >= 4 ? 'good' : d.stars <= 2 ? 'bad' : 'info');
+    if (d.stars === 5) {
+      achievements.add('fiveStarTours');
+      if (d.xp) sound.play('done'); // Ton nur, wenn es noch XP gab (Tagesdeckel)
+    }
+  } else if (type === 'day-summary') {
+    const s = d.summary;
+    const avg = s.average == null ? '' : ` · Ø ${s.average.toFixed(1).replace('.', ',')} ★`;
+    hud.notify(`📊 Besucher an Tag ${s.day}: ${s.people} in ${s.parties} Grüppchen · ${euroRound.format(s.fees)}${avg}`, 'info');
   }
 };
 const CLIMATE_MESSAGES = {
   hot: (name) => `🌡️ ${name} wird zu heiß – Lüfter im Schrankfenster hochdrehen!`,
   cold: (name) => `❄️ ${name} wird zu kalt – Lüfter im Schrankfenster herunterdrehen!`,
-  broken: (name) => `🔥 ${name} ist überhitzt und defekt – im Schrankfenster reparieren`,
+  broken: (name, part) => `🔥 ${name} ist überhitzt – ${part ?? 'ein Teil'} defekt. Teil tauschen oder im Schrankfenster den Techniker rufen`,
   frozen: (name) => `🧊 ${name} ist eingefroren – aufwärmen lassen und im Schrankfenster neu starten`,
 };
 climate.onEvent = (type, d) => {
-  hud.notify(CLIMATE_MESSAGES[type](d.device.type.name), 'bad');
+  hud.notify(CLIMATE_MESSAGES[type](d.device.type.name, d.part?.name), 'bad');
   sound.play('warn');
+};
+// Bauteile: Lieferung ins Teilelager, Server läuft nach dem Tausch des defekten Teils wieder
+serverParts.onEvent = (type, d) => {
+  if (type === 'parts-delivered') hud.notify(`📦 ${d.count} ${d.count === 1 ? 'Bauteil' : 'Bauteile'} geliefert – im Teilelager`, 'good');
+  else if (type === 'fixed') {
+    // Kommt vor nas.onEvent 'disk-removed' (gleicher Aufruf): erst danach entscheiden, ob die NAS-Meldung schon kam
+    queueMicrotask(() => {
+      if (nasScrapped.delete(d.device.id)) return;
+      hud.notify(`🔧 ${d.device.type.name}: defektes Teil getauscht`, 'good');
+    });
+  }
 };
 // Klima-Automatik: an, Automatik-Server fällt aus bzw. ist wieder da
 const racksText = (n) => `${n} ${n === 1 ? 'Schrank' : 'Schränke'}`;
@@ -549,6 +641,7 @@ scene.add(storage.group);
 const cat = createCat({
   economy,
   tableHeight: TABLE_HEIGHT,
+  avoid: basement.hallObstacles, // nicht übers Kellerloch oder in den Fahrstuhlschacht
   onEvent: (type) => {
     if (type === 'pet') {
       sound.play('purr');
@@ -573,6 +666,7 @@ const throwing = createThrowing({
   economy,
   carry,
   cat,
+  obstacles: basement.hallObstacles, // Kellerloch mit Geländer und Fahrstuhlschacht: abprallen wie an einer Wand
   onEvent: (type, d) => {
     if (type === 'throw') sound.play('whoosh');
     else if (type === 'land') sound.play('clunk');
@@ -592,9 +686,14 @@ scene.add(office.group);
 // Azubis laufen durch Halle und Lager und helfen mit (Aufgaben aus core/staff.js), ohne Arbeit sitzen sie im Büro
 const workers = createWorkers({ economy, staff });
 scene.add(workers.group);
-// Besuchergruppe als Figuren: kommt über den Garten, folgt dem führenden Azubi durch Halle und Serverraum
-// (meldet arrived, reachedStation und finished an core/visitors.js). Figuren werden schon bei der Ankündigung geladen.
-const visitorGroup = createVisitorGroup({ visitors, workers, collision, upperFloor, onReady: () => precompileShaders() });
+// Besucher-Grüppchen als Figuren: kommen über den Garten zum Empfang und gehen allein durch Halle, Lager und
+// Serverraum (melden arrived, reachedStation und finished je Grüppchen an core/visitors.js). Sie weichen dem Spieler,
+// den Azubis und den Kunden aus.
+const visitorGroup = createVisitorGroup({
+  visitors, collision, upperFloor,
+  others: () => [...customers.positions(), ...workers.positions(), ...pedestrians.group.children.map((h) => h.position)],
+  onReady: () => precompileShaders(),
+});
 scene.add(visitorGroup.group);
 staff.onEvent = (type, d) => {
   const who = d.worker ? `Azubi ${d.worker.name}` : 'Ein Azubi';
@@ -728,7 +827,9 @@ const shop = createShop(economy, {
   servers,
   rentals, // Server-Vermietung (VM-Anfragen, Verträge)
   rentalAutomation, // automatische Vergabe durch die privaten Server: Schalter und Status in der App
+  storageRentals, // Speicher-Vermietung auf den NAS (#47): Anfragen und Verträge in der App „Server-Vermietung“
   ai: aiService, // App „KI“: Stufe, KI-GPU-Server online, KI-Abo
+  serverParts, // App „Teile-Shop“: Bauteile kaufen, Teilelager, defekte Server
   advisor, // Antworten im KI-Chat (core/ai-advisor.js)
   // Platz ist für so viele Drucker, wie der Tisch Stellplätze hat – egal ob schon aufgestellt
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
@@ -749,6 +850,7 @@ const rackPanel = createRackPanel({
   automation, // Klima-Automatik: Anzeige, Schalter „Automatik an/aus“
   rentals, // VM-Auslastung je Server (core/server-rentals.js)
   ai: aiService, // KI-GPU-Server: rechnet für die KI oder warum nicht (überhitzt)
+  nas, // NAS-Zeile mit Speicher und Schächten (#46/#48)
   onClose: () => {
     if (gameOver) return;
     title.showResume();
@@ -759,8 +861,25 @@ function openRack(rackId) {
   rackPanel.open(rackId);
   stopPlaying();
 }
-// Ist gerade ein Fenster offen (PC oder Schrank)? Dann läuft die Zeit weiter und es gibt kein Pausenmenü
-const uiOpen = () => shop.isOpen() || rackPanel.isOpen();
+// Werkbank-Menü: Steckplätze des Servers auf der Werkbank, wie das Schrankfenster mit freier Maus
+const workbenchPanel = createWorkbenchPanel({
+  economy,
+  parts: serverParts,
+  bench: workbench,
+  canPickUp: () => workbenchStation.pickUpProblem(),
+  onPickUp: () => workbenchStation.pickUp(), // Server als Karton in die Hand
+  onClose: () => {
+    if (gameOver) return;
+    title.showResume();
+    startPlaying();
+  },
+});
+function openWorkbench(deviceId) {
+  workbenchPanel.open(deviceId);
+  stopPlaying();
+}
+// Ist gerade ein Fenster offen (PC, Schrank oder Werkbank)? Dann läuft die Zeit weiter und es gibt kein Pausenmenü
+const uiOpen = () => shop.isOpen() || rackPanel.isOpen() || workbenchPanel.isOpen();
 
 const pcInteraction = {
   hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
@@ -780,7 +899,7 @@ const interaction = new Interaction({
   camera,
   distance: INTERACT_DISTANCE,
   hintEl,
-  targets: [room, upperFloor.group, serverRoom.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group, visitorGroup.group],
+  targets: [room, upperFloor.group, basement.group, basement.hallGroup, serverRoom.group, workbenchStation.group, entrance.group, receptionDesk.group, customers.group, receptionist.group, outdoor.group, storage.group, office.group, hall.group, computerDesk, workshop.group, displayWall.group, cat.group, throwing.group, workers.group, visitorGroup.group],
 });
 
 // Tablet: kein Esc – abbrechen geht dort per Tippen auf den gewählten Port oder ⏸
@@ -815,6 +934,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') serverRoom.cancelPick();
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
   else if (e.code === 'Escape' && rackPanel.isOpen()) rackPanel.close();
+  else if (e.code === 'Escape' && workbenchPanel.isOpen()) workbenchPanel.close();
   else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
@@ -831,9 +951,15 @@ window.addEventListener('keydown', (e) => keys.add(e.code));
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear()); // sonst bleibt z. B. C nach einem Fensterwechsel „gedrückt“
 
-// Werfen nur in der Halle – von der zweiten Etage fiele der Drucker durch die Decke
+// Im Treppenhaus bzw. Keller: Stockwerk unter 0 oder schon auf dem obersten Treppenlauf (Stockwerk 0, Boden unter der
+// Hallenebene, bis −1,75 m) – gilt für Werfen und Hallenlicht
+const belowHall = () => playerLevel < 0 || (playerLevel === 0 && groundY < -0.01);
+
+// Werfen nur in der Halle – von der zweiten Etage fiele der Drucker durch die Decke, unten in Treppenhaus und Keller
+// (auch schon auf dem obersten Treppenlauf) kennt die Wurfbahn den Boden nicht
 function throwCarried() {
-  if (playerLevel) hud.notify('Von hier oben lieber nichts werfen – erst runter in die Halle', 'info');
+  if (playerLevel > 0) hud.notify('Von hier oben lieber nichts werfen – erst runter in die Halle', 'info');
+  else if (belowHall()) hud.notify('Hier unten lieber nichts werfen – erst hoch in die Halle', 'info');
   else throwing.throwCarried();
 }
 
@@ -861,8 +987,10 @@ function updateMovement(dt) {
     controls.moveForward((forward / len) * speed * (moveDt / steps));
     controls.moveRight((right / len) * speed * (moveDt / steps));
     collision.resolve(camera.position, PLAYER_RADIUS, playerLevel);
-    // Treppe: Boden steigt mit, ab halber Höhe gilt die zweite Etage
-    const foot = upperFloor.footing(camera.position.x, camera.position.z, playerLevel);
+    // Treppe: Boden steigt mit, ab halber Höhe gilt die zweite Etage – im Treppenhaus zum Keller entscheidet
+    // basement.footing (braucht die bisherige Bodenhöhe, weil sich 20 Stockwerke dieselbe Grundfläche teilen)
+    const { x, z } = camera.position;
+    const foot = basement.footing(x, z, playerLevel, groundY) ?? upperFloor.footing(x, z, playerLevel);
     playerLevel = foot.level;
     groundY = foot.y;
   }
@@ -874,19 +1002,20 @@ const graphics = setupGraphics(renderer, scene, camera, quality);
 const hallLights = createHallLights({ room, scene });
 scene.add(hallLights.group);
 interaction.targets.push(hallLights.group);
+const UNDERGROUND = new THREE.Vector3(99, 0, 99); // für hallLights: ein Punkt weit außerhalb der Halle
 // Halle, Anbauten und Außenbereich nur zeichnen, wenn man hineinsehen kann
 // Die Lampenschatten der Anbauten sind statisch. Ein ausgeblendeter Raum fehlt in der Schattenkarte, deshalb beim
 // Einblenden neu zeichnen – aber nur, wenn sich seitdem etwas geändert hat. Bei jedem Umschauen zu zeichnen
 // (jede Lampe zeichnet dafür die Szene sechsmal) ließ das Bild beim Kurvenlaufen ruckeln.
 const staleShadows = new Set();
 const culling = createRoomCulling(camera, {
-  hall: [room, upperFloor.group, serverRoom.group, hall.group, workshop.group, computerDesk],
+  hall: [room, upperFloor.group, basement.hallGroup, serverRoom.group, workbenchStation.group, hall.group, workshop.group, computerDesk],
   storage: [storage.group],
   office: [office.group],
   entrance: [entrance.group, receptionDesk.group],
 }, (name) => {
   if (staleShadows.delete(name)) graphics.refreshStaticShadows();
-});
+}, (p) => !basement.hallVisibleFrom(p)); // tief im Treppenhaus und im Keller sieht man nichts von oben
 
 // Shader vorab im Hintergrund übersetzen. Sonst übersetzt three.js sie erst, wenn ein Objekt zum ersten Mal
 // ins Bild kommt – unter Windows (ANGLE → Direct3D) dauert das spürbar, das Spiel steht so lange und
@@ -946,7 +1075,7 @@ function checkBankrupt() {
 for (const [name, object] of Object.entries({
   room, entrance: entrance.group, outdoor: outdoor.group, customers: customers.group, reception: receptionDesk.group,
   hall: hall.group, computerDesk, workshop: workshop.group, storage: storage.group, cat: cat.group,
-  office: office.group, workers: workers.group, visitors: visitorGroup.group,
+  office: office.group, workers: workers.group, visitors: visitorGroup.group, basement: basement.group,
 })) object.name ||= name;
 const perf = createPerfOverlay({ renderer, scene });
 const frameClock = new THREE.Clock();
@@ -988,10 +1117,12 @@ renderer.setAnimationLoop(() => {
       climate.advance(gameMinutes);
       automation.advance(gameMinutes); // nach dem Klima: regelt mit den neuen Temperaturen
       rentals.advance(gameMinutes);
+      storageRentals.advance(gameMinutes); // Speicher-Anfragen und -Verträge (#47)
       rentalAutomation.advance(gameMinutes); // vergibt Anfragen, deren Kunde am Empfang steht
       aiService.advance(gameMinutes); // Stufenwechsel der KI erkennen (prüft höchstens einmal je Spielminute)
+      advisor.advance(gameMinutes); // KI ab Stufe 9: prüft alle 2 Spielminuten auf Warnungen
       gameClock.advance(gameMinutes);
-      visitors.advance(gameMinutes); // nach der Uhr: Termin und Ankunft hängen an der Uhrzeit
+      visitors.advance(gameMinutes); // nach der Uhr: Tagesplan und Ankünfte hängen an der Uhrzeit
       checkBankrupt();
     });
   }
@@ -999,14 +1130,18 @@ renderer.setAnimationLoop(() => {
   // Wer die zweite Etage verlässt (Treppe, Fahrstuhl), bricht ein angefangenes Verlegen ab
   if (playerLevel !== 1) serverRoom.cancelPick();
   safely('Serverraum', () => serverRoom.update(dt));
+  safely('Werkbank', () => workbenchStation.update(dt)); // offener Server nur, solange einer darauf liegt
   safely('Ausstellungsregal', () => displayWall.update());
-  safely('Licht', () => hallLights.update(dt, camera.position));
+  // Unter der Erde (ab dem ersten Schritt die Treppe hinunter) zählt man nicht als „in der Halle“ – das Hallenlicht
+  // dunkelt dort nichts ab
+  safely('Licht', () => hallLights.update(dt, belowHall() ? UNDERGROUND : camera.position));
   safely('Kater', () => cat.update(dt));
   safely('Werfen', () => throwing.update(dt));
   safely('Azubis', () => workers.update(dt));
   safely('Büro', () => office.update(dt, workers.gaming()));
   safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions(), ...visitorGroup.positions()]));
   safely('Räume', () => culling.update());
+  safely('Keller', () => basement.update(dt, camera)); // Treppenhaus nur in der Nähe zeichnen, Sonne unten aus
   safely('Besuchergruppe', () => visitorGroup.update(dt, camera, culling)); // nach den Räumen: blendet mit aus
   safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
   safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));
@@ -1019,6 +1154,7 @@ renderer.setAnimationLoop(() => {
     economy.advanceDeliveries(dt);
     upgrades.advance(dt);
     servers.advance(dt);
+    serverParts.advance(dt); // Bauteil-Pakete ins Teilelager
   });
   safely('HUD', () => hud.update());
   safely('Geräusche', () => printerSounds(dt));

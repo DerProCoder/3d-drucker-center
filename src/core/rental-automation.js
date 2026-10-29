@@ -11,7 +11,10 @@
 // RETRY_EVERY Spielminuten erneut, solange der Kunde wartet.
 // Regel: unter allen Servern, auf die die VM passt (rentals.fitsOn === null – online, nicht privat, genug RAM und
 // Cores frei), zuerst der höchste Mietfaktor, bei gleichem Faktor der vollste (am wenigsten freier RAM, dann freie
-// Cores – Best Fit, damit große Lücken für große VMs frei bleiben).
+// Cores – Best Fit, damit große Lücken für große VMs frei bleiben). Freier Platz je Server richtet sich nach seinen
+// eingebauten Teilen (rentals.freeRam/freeCores, core/server-parts.js) – aufgerüstete Server nehmen auch große VMs an.
+// Speicher-Anfragen (#47, core/storage-rentals.js) vergibt die Automatik genauso: auf die vollste NAS, auf die die
+// Anfrage noch passt (storage.fitsOn === null, am wenigsten freier Speicher).
 // Schalter „Automatische Vergabe an/aus“ (Standard an) wird gespeichert. Läuft in Spielminuten. Ohne Three.js und DOM.
 import { isPrivateRowRack, spotLabel } from './server-zones.js';
 import { isRentableType } from './server-catalog.js';
@@ -21,8 +24,10 @@ export const RETRY_EVERY = 1;   // Spielminuten zwischen zwei Versuchen, wenn ni
 const CHECK_EVERY = 1;          // Spielminuten zwischen zwei Prüfungen, ob noch ein Vergabe-Server online ist
 
 export class RentalAutomation {
-  constructor(rentals) {
+  // storage: core/storage-rentals.js (Speicher-Anfragen, optional)
+  constructor(rentals, storage = null) {
     this.rentals = rentals;
+    this.storage = storage;
     this.servers = rentals.servers;
     this.economy = rentals.economy;
     this.enabled = true;          // Schalter „Automatische Vergabe an/aus“
@@ -31,7 +36,8 @@ export class RentalAutomation {
     this.sinceCheck = 0;          // Spielminuten seit der letzten Prüfung der Vergabe-Server
     this.started = false;         // erste Prüfung (nach Start, Laden oder Umschalten) meldet nichts
     this.wasActive = false;
-    // (type, data) => void – 'assigned' { request, vm, server, rack, rackLabel, rent, via (Vergabe-Server) },
+    // (type, data) => void – 'assigned' { request, vm, server, rack, rackLabel, rent, via (Vergabe-Server) } (bei Speicher-Anfragen
+    // – request.kind === 'storage' – ist vm der Speicher-Vertrag),
     // 'no-fit' { request } (einmal je Anfrage), 'stopped' {} (kein privater Server mehr online),
     // 'active' { server, rack, rackLabel } (wieder bzw. erstmals ein Vergabe-Server online, nicht nach dem Laden)
     this.onEvent = null;
@@ -62,8 +68,14 @@ export class RentalAutomation {
     return this.enabled && this.assignServers(reached).length > 0;
   }
 
+  // Alle wartenden Anfragen: VMs und (falls vorhanden) Speicher
+  get requests() {
+    return this.storage ? [...this.rentals.requests, ...this.storage.requests] : this.rentals.requests;
+  }
+
   // Bester Server für die Anfrage nach der Regel oben, oder null, wenn sie nirgends passt
   pick(request, reached = this.servers.reachable()) {
+    if (request.kind === 'storage') return this.pickNas(request, reached);
     const rentals = this.rentals;
     const fitting = rentals.rentableServers.filter((s) => rentals.fitsOn(request, s, reached) === null);
     fitting.sort((a, b) => (b.type.rentFactor ?? 1) - (a.type.rentFactor ?? 1)
@@ -73,19 +85,29 @@ export class RentalAutomation {
     return fitting[0] ?? null;
   }
 
+  // Vollste NAS, auf die die Speicher-Anfrage noch passt (am wenigsten freier Speicher), oder null
+  pickNas(request, reached = this.servers.reachable()) {
+    const storage = this.storage;
+    if (!storage) return null;
+    const fitting = storage.nasDevices.filter((s) => storage.fitsOn(request, s, reached) === null);
+    fitting.sort((a, b) => storage.freeOn(a) - storage.freeOn(b) || a.id - b.id);
+    return fitting[0] ?? null;
+  }
+
   // ---------- Schalter ----------
 
   setEnabled(on) {
     this.enabled = !!on;
     this.started = false; // Umschalten meldet nicht „gestoppt“ bzw. „aktiv“ – die App zeigt den Status
     this.rentals.notify();
+    this.storage?.notify();
   }
 
   // ---------- Zeit ----------
 
   advance(minutes) {
     if (minutes <= 0) return;
-    const requests = this.rentals.requests;
+    const requests = this.requests;
     // Wartezeit der Anfragen am Empfang; verschwundene (angenommen, abgelehnt, verfallen) vergessen
     let due = false;
     for (const request of requests) {
@@ -127,8 +149,9 @@ export class RentalAutomation {
       }
       return false;
     }
-    const rent = this.rentals.rentPerHour(request, server);
-    const result = this.rentals.acceptRequest(request.id, server.id, { auto: true });
+    const market = request.kind === 'storage' ? this.storage : this.rentals;
+    const rent = market.rentPerHour(request, server);
+    const result = market.acceptRequest(request.id, server.id, { auto: true });
     if (!result.ok) {
       this.countdown.set(request.id, RETRY_EVERY);
       return false;
@@ -136,7 +159,7 @@ export class RentalAutomation {
     this.countdown.delete(request.id);
     this.reported.delete(request.id);
     const rack = this.servers.rackOf(server);
-    this.onEvent?.('assigned', { request, vm: result.vm, server, rack, rackLabel: rack ? spotLabel(rack.slot) : '', rent, via });
+    this.onEvent?.('assigned', { request, vm: result.vm ?? result.contract, server, rack, rackLabel: rack ? spotLabel(rack.slot) : '', rent, via });
     return true;
   }
 

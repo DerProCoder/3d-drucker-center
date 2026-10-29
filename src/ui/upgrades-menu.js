@@ -1,4 +1,4 @@
-// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage und Fahrstuhl kaufen, dazu die laufenden
+// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage, Keller und Fahrstühle kaufen, dazu die laufenden
 // Kosten pro Stunde.
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE, SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import { RENT_PER_HOUR } from '../core/economy.js';
@@ -48,7 +48,7 @@ export function createUpgradesMenu(upgrades, economy) {
 
   function render() {
     return `
-      <p class="slots">Bau deine Halle aus. Bestellungen sind eine Minute unterwegs: Tische stellst du danach an der grünen Markierung in der Halle auf, Regalebenen, Etage und Fahrstuhl werden eingebaut.</p>
+      <p class="slots">Bau deine Halle aus. Bestellungen sind eine Minute unterwegs: Tische stellst du danach an der grünen Markierung in der Halle auf, Regalebenen, Etage, Keller und Fahrstühle werden eingebaut.</p>
       <div class="grid">
         ${card({
           id: 'table', title: 'Drucktisch', perStep: `je ${SLOTS_PER_TABLE} Drucker- und ${RACKS_PER_TABLE} Regalplätze`,
@@ -70,6 +70,17 @@ export function createUpgradesMenu(upgrades, economy) {
           sub: `Neben der Treppe – nimmt alles mit, was du trägst${buildStatus('elevator', upgrades.elevator)}`,
           owned: upgrades.elevator ? 1 : 0, max: 1, price: upgrades.elevatorPrice, problem: upgrades.elevatorProblem,
         })}
+        ${card({
+          id: 'basement', title: 'Keller mit Treppe', perStep: '70 m tief, so groß wie die Halle',
+          sub: `Ein leerer Keller tief unter der Halle – das Treppenhaus beginnt in der Ecke links hinten${buildStatus('basement', upgrades.basement)}`,
+          owned: upgrades.basement ? 1 : 0, max: 1, price: upgrades.basementPrice,
+        })}
+        ${card({
+          id: 'basementElevator', title: 'Keller-Fahrstuhl', perStep: 'fährt zwischen Halle und Keller',
+          sub: `Neben dem Treppenhaus – spart dir 70 m Treppe${buildStatus('basementElevator', upgrades.basementElevator)}`,
+          owned: upgrades.basementElevator ? 1 : 0, max: 1, price: upgrades.basementElevatorPrice,
+          problem: upgrades.basementElevatorProblem,
+        })}
       </div>
       <p class="slots power-note">💸 Laufende Kosten, abgebucht zu jeder vollen Spielstunde: <strong>${euro.format(economy.costPerHour)} / h</strong>
         (Miete ${euro.format(RENT_PER_HOUR)} + Strom ${euro.format(economy.powerPerHour)} für alle aufgestellten Drucker${economy.wagesPerHour ? ` + Lohn ${euro.format(economy.wagesPerHour)}` : ""})</p>`;
@@ -82,6 +93,8 @@ export function createUpgradesMenu(upgrades, economy) {
     if (id === 'shelf' && upgrades.buyShelfLevel()) return `Regalebene bestellt – wird in ${economy.deliverySeconds} s im Abstellraum eingebaut`;
     if (id === 'floor' && upgrades.buyUpperFloor()) return `Zweite Etage bestellt – wird in ${economy.deliverySeconds} s gebaut, die Treppe kommt in die Ecke rechts hinten`;
     if (id === 'elevator' && upgrades.buyElevator()) return `Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben der Treppe eingebaut`;
+    if (id === 'basement' && upgrades.buyBasement()) return `Keller bestellt – wird in ${economy.deliverySeconds} s gebaut, das Treppenhaus beginnt links hinten in der Halle`;
+    if (id === 'basementElevator' && upgrades.buyBasementElevator()) return `Keller-Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben dem Treppenhaus eingebaut`;
     return null;
   }
 

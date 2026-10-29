@@ -3,7 +3,9 @@
 // Luft im Schrank) und oben Abluft-Lüfter (ziehen die Abwärme der Geräte ab). Warme Luft steigt: oben im Schrank ist
 // es wärmer als unten. Jedes Gerät mit Stromverbrauch hat dazu einen eigenen Lüfter, der es gegenüber der Luft im
 // Schrank kühlt; seine Abwärme richtet sich nach dem Stromverbrauch.
-// Zu heiß (über TEMP_LIMITS.hot): das Gerät nimmt Schaden und ist irgendwann defekt – Reparatur kostet Geld.
+// Zu heiß (über TEMP_LIMITS.hot): das Gerät nimmt Schaden und ist irgendwann defekt. Bei Servern geht dabei ein
+// bestimmtes Bauteil kaputt (core/server-parts.js, meist ein Lüfter): Teil selbst tauschen (resume) oder den Techniker
+// rufen – die Reparatur kostet REPAIR_SHARE des Kaufpreises und ersetzt alle defekten Teile.
 // Zu kalt (unter TEMP_LIMITS.cold): es friert irgendwann ein (hängt) – Neustart nötig, sobald es wieder warm genug ist.
 // Defekte und eingefrorene Geräte arbeiten nicht (Server offline, Switch/Firewall leiten nicht weiter, siehe
 // Servers.deviceProblem). Lüfter kosten etwas Strom. Läuft in Spielminuten. Ohne Three.js und DOM.
@@ -45,7 +47,13 @@ export class ServerClimate {
     // Klima-Automatik (core/climate-automation.js) den Schrank regeln darf, Standard an
     this.racks = new Map();
     this.devices = new Map(); // Geräte-ID → { fan (%), temp (°C), heat, cold (Schaden 0…1), status, warned }
-    this.onEvent = null;      // (type, { device }) => void – 'hot', 'cold' (Warnung), 'broken', 'frozen'
+    this.onEvent = null;      // (type, { device }) => void – 'hot', 'cold' (Warnung), 'broken' (mit part), 'frozen'
+    // Bauteile (core/server-parts.js setzt das, sonst ohne Teile): failPart(device) lässt beim Ausfall ein Teil kaputtgehen
+    // ({ kind, index, part } oder null), repairParts(device) ersetzt bei der Reparatur alle defekten Teile,
+    // brokenPart(device) nennt das defekte Teil („Lüfter“) oder null
+    this.failPart = () => null;
+    this.repairParts = () => {};
+    this.brokenPart = () => null;
     servers.deviceProblem = (device) => this.problem(device);
     const basePower = economy.extraPowerPerHour;
     economy.extraPowerPerHour = () => (basePower?.() ?? 0) + this.fanPowerPerHour;
@@ -80,7 +88,10 @@ export class ServerClimate {
   // Warum das Gerät nicht arbeitet, oder null
   problem(device) {
     const status = this.devices.get(device.id)?.status;
-    if (status === 'broken') return 'überhitzt – defekt';
+    if (status === 'broken') {
+      const part = this.brokenPart(device);
+      return part ? `${part} defekt (überhitzt)` : 'überhitzt – defekt';
+    }
     if (status === 'frozen') return 'eingefroren – Neustart nötig';
     return null;
   }
@@ -111,7 +122,16 @@ export class ServerClimate {
     if (!device || this.repairProblem(device)) return false;
     this.economy.spend(this.repairCost(device));
     Object.assign(this.device(device.id), { status: 'ok', heat: 0, cold: 0, warned: null });
+    this.repairParts(device);
     this.economy.notify();
+    return true;
+  }
+
+  // Defektes Teil wurde getauscht (core/server-parts.js): Gerät läuft wieder, ohne Kosten
+  resume(deviceId) {
+    const state = this.devices.get(deviceId);
+    if (state?.status !== 'broken') return false;
+    Object.assign(state, { status: 'ok', heat: 0, cold: 0, warned: null });
     return true;
   }
 
@@ -172,10 +192,10 @@ export class ServerClimate {
     return { air: airTarget(load, top, inlet), inlet };
   }
 
-  // Abwärme aller Geräte im Schrank in Strom-Euro/h. Defekte Geräte laufen nicht und heizen nicht; eingefrorene
+  // Abwärme aller Geräte im Schrank in Strom-Euro/h (Server nach Cores, servers.powerOf). Defekte Geräte laufen nicht und heizen nicht; eingefrorene
   // hängen nur und werden weiter warm. devices: Geräte im Schrank, falls schon bekannt (spart das Suchen)
   rackLoad(rackId, devices = this.servers.devicesIn(rackId)) {
-    return devices.reduce((sum, d) => sum + (this.devices.get(d.id)?.status === 'broken' ? 0 : d.type.power), 0);
+    return devices.reduce((sum, d) => sum + (this.devices.get(d.id)?.status === 'broken' ? 0 : this.servers.powerOf(d)), 0);
   }
 
   // Temperatur, der ein Gerät bei dieser Schrankluft, Zuluft und Lüfterstellung zustrebt
@@ -184,7 +204,7 @@ export class ServerClimate {
     const height = 1 - (device.unit + device.type.units / 2) / rack.type.units;
     const local = air + (air - inlet) * 0.5 * (height - 0.5);
     const broken = this.devices.get(device.id)?.status === 'broken';
-    return local + (broken ? 0 : device.type.power * DEVICE_HEAT / (0.15 + fanEffect(fan)));
+    return local + (broken ? 0 : this.servers.powerOf(device) * DEVICE_HEAT / (0.15 + fanEffect(fan)));
   }
 
   // Eingeschwungener Zustand bei diesen Lüftern: { air, inlet (°C), temps: Map Geräte-ID → °C }
@@ -233,7 +253,8 @@ export class ServerClimate {
     }
     if (s.heat >= 1) {
       s.status = 'broken';
-      this.onEvent?.('broken', { device });
+      const failed = this.failPart(device); // Server: ein bestimmtes Teil geht kaputt
+      this.onEvent?.('broken', { device, part: failed?.part ?? null });
       return true;
     }
     if (s.cold >= 1) {

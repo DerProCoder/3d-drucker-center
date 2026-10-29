@@ -310,9 +310,73 @@ function controls(s) {
   fill(s, 0.0422, 0.0068, 0.0014, 0.0099, '#2e6fd8');
 }
 
+// ---------- NAS (#48): Festplatten-Schächte vorn ----------
+
+// Lage der Festplatten-Schächte einer NAS (type.bays: 4 bzw. 12) auf der Frontplatte w × h, Flächenkoordinaten (oben
+// links): [{ x, y, w, h }], Reihenfolge wie die Schächte bay0 … (Reihen von oben nach unten, je Reihe von links –
+// wie im offenen Server auf der Werkbank, models/server-parts.js). 4 Spalten, je Reihe 4 Schächte; alle Schächte gleich
+// groß, damit die Platten (models/nas-front.js) überall gleich aussehen.
+export const NAS_BAY = { x0: 0.052, pitch: 0.085, w: 0.0842, h: 0.04 };
+export function nasBayRects(type, w, h) {
+  const n = type.bays ?? 0;
+  const cols = Math.min(4, n);
+  const rows = cols ? Math.ceil(n / cols) : 0;
+  const rowH = (h - 0.008) / Math.max(1, rows);
+  return Array.from({ length: n }, (_, i) => {
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    return { x: NAS_BAY.x0 + col * NAS_BAY.pitch, y: 0.004 + row * rowH + (rowH - NAS_BAY.h) / 2, w: NAS_BAY.w, h: NAS_BAY.h };
+  });
+}
+
+// Leerer Schacht: dunkle Öffnung mit Führungsschienen oben und unten, hinten der Stecker der Rückwandplatine, links
+// klein die Schachtnummer. Eine eingesetzte Platte (eigenes Mesh) deckt die Öffnung ab.
+function emptyBay(s, r, number) {
+  fill(s, r.x, r.y, r.w, r.h, '#07080a', 25, 0.0008);
+  edge(s, r.x, r.y, r.w, r.h, false);
+  for (const y of [r.y + 0.0012, r.y + r.h - 0.0032]) fill(s, r.x + 0.002, y, r.w - 0.004, 0.002, '#3a3e45', 70);
+  fill(s, r.x + r.w / 2 - 0.009, r.y + r.h / 2 - 0.003, 0.018, 0.006, '#1b1d21', 45, 0.0005);
+  fill(s, r.x + r.w / 2 - 0.0075, r.y + r.h / 2 - 0.0012, 0.015, 0.0024, '#7c6a2e', 50); // Kontakte
+  text(s, String(number), r.x + 0.0035, r.y + r.h / 2, 0.0042, '#6d737b', { align: 'center' });
+}
+
+// NAS: helles Orange, links Bedienfeld, 4 Spalten Festplatten-Schächte (leer gezeichnet), rechts Lüftung und Typenschild
+function nasFront(s, type, unitH) {
+  const base = css(type.color ?? 0xffb366);
+  fill(s, 0, 0, s.w, s.h, base, 128);
+  grain(s.color, 7);
+  ears(s, unitH, type.units, base);
+  controls(s);
+  const rects = nasBayRects(type, s.w, s.h);
+  // Schachtkäfig: etwas dunklerer Rahmen um alle Schächte
+  const left = rects[0].x - 0.0025;
+  const top = Math.min(...rects.map((r) => r.y)) - 0.0025;
+  const right = Math.max(...rects.map((r) => r.x + r.w)) + 0.0025;
+  const bottom = Math.max(...rects.map((r) => r.y + r.h)) + 0.0025;
+  fill(s, left, top, right - left, bottom - top, shade(base, 0.82), 110, 0.0015);
+  edge(s, left, top, right - left, bottom - top, false);
+  rects.forEach((r, i) => emptyBay(s, r, i + 1));
+  // Rechts: Lüftungslöcher, Typenschild und darunter die Zahl der Schächte
+  const vx = right + 0.005;
+  const end = s.w - EAR - 0.003;
+  const bw = Math.min(0.05, end - vx);
+  const bh = Math.min(0.012, s.h * 0.32);
+  const vw = end - vx - bw - 0.004;
+  if (vw > 0.01) {
+    fill(s, vx, 0.004, vw, s.h - 0.008, shade(base, 0.85), 110, 0.001);
+    perforate(s, vx + 0.0015, 0.0055, vw - 0.003, s.h - 0.011, { shape: 'round', size: 0.0011, pitch: 0.0032 });
+  }
+  badge(s, end - bw, s.h / 2 - bh / 2, bw, bh, type.name.toUpperCase(), '#17181b', base);
+  text(s, `${type.bays} × 3,5"`, end - bw / 2, s.h / 2 + bh / 2 + 0.005, 0.0036, shade(base, 0.45), { align: 'center' });
+}
+
 // Server: Laufwerke links, rechts Lüftungsgitter und Typenschild; GPU-Server (type.gpu, auch der KI-GPU-Server in
-// Serienfarbe) mit großem Lüftergitter
+// Serienfarbe) mit großem Lüftergitter. NAS (type.bays) haben eine eigene Front mit Festplatten-Schächten.
 function serverFront(s, type, unitH) {
+  if (type.bays) {
+    nasFront(s, type, unitH);
+    return;
+  }
   const base = type.color ? css(type.color) : '#2a2d33';
   const colors = type.color ? { tray: '#1e2024', accent: '#2c2f34' } : { tray: '#3a3e45', accent: '#3d86d8' };
   fill(s, 0, 0, s.w, s.h, base, 128);
@@ -430,9 +494,10 @@ function firewallFront(s, type, unitH) {
   const iw = s.w - 2 * EAR - 0.008;
   fill(s, ix, 0.004, iw, s.h - 0.008, '#1a1b1e', 120, 0.0015);
   edge(s, ix, 0.004, iw, s.h - 0.008, false);
-  // Groß nur „FIREWALL“, die Portzahl klein rechts daneben (der volle Typname wäre zu lang für den Platz vor dem Display)
+  // Groß nur „FIREWALL“, die Portzahl aus dem Namen klein rechts daneben (der volle Typname wäre zu lang für den Platz
+  // vor dem Display). portsLabel statt ports: die 8er hat 9 Buchsen (1 × WAN + 8 × LAN), heißt aber „8 Ports“
   text(s, 'FIREWALL', ix + 0.006, 0.0135, 0.0075, '#f2f2f0');
-  text(s, `${type.ports} PORTS`, ix + 0.076, 0.0152, 0.0038, '#c9cdd3', { align: 'right' });
+  text(s, `${type.portsLabel ?? type.ports} PORTS`, ix + 0.076, 0.0152, 0.0038, '#c9cdd3', { align: 'right' });
   fill(s, ix + 0.006, 0.0195, 0.07, 0.0014, base);
   for (const [i, [name, color]] of [['PWR', GREEN], ['ALARM', AMBER], ['HA', GREEN]].entries()) {
     led(s, ix + 0.009 + i * 0.017, 0.0275, 0.0012, color, i < 2);

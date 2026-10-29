@@ -1,6 +1,7 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
-// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }
+// game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench,
+// nas, storageRentals }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -17,7 +18,15 @@ const KEY = 'druckercenter-save';
 //     automatisch vergebene VMs mit Kennzeichen (rentals.vms[].auto)
 // 16: Besuchergruppen (core/visitors.js) – Termin der heutigen Gruppe und die letzten Bewertungen
 // 17: KI-GPU-Server (core/ai-service.js) – Gesamteinnahmen aus dem KI-Abo (aiService.totalIncome)
-const VERSION = 17;
+// 18: Besucher in Grüppchen über den Tag (core/visitors.js) – Tagesplan, Tagesbilanz statt einer Gruppe mit Führer
+// 19: Keller mit Treppenhaus und Keller-Fahrstuhl (core/upgrades.js: basement, basementElevator, …Ordered)
+//     dazu ohne eigene Version: KI-Tagesverlauf (aiService.log aus core/ai-day-log.js) – fehlt er, beginnt die
+//     Aufzeichnung beim Laden
+// 20: Server aus Bauteilen (core/server-parts.js) – Ausstattung je Server, Teilelager und Lieferungen (serverParts)
+//     dazu ohne eigene Version: Server auf der Werkbank (location 'bench', core/workbench.js) – alte Stände haben keinen
+// 21: NAS (#46) – Festplatten je Schacht stecken in serverParts (devices[].slots.disk), kein eigenes Feld; alte Stände brauchen keine Umwandlung
+// 22: Speicher-Vermietung auf NAS (core/storage-rentals.js) – Speicher-Anfragen und -Verträge (storageRentals)
+const VERSION = 22;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -40,7 +49,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -49,7 +58,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: ['table', 'wall', 'shipping', 'server', 'rack'].includes(f.location) ? f.location : 'storage',
+    location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench'].includes(f.location) ? f.location : 'storage',
     slot: ['table', 'wall', 'server'].includes(f.location) ? f.slot : null,
     rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
     unit: f.location === 'rack' ? f.unit : undefined,
@@ -121,6 +130,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       shelfLevels: upgrades.shelfLevels, shelfOrdered: upgrades.shelfOrdered,
       upperFloor: upgrades.upperFloor, upperFloorOrdered: upgrades.upperFloorOrdered,
       elevator: upgrades.elevator, elevatorOrdered: upgrades.elevatorOrdered,
+      basement: upgrades.basement, basementOrdered: upgrades.basementOrdered,
+      basementElevator: upgrades.basementElevator, basementElevatorOrdered: upgrades.basementElevatorOrdered,
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
     clock: { minutes: clock.minutes },
@@ -131,8 +142,10 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     climate: climate?.toJSON(), // Lüfter und Temperaturen im Serverraum (core/server-climate.js)
     rentals: rentals?.toJSON(), // VM-Anfragen und Mietverträge (core/server-rentals.js)
     rentalAutomation: rentalAutomation?.toJSON(), // Schalter „Automatische Vergabe“ (core/rental-automation.js)
-    visitors: visitors?.toJSON(), // Termin der Besuchergruppe und letzte Bewertungen (core/visitors.js)
+    visitors: visitors?.toJSON(), // Tagesplan der Besucher, Tagesbilanz und letzte Bewertungen (core/visitors.js)
     aiService: aiService?.toJSON(), // Gesamteinnahmen aus dem KI-Abo (core/ai-service.js)
+    serverParts: serverParts?.toJSON(), // Bauteile je Server, Teilelager und Lieferungen (core/server-parts.js)
+    storageRentals: storageRentals?.toJSON(), // Speicher-Anfragen und -Verträge auf den NAS (core/storage-rentals.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -168,7 +181,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -224,7 +237,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     data.version = 15;
   }
   // Version 15 kennt noch keine Besuchergruppen: kein Termin, keine Bewertungen – visitors.load ohne Daten plant
-  // für heute noch eine Gruppe, wenn es vor 16 Uhr ist und ein Azubi da ist
+  // den Tag neu (siehe Version 17)
   if (data?.version === 15) {
     data.visitors ??= null;
     data.version = 16;
@@ -233,6 +246,31 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 16) {
     data.aiService ??= null;
     data.version = 17;
+  }
+  // Version 17 kennt nur eine große Gruppe mit Azubi als Führer: eine geplante oder laufende Gruppe wird verworfen,
+  // die letzten Bewertungen bleiben (ohne Gruppennamen). Azubi-Reservierungen wurden nie gespeichert und es gibt sie
+  // nicht mehr – kein Azubi bleibt reserviert. visitors.load plant für heute die restlichen Grüppchen.
+  if (data?.version === 17) {
+    const v = data.visitors;
+    data.visitors = v
+      ? { recentRatings: (v.recentRatings ?? []).map((r) => ({ size: r.size, stars: r.stars, day: r.day })), nextId: v.nextId ?? 1 }
+      : null;
+    data.version = 18;
+  }
+  // Version 18 kennt noch keinen Keller: nichts gekauft (die Felder fehlen einfach und gelten beim Laden als false)
+  if (data?.version === 18) data.version = 19;
+  // Version 19 kennt noch keine Bauteile: alle Server bekommen beim Laden die Standardausstattung (64 Cores / 512 GB),
+  // defekte Server einen defekten Lüfter (serverParts.load ohne Daten gleicht mit dem Klima ab), VMs bleiben
+  if (data?.version === 19) {
+    data.serverParts ??= null;
+    data.version = 20;
+  }
+  // Version 20 kennt noch keine NAS – die Platten stecken ohnehin in serverParts, nichts umzuwandeln
+  if (data?.version === 20) data.version = 21;
+  // Version 21 kennt noch keine Speicher-Vermietung: keine Speicher-Anfragen, keine Verträge (storageRentals.load ohne Daten)
+  if (data?.version === 21) {
+    data.storageRentals ??= null;
+    data.version = 22;
   }
   if (data?.version !== VERSION) return false;
 
@@ -267,6 +305,10 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades.upperFloorOrdered = data.upgrades.upperFloorOrdered ?? upgrades.upperFloor;
     upgrades.elevator = data.upgrades.elevator ?? false;
     upgrades.elevatorOrdered = data.upgrades.elevatorOrdered ?? upgrades.elevator;
+    upgrades.basement = data.upgrades.basement ?? false;
+    upgrades.basementOrdered = data.upgrades.basementOrdered ?? upgrades.basement;
+    upgrades.basementElevator = data.upgrades.basementElevator ?? false;
+    upgrades.basementElevatorOrdered = data.upgrades.basementElevatorOrdered ?? upgrades.basementElevator;
   } else {
     const highestSlot = Math.max(-1, ...economy.printers.filter((p) => p.location === 'table').map((p) => p.slot));
     upgrades.tables = Math.max(1, Math.ceil((highestSlot + 1) / SLOTS_PER_TABLE));
@@ -311,7 +353,10 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
 
   servers?.load(data.servers);
   climate?.load(data.climate);
+  serverParts?.load(data.serverParts); // nach climate: defekte Server bekommen ein defektes Teil
+  workbench?.load(); // höchstens ein Server auf der Werkbank (core/workbench.js)
   rentals?.load(data.rentals); // nach servers/economy: Verträge auf fehlenden Servern fallen weg
+  storageRentals?.load(data.storageRentals); // nach serverParts und rentals: Verträge auf fehlenden NAS fallen weg
   rentalAutomation?.load(data.rentalAutomation);
   aiService?.load(data.aiService);
   economy.notify();
@@ -326,7 +371,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
   clock.notify();
   staff?.notify();
-  // Nach staff: eine laufende Führung wird nicht fortgesetzt, der Azubi ist frei, ein angekündigter Termin bleibt
+  // Nach der Uhr: Tagesplan der Besucher gilt nur für heute, laufende Grüppchen gelten als gegangen
   visitors?.load(data.visitors);
   return true;
 }

@@ -1,0 +1,85 @@
+/* PC-App „Teile-Shop“ (ui/parts-shop.js): Übersicht Teilelager und defekte Server, Karten mit Mengenwahl.
+   Baut auf den Karten aus desktop.css auf; vor touch.css einbinden. */
+
+.parts-locked { color: #ffb36b; }
+
+/* Übersicht oben: Teilelager und defekte Server nebeneinander, auf schmalen Bildschirmen untereinander */
+.parts-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.parts-box {
+  min-width: 0;
+  padding: 12px 14px;
+  background: #2a2e36;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+.parts-box.broken { border-color: rgba(255, 90, 70, 0.45); background: #33292b; }
+.parts-box-head { margin-bottom: 8px; font-weight: 600; }
+.parts-box-head .hint { margin-left: 6px; font-weight: 400; font-size: 0.85rem; opacity: 0.6; }
+.parts-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.parts-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.parts-empty { font-size: 0.85rem; opacity: 0.6; }
+.parts-delivery { margin: 10px 0 0; font-size: 0.88rem; color: #9fd0ff; }
+.parts-ok { margin: 0; align-self: center; opacity: 0.75; }
+
+.parts-broken { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.parts-broken li { display: flex; align-items: center; gap: 10px; }
+.parts-broken-text { flex: 1; min-width: 0; font-size: 0.88rem; line-height: 1.35; }
+.parts-place { font-size: 0.8rem; opacity: 0.6; }
+.parts-have { display: block; color: #6fdc8c; font-size: 0.8rem; }
+.parts-broken .buy { flex: none; }
+
+/* Kleinere Karten als im Server-Shop: Teile sind klein, so passen vier CPUs nebeneinander */
+.parts-grid { grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr)); }
+
+/* Produktbild: RAM-Riegel sind lang und schmal – vergrößert zeigen, der Rand des Bildes ist ohnehin leer */
+.parts-image { overflow: hidden; border-radius: 6px; }
+.parts-image.zoomed .product-image { transform: scale(1.45); }
+
+/* Mengenwahl: − Zahl + */
+.parts-foot { flex-wrap: wrap; }
+.parts-qty { display: flex; align-items: center; border-radius: 5px; background: rgba(255, 255, 255, 0.06); }
+.parts-step {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.parts-step:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.parts-step:disabled { opacity: 0.3; cursor: default; }
+.parts-count { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.parts-foot .price { flex: 1; text-align: right; }
+
+/* Touch: größere Tippflächen für die Mengenwahl */
+@media (pointer: coarse) {
+  .parts-step { width: 44px; height: 44px; font-size: 1.3rem; }
+  .parts-step:hover:not(:disabled) { background: transparent; }
+  .parts-step:active:not(:disabled) { background: rgba(255, 255, 255, 0.16); }
+}
+
+/* Handy: Bild klein links neben Name, Werte darunter; Kaufknopf über die ganze Breite */
+@media (max-width: 700px), (max-height: 500px) {
+  .parts-card { display: grid; grid-template-columns: 96px 1fr; column-gap: 12px; }
+  .parts-card > .parts-image { width: 96px; align-self: start; grid-row: span 2; }
+  .parts-card > .parts-image .product-image { aspect-ratio: 1; }
+  .parts-card > .card-head { align-self: center; }
+  .parts-card > .card-foot { grid-column: 1 / -1; }
+  .parts-foot .buy { flex: 1 1 100%; }
+  .parts-broken li { flex-wrap: wrap; }
+  .parts-broken .buy { flex: 1 1 100%; }
+}

@@ -236,6 +236,8 @@ export class Carry {
         todo = furniture.type.kind === 'rack'
           ? 'in der zweiten Etage an einer grünen Markierung aufstellen'
           : 'in der zweiten Etage auf einen Serverschrank klicken, um es einzubauen';
+        // Server lassen sich auch auf der Werkbank öffnen (world/workbench.js, Teile tauschen, auf- und abrüsten)
+        if (furniture.type.kind === 'server') todo += ' – oder auf die Werkbank legen';
       }
       this.setInfo(`In der Hand: ${count}Karton ${furniture.type.name} – ${todo} · ${back}`);
       return;

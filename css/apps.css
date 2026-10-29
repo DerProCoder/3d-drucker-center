@@ -285,9 +285,10 @@
 }
 .ai-stat span { font-size: 0.75rem; opacity: 0.65; }
 .ai-stat b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-.ai-steps { display: flex; gap: 4px; margin-top: 4px; }
-.ai-step { flex: 1; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); }
+.ai-steps { display: flex; gap: 3px; margin-top: 4px; } /* 10 Kästchen (MAX_LEVEL), passen auch am Handy in eine Zeile */
+.ai-step { flex: 1 1 0; min-width: 0; height: 8px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); }
 .ai-step.on { background: linear-gradient(90deg, #23a455, #4be08a); }
+.ai-step.on:nth-child(n + 6) { background: linear-gradient(90deg, #4be08a, #3aa0ff); } /* Stufe 6–10 */
 .ai-offline { margin: 0; padding: 10px 12px; border-radius: 8px; background: rgba(181, 57, 43, 0.25); border: 1px solid var(--bad); font-weight: 600; }
 .ai-offline[hidden] { display: none; }
 .ai-chat {
@@ -341,5 +342,8 @@
 .ai-input input:disabled { opacity: 0.5; }
 #shop .ai-input input { cursor: text; }
 @media (max-width: 560px) { .ai-head { grid-template-columns: 1fr 1fr; } .ai-level-box { grid-column: 1 / -1; } }
+/* Handy: ab Stufe 6 gibt es bis zu 8 Vorschläge – eine Zeile zum Wischen statt vieler Zeilen über dem Chat (Klasse
+   swipe aus ui/ai-app.js); Stufe 1–5 brechen wie bisher um */
+@media (max-width: 560px) { .ai-suggest.swipe { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .ai-suggest.swipe .secondary { flex: none; } }
 /* Server-Shop: Hinweis neben einer Serien-Überschrift (z. B. KI) */
 .server-series .hint { margin-left: 8px; font-weight: 400; font-size: 0.85rem; opacity: 0.6; }

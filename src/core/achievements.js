@@ -23,15 +23,17 @@ export const ACHIEVEMENTS = [
   { id: 'cat', icon: '🐈', name: 'Katzenmensch', text: 'Kater Düsentrieb 10× gestreichelt', check: (s) => s.catPets >= 10 },
   { id: 'cat-chaos', icon: '😼', name: 'Gravitationstest', text: 'Der Kater hat ein Teil vom Tisch geworfen', check: (s) => s.knocked >= 1 },
   { id: 'cat-ko', icon: '😵', name: 'Volltreffer', text: 'Kater Düsentrieb mit einem Drucker abgeschossen', check: (s) => s.catHits >= 1 },
-  { id: 'five-star-tour', icon: '🌟', name: 'Vorzeigebetrieb', text: 'Erste 5-Sterne-Führung einer Besuchergruppe', check: (s) => s.fiveStarTours >= 1 },
+  { id: 'five-star-tour', icon: '🌟', name: 'Vorzeigebetrieb', text: 'Erste 5-Sterne-Bewertung von Besuchern', check: (s) => s.fiveStarTours >= 1 },
   { id: 'overdraft', icon: '📉', name: 'Im Dispo', text: 'Das Konto ist ins Minus gerutscht', check: (s) => s.overdraft >= 1 },
+  // Höchste erreichte KI-Stufe (main.js: achievements.max('aiLevel', …) beim Stufenwechsel)
+  { id: 'ai-max', icon: '🧠', name: 'Superintelligenz', text: 'Die KI auf Stufe 10 ausgebaut', check: (s) => s.aiLevel >= 10 },
 ];
 
 export function emptyStats() {
   return {
     printsDone: 0, benchys: 0, grams: 0, spaghetti: 0, failures: 0, nozzlesCleared: 0, nozzlesReplaced: 0, amsRefills: 0,
     deliveries: 0, rushDeliveries: 0, regulars: 0, jonas: 0, maxPrinting: 0, ludicrousDone: 0,
-    catPets: 0, knocked: 0, catHits: 0, overdraft: 0, fiveStarTours: 0,
+    catPets: 0, knocked: 0, catHits: 0, overdraft: 0, fiveStarTours: 0, aiLevel: 0,
   };
 }
 

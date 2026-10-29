@@ -1,6 +1,7 @@
 // Einfache Kollision für die Spielfigur: Spieler als Kreis auf dem Boden (XZ-Ebene),
 // Hindernisse als achsenparallele Rechtecke { minX, maxX, minZ, maxZ, level? }. level: Stockwerk (0 = Erdgeschoss,
-// 1 = zweite Etage, siehe world/upper-floor.js) – ohne Angabe gilt das Hindernis im Erdgeschoss.
+// 1 = zweite Etage, siehe world/upper-floor.js; −1 = Treppenhaus, −2 = Keller, siehe world/basement.js) – ohne Angabe
+// gilt das Hindernis im Erdgeschoss.
 import * as THREE from 'three';
 
 export class CollisionWorld {

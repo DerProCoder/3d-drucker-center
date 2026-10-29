@@ -2,9 +2,13 @@
 // keine echte KI und keine Anfrage ins Internet. Stichwörter in der Frage wählen das Thema (auch mehrere), die Zahlen
 // kommen aus dem Spielstand. Je höher die KI-Stufe (core/ai-service.js), desto genauer die Antwort:
 //   1 allgemeine Tipps · 2 dazu Zahlen · 3 dazu konkrete Probleme · 4 dazu Empfehlungen · 5 dazu Prognose und
-//   Lagebericht auf Knopfdruck
-// Jedes Thema liefert dafür Zeilen in fünf Fächern (general, numbers, problems, advice, forecast); compose() nimmt
-// so viele Fächer, wie die Stufe erlaubt.
+//   Lagebericht auf Knopfdruck · 6 dazu Vergleich mit gestern · 7 dazu Prognose über mehrere Tage · 8 dazu der Weg
+//   zum nächsten Spieler-Level bzw. zur nächsten KI-Stufe · 9 dazu Warnungen, die die KI auch von selbst meldet
+//   (advance → onEvent 'warning', main.js zeigt sie im HUD) · 10 dazu eine Rangliste der nächsten Schritte und der
+//   ausführliche Lagebericht
+// Jedes Thema liefert dafür Zeilen in Fächern (general, numbers, problems, advice, forecast, ab Stufe 6 history,
+// outlook, path, alerts, ranking); compose() nimmt so viele Fächer, wie die Stufe erlaubt. Den Tagesverlauf für
+// Stufe 6 und 7 zeichnet core/ai-day-log.js im KI-Dienst auf.
 // game: Spielsysteme wie in main.js – { economy, orders, progress, upgrades, clock, staff, servers, climate, rentals,
 // rentalAutomation, visitors, ai, climateAutomation } – alles optional, fehlende Teile werden übersprungen.
 // Ohne Three.js und DOM.
@@ -15,7 +19,9 @@ import { spotLabel } from './server-zones.js';
 import { waitingFilament } from './two-color.js';
 import { isLaser } from './laser.js';
 import { MAX_WORKERS } from './staff.js';
-import { MAX_LEVEL, feeFor, isAIServer, levelFor } from './ai-service.js';
+import { TITLES } from './progress.js';
+import { serverHardwareById } from './server-catalog.js';
+import { AI_FEE_PER_SERVER, AI_SERVER_ID, LEVEL_FACTORS, LEVEL_THRESHOLDS, MAX_LEVEL, feeFor, isAIServer, levelFor } from './ai-service.js';
 import { euro, formatMinutes, realTime } from './format.js';
 
 export { MAX_LEVEL };
@@ -25,9 +31,44 @@ const LOW_STOCK = 3;         // weniger Spulen im Lager: nachkaufen
 const URGENT_MINUTES = 120;  // Spielminuten bis zur Frist, ab denen ein Auftrag knapp wird
 const MAX_TOPICS = 3;        // so viele Themen beantwortet eine Frage höchstens
 const MAX_LIST = 6;          // so viele Einträge zeigt eine Aufzählung, der Rest wird gezählt
+export const REPORT_LEVEL = 5;   // ab dieser Stufe gibt es den Lagebericht (ab MAX_LEVEL ausführlich mit Rangliste)
+export const WARN_LEVEL = 9;     // ab dieser Stufe warnt die KI von selbst
+const WARN_EVERY = 2;        // Spielminuten zwischen zwei Prüfungen auf Warnungen
+const WARN_REPEAT = 120;     // Spielminuten, bis dieselbe Warnung erneut kommt, solange das Problem bleibt
+const WARN_GAP = 30;         // Spielminuten Ruhe, bevor eine behobene Warnung wieder kommen darf
+const WARN_AT_ONCE = 2;      // so viele neue Warnungen höchstens je Prüfung (der Rest folgt bei der nächsten)
+const WARN_GRACE = 5;        // Spielminuten Schonfrist nach Start bzw. Laden, bevor die KI zum ersten Mal warnt
+const MONEY_WARN_HOURS = 12; // Warnung „Geld knapp“, wenn das Geld ohne Aufträge kürzer reicht (Spielstunden)
+const FILAMENT_WARN_DAYS = 0.5; // Warnung „Filament knapp“, wenn der Vorrat kürzer reicht (Spieltage)
+const OUTLOOK_DAYS = 3;      // Prognose über so viele Tage
+const OUTLOOK_KEYS = ['money', 'filament', 'orders', 'ai', 'power']; // Themen der Prognose über mehrere Tage (outlookLines)
 
 // Fächer einer Antwort und ab welcher Stufe sie dabei sind
-const SECTIONS = [['general', 1], ['numbers', 2], ['problems', 3], ['advice', 4], ['forecast', 5]];
+const SECTIONS = [['general', 1], ['numbers', 2], ['problems', 3], ['advice', 4], ['forecast', 5],
+  ['history', 6], ['outlook', 7], ['path', 8], ['alerts', 9], ['ranking', 10]];
+
+// Fähigkeiten ab Stufe 6 mit eigenen Fragen: Stufe, ab der sie gehen, Satzanfang für den Hinweis darunter, Stichwörter.
+// Sie gehen allen Sachthemen vor, aber nur ab ihrer Stufe – darunter antwortet die KI wie bisher bzw. mit Hinweis.
+const SKILLS = [
+  { id: 'ranking', level: 10, name: 'Eine Rangliste der nächsten Schritte erstelle ich', words: [/rangliste/, /reihenfolge/, /wichtigste/, /ranking/] },
+  { id: 'warnings', level: 9, name: 'Von selbst warnen kann ich', words: [/warnung/, /\bwarn/, /alarm/, /\bmeldung/] },
+  { id: 'path', level: 8, name: 'Den Weg zur nächsten Stufe rechne ich', words: [/naechste[nrs]? (ki )?stufe/, /naechste[nrs]? level/, /wie komme ich/, /wie erreiche/, /\bweg zu/, /bis (zur )?(ki )?stufe/, /bis (zum )?level/, /\bziele?\b/] },
+  { id: 'outlook', level: 7, name: 'Eine Prognose über mehrere Tage schaffe ich', words: [/naechsten tage/, /mehrere(n)? tage/, /uebermorgen/, /(?<!guten )\bmorgen\b/, /\bwoche/, /wie lange reicht/, /reicht (das |es |mein )?(noch|geld|filament)/, /in \d+ tagen/] },
+  { id: 'compare', level: 6, name: 'Einen Vergleich mit gestern schaffe ich', words: [/gestern/, /vortag/, /vergleich/, /\btrend/, /verlauf/, /letzte[nr]? tag/] },
+];
+
+// Was die KI je Stufe neu kann (für „Wie erreiche ich die nächste Stufe?“)
+const LEVEL_SKILLS = [
+  '', 'allgemeine Tipps', 'Zahlen aus deinem Betrieb', 'konkrete Probleme', 'Empfehlungen', 'Lagebericht und Tagesprognose',
+  'Vergleich mit gestern', 'Prognose über mehrere Tage', 'der Weg zu deinen nächsten Zielen', 'Warnungen von selbst per Meldung',
+  'ausführlicher Lagebericht mit Rangliste der nächsten Schritte',
+];
+
+// Fähigkeit der Frage (Eintrag aus SKILLS) oder null
+export function detectSkill(question) {
+  const text = normalize(question);
+  return SKILLS.find((s) => s.words.some((w) => w.test(text))) ?? null;
+}
 
 // Frage vereinfachen: klein, Umlaute als ae/oe/ue, ß als ss, Satzzeichen weg – „Wärme?“ und „waerme“ sind gleich
 export function normalize(text) {
@@ -131,11 +172,51 @@ function counterText(f) {
   const n = f.orders.filter((o) => o.order.stage === 'counter').length;
   return n ? `, dazu ${n === 1 ? 'ein Kunde' : `${n} Kunden`} am Empfang` : '';
 }
-const empty = () => ({ general: [], numbers: [], problems: [], advice: [], forecast: [] });
+const empty = () => ({
+  general: [], numbers: [], problems: [], advice: [], forecast: [], history: [], outlook: [], path: [], alerts: [], ranking: [],
+});
+// Prozentvergleich „+12 % gegenüber Tag 3“ bzw. ''
+function versus(now, before, day) {
+  if (before == null) return '';
+  if (!before) return now > 0 ? ` (Tag ${day}: nichts)` : '';
+  const pct = Math.round(((now - before) / before) * 100);
+  return pct ? ` (${pct > 0 ? '+' : '−'}${Math.abs(pct)} % gegenüber Tag ${day})` : ` (wie an Tag ${day})`;
+}
+const signed = (n) => `${n >= 0 ? '+' : '−'}${euro.format(Math.abs(n))}`;
+
+// Welche Zeilen ab Stufe 6 zu welchem Thema gehören: Tagesverlauf (history), Prognose über Tage (outlook),
+// nächste Ziele (path). Warnungen und Rangliste filtern über das Thema (topic) ihrer Einträge.
+const EXTRAS = {
+  status: { history: ['income', 'orders', 'net'], outlook: ['money'], path: ['ai', 'level'] },
+  next: { history: ['orders'], outlook: ['filament', 'money'], path: ['level', 'ai'] },
+  problems: { history: ['net'], outlook: ['filament', 'money'] },
+  money: { history: ['income', 'costs', 'net'], outlook: ['money', 'ai'], path: ['ai'] },
+  orders: { history: ['orders', 'income'], outlook: ['orders'], path: ['level'] },
+  filament: { history: ['filament'], outlook: ['filament'] },
+  printers: { history: ['filament', 'orders'], outlook: ['filament'] },
+  power: { history: ['power'], outlook: ['power'] },
+  ai: { history: ['ai'], outlook: ['ai'], path: ['ai'] },
+  servers: { history: ['ai', 'power'], outlook: ['ai'], path: ['ai'] },
+  climate: { history: ['power'] },
+  progress: { history: ['xp', 'orders'], path: ['level'] },
+  staff: { history: ['costs'] },
+  rent: { history: ['costs'] },
+  visitors: { history: ['income'] },
+  upgrades: { outlook: ['money'], path: ['level'] },
+};
+// Themen, deren Warnungen bzw. Rangliste alles zeigen (sonst nur Einträge mit passendem topic)
+const ALL_TOPICS = new Set(['status', 'next', 'problems']);
 
 export class AIAdvisor {
   constructor(game = {}) {
     this.game = game;
+    this.warned = new Map();  // Warnung → { last, resolvedAt, severity } (Spielminute der letzten Meldung …) für die Drosselung
+    this.bundlePending = true; // erste Prüfung ab Stufe WARN_LEVEL: alle Warnungen in einer Meldung
+    this.sinceWarn = 0;
+    this.elapsed = 0;         // Spielminuten seit Start (ohne Uhr)
+    this.onEvent = null;      // (type, data) => void – 'warning' { key, text, topic } ab Stufe WARN_LEVEL
+    // Der Tagesverlauf der KI braucht Aufträge, Uhr und XP – fehlen sie im KI-Dienst, hier nachreichen
+    this.ai?.connect?.({ orders: game.orders, clock: game.clock, progress: game.progress });
   }
 
   // KI-Dienst (core/ai-service.js) – in main.js heißt er im Spielobjekt aiService
@@ -150,36 +231,89 @@ export class AIAdvisor {
     level = Number.isFinite(Number(level)) ? Math.max(0, Math.min(MAX_LEVEL, Math.floor(Number(level)))) : 0; // ungültige Stufe wie offline
     if (level <= 0) return { text: this.offlineText(), topic: 'offline', topics: [] };
     const topics = detectTopics(question);
+    // Fähigkeiten ab Stufe 6 (Vergleich, Prognose über Tage, Ziele, Warnungen, Rangliste) gehen vor – darunter nur
+    // ein Hinweis, wenn die Frage sonst nichts trifft. Ein ausdrücklich verlangter Lagebericht geht trotzdem vor.
+    const skill = detectSkill(question);
+    const wantsReport = /lagebericht|\bbericht|\breport/.test(normalize(question));
+    if (skill && level >= skill.level && !wantsReport) return { text: this.skillAnswer(skill.id, level, question), topic: skill.id, topics: [skill.id] };
+    if (skill && !topics.length) return { text: this.skillLocked(skill, level), topic: 'locked', topics: [] };
     if (!topics.length) return { text: this.fallback(level), topic: 'unknown', topics: [] };
     if (topics[0] === 'report') return { text: this.report(level), topic: 'report', topics };
     if (topics[0] === 'greeting') return { text: this.greeting(level), topic: 'greeting', topics };
     const facts = this.facts();
     const texts = topics.map((id) => {
-      const body = this.compose(this.build(id, facts), level);
+      const body = this.compose(this.build(id, facts, level), level);
       return topics.length > 1 && topicById(id).title ? `${topicById(id).title}\n${body}` : body;
     });
     return { text: texts.join('\n\n'), topic: topics[0], topics };
   }
 
-  // Vollständiger Lagebericht (Stufe 5): alle Bereiche mit Zahlen, Problemen, Empfehlungen und Prognose
+  // Vollständiger Lagebericht (ab Stufe 5): alle Bereiche mit Zahlen, Problemen, Empfehlungen und Prognose. Ab
+  // Stufe 6 kommen Vergleich mit gestern, ab 7 die nächsten Tage, ab 8 die Ziele, ab 9 die Warnungen dazu; Stufe 10
+  // ist ausführlich (Empfehlungen je Bereich) mit einer Rangliste der nächsten Schritte statt der kurzen Liste.
   report(level = this.ai?.level ?? 0) {
     if (level <= 0) return this.offlineText();
-    if (level < MAX_LEVEL) {
-      return `Einen kompletten Lagebericht schaffe ich erst ab Stufe ${MAX_LEVEL}. Frag mich bis dahin nach einzelnen `
+    if (level < REPORT_LEVEL) {
+      return `Einen kompletten Lagebericht schaffe ich erst ab Stufe ${REPORT_LEVEL}. Frag mich bis dahin nach einzelnen `
         + 'Bereichen, z. B. „Wie läuft es?“, „Filament?“ oder „Server?“.';
     }
     const f = this.facts();
+    const detailed = level >= MAX_LEVEL;
     const when = this.game.clock ? ` – Tag ${this.game.clock.day}, ${clockText(this.game.clock.minutes)}` : '';
-    const parts = [`📋 Lagebericht${when}`];
+    const parts = [`📋 ${detailed ? 'Ausführlicher Lagebericht' : 'Lagebericht'}${when}`];
     for (const id of ['money', 'printers', 'filament', 'orders', 'servers', 'climate', 'staff', 'visitors', 'ai']) {
       const p = this.build(id, f);
-      const lines = [...p.numbers, ...p.problems];
+      const lines = [...p.numbers, ...p.problems, ...(detailed ? p.advice.map((s) => `→ ${s}`) : [])];
       if (lines.length) parts.push(`${topicById(id).title}\n${lines.join('\n')}`);
     }
-    const advice = this.recommendations(f);
-    if (advice.length) parts.push(`👉 Als Nächstes\n${bullets(advice, 4).join('\n')}`);
+    if (level >= 6) parts.push(`📈 Vergleich mit gestern\n${this.historyLines(['income', 'orders', 'power', 'filament', 'net']).join('\n')}`);
+    if (level >= 7) parts.push(`📆 Die nächsten ${OUTLOOK_DAYS} Tage\n${this.outlookLines(f, ['money', 'filament', 'orders', 'ai']).join('\n')}`);
+    if (level >= 8) parts.push(`🎯 Nächste Ziele\n${this.pathLines(f, ['level', 'ai']).join('\n')}`);
+    if (level >= 9) {
+      const warnings = this.warnings(f);
+      parts.push(`⚠️ Warnungen\n${warnings.length ? bullets(warnings.map((w) => w.text)).join('\n') : 'Keine – ich melde mich von selbst, sobald etwas anbrennt.'}`);
+    }
+    if (detailed) {
+      parts.push(`🏆 Rangliste der nächsten Schritte\n${this.rankingLines(f, null, 6).join('\n')}`);
+    } else {
+      const advice = this.recommendations(f);
+      if (advice.length) parts.push(`👉 Als Nächstes\n${bullets(advice, 4).join('\n')}`);
+    }
     parts.push(`🔮 Prognose\n${this.forecastLines(f).join('\n')}`);
     return parts.join('\n\n');
+  }
+
+  // Antwort auf eine Fähigkeit ab Stufe 6 (SKILLS). question: nennt sie ein Thema der Prognose (z. B. „Wie lange reicht
+  // das Filament?“), kommt nur dieses
+  skillAnswer(id, level, question = '') {
+    const f = this.facts();
+    if (id === 'compare') {
+      return `📈 Vergleich mit gestern\n${this.historyLines(['income', 'orders', 'power', 'costs', 'ai', 'filament', 'net', 'trend']).join('\n')}`;
+    }
+    if (id === 'outlook') {
+      const asked = detectTopics(question).filter((t) => OUTLOOK_KEYS.includes(t));
+      if (asked.length) return `📆 Prognose\n${this.outlookLines(f, asked).join('\n')}`;
+      return `📆 Prognose für die nächsten ${OUTLOOK_DAYS} Tage\n${[...this.outlookLines(f, OUTLOOK_KEYS), ...this.forecastLines(f).slice(0, 1)].join('\n')}`;
+    }
+    if (id === 'path') return `🎯 Nächste Ziele\n${this.pathLines(f, ['level', 'ai']).join('\n')}`;
+    if (id === 'warnings') {
+      const warnings = this.warnings(f);
+      const auto = level >= WARN_LEVEL ? 'Ich melde mich von selbst mit einer Meldung, sobald etwas davon eintritt.' : '';
+      return warnings.length
+        ? `⚠️ Gerade würde ich dich warnen:\n${bullets(warnings.map((w) => w.text)).join('\n')}\n${auto}`.trim()
+        : `⚠️ Keine Warnungen – Filament, Temperaturen, Geld und Fristen sind im grünen Bereich. ${auto}`.trim();
+    }
+    if (id === 'ranking') return `🏆 Rangliste der nächsten Schritte\n${this.rankingLines(f, null, 8).join('\n')}`;
+    return this.fallback(level);
+  }
+
+  // Fähigkeit noch nicht freigeschaltet: Hinweis, ab welcher Stufe und wie viele KI-GPU-Server dafür nötig sind
+  skillLocked(skill, level) {
+    const need = LEVEL_THRESHOLDS[skill.level];
+    const now = this.ai?.onlineCount ?? 0;
+    const more = need - now;
+    return `${skill.name} erst ab Stufe ${skill.level} (jetzt Stufe ${level}). Dafür brauche ich ${need} KI-GPU-Server online`
+      + `${more > 0 ? ` – also ${more === 1 ? 'einen weiteren' : `${more} weitere`}` : ''}.`;
   }
 
   // Begrüßung zum Start des Chats (null ohne KI)
@@ -190,16 +324,30 @@ export class AIAdvisor {
       2: 'Hallo! KI Stufe 2 ist online. Ich kann jetzt Zahlen aus deinem Betrieb nennen.',
       3: 'Hallo! KI Stufe 3 ist online. Ich sehe Zahlen und konkrete Probleme in Halle und Serverraum.',
       4: 'Hallo! KI Stufe 4 ist online. Ich gebe dir dazu Empfehlungen, was sich lohnt.',
-      5: 'Hallo! KI Stufe 5 ist online – volle Rechenleistung. Frag mich nach einem Lagebericht oder einer Prognose.',
-    }[level];
+      5: 'Hallo! KI Stufe 5 ist online. Frag mich nach einem Lagebericht oder einer Prognose.',
+      6: 'Hallo! KI Stufe 6 ist online. Ich merke mir jetzt jeden Tag und vergleiche ihn mit gestern.',
+      7: 'Hallo! KI Stufe 7 ist online. Ich rechne jetzt mehrere Tage voraus – Geld, Filament, Aufträge.',
+      8: 'Hallo! KI Stufe 8 ist online. Ich zeige dir den Weg zum nächsten Level und zur nächsten KI-Stufe.',
+      9: 'Hallo! KI Stufe 9 ist online. Ich passe jetzt selbst auf und warne dich per Meldung, wenn etwas anbrennt.',
+      10: 'Hallo! KI Stufe 10 ist online – volle Rechenleistung. Mein Lagebericht ist jetzt ausführlich, mit Rangliste der nächsten Schritte.',
+    }[Math.min(level, MAX_LEVEL)];
     return `${intro} Frag mich z. B. nach Filament, Druckern, Aufträgen, Servern, Temperatur oder Geld.`;
   }
 
-  // Vorschlagsfragen für die Knöpfe unter dem Chat
+  // Vorschlagsfragen für die Knöpfe unter dem Chat (Stufe 1–5 wie bisher, ab 6 je Stufe eine neue Frage statt der
+  // Einzelthemen Filament und Server)
   suggestions(level = this.ai?.level ?? 0) {
     if (level <= 0) return [];
-    const list = ['Wie läuft es?', 'Was soll ich als Nächstes tun?', 'Probleme?', 'Filament?', 'Server?'];
-    if (level >= MAX_LEVEL) list.unshift('Lagebericht');
+    if (level < 6) {
+      const list = ['Wie läuft es?', 'Was soll ich als Nächstes tun?', 'Probleme?', 'Filament?', 'Server?'];
+      if (level >= REPORT_LEVEL) list.unshift('Lagebericht');
+      return list;
+    }
+    const list = ['Lagebericht', 'Wie läuft es?', 'Was soll ich als Nächstes tun?', 'Vergleich mit gestern?'];
+    if (level >= 7) list.push('Prognose für die nächsten Tage?');
+    if (level >= 8) list.push('Wie erreiche ich die nächste Stufe?');
+    if (level >= 9) list.push('Warnungen?');
+    if (level >= 10) list.push('Rangliste?');
     return list;
   }
 
@@ -213,26 +361,51 @@ export class AIAdvisor {
     if (level === 2) return 'Das verstehe ich noch nicht. Ich kenne mich mit Filament, Druckern, Aufträgen, Servern, Strom und Geld aus – frag mich danach.';
     if (level === 3) return 'Dazu habe ich keine Daten. Ich kann dir aber sagen, wo es gerade hakt – frag z. B. „Probleme?“, „Filament?“ oder „Server?“.';
     if (level === 4) return 'Da muss ich passen. Frag mich lieber „Was soll ich als Nächstes tun?“ – dafür habe ich konkrete Empfehlungen.';
-    return 'Dazu weiß ich leider nichts. Tipp: „Lagebericht“ zeigt alles auf einmal, mit Prognose für den Tag.';
+    if (level === 5) return 'Dazu weiß ich leider nichts. Tipp: „Lagebericht“ zeigt alles auf einmal, mit Prognose für den Tag.';
+    if (level === 6) return 'Dazu weiß ich leider nichts. Frag mich „Vergleich mit gestern?“ – ich merke mir jetzt jeden Tag.';
+    if (level === 7) return 'Dazu weiß ich leider nichts. Frag mich „Prognose für die nächsten Tage?“ oder „Wie lange reicht das Filament?“.';
+    if (level === 8) return 'Dazu weiß ich leider nichts. Frag mich „Wie erreiche ich die nächste Stufe?“ – ich rechne dir den Weg aus.';
+    if (level === 9) return 'Dazu weiß ich leider nichts. Frag mich „Warnungen?“ – ich passe aber auch so auf und melde mich von selbst.';
+    return 'Dazu weiß ich leider nichts. Tipp: „Lagebericht“ zeigt alles ausführlich, „Rangliste?“ die wichtigsten nächsten Schritte.';
   }
 
   // ---------- Antwort zusammenbauen ----------
 
-  // Fächer bis zur Stufe zusammenfügen
+  // Fächer bis zur Stufe zusammenfügen. Ab Stufe 10 ersetzt die Rangliste die einfachen Empfehlungen, wo es eine gibt.
   compose(parts, level) {
     const lines = [];
-    for (const [key, from] of SECTIONS) if (level >= from) lines.push(...parts[key]);
+    for (const [key, from] of SECTIONS) {
+      if (level < from) continue;
+      if (key === 'advice' && level >= 10 && parts.ranking.length) continue;
+      lines.push(...parts[key]);
+    }
     return lines.join('\n');
   }
 
-  build(id, f) {
+  // Zeilen eines Themas; ab Stufe 6 (level) dazu die Fächer der höheren Stufen (EXTRAS, Warnungen, Rangliste)
+  build(id, f, level = 0) {
     const builders = {
       status: this.status, next: this.next, problems: this.problems, ai: this.aiTopic, filament: this.filament,
       printers: this.printers, orders: this.ordersTopic, servers: this.serversTopic, climate: this.climate,
       money: this.money, power: this.power, rent: this.rent, staff: this.staffTopic, visitors: this.visitorsTopic,
       progress: this.progressTopic, upgrades: this.upgradesTopic,
     };
-    return (builders[id] ?? (() => empty())).call(this, f);
+    const p = (builders[id] ?? (() => empty())).call(this, f);
+    const extra = EXTRAS[id] ?? {};
+    if (level >= 6 && extra.history) p.history.push(...this.historyLines(extra.history));
+    if (level >= 7 && extra.outlook) p.outlook.push(...this.outlookLines(f, extra.outlook));
+    if (level >= 8 && extra.path) p.path.push(...this.pathLines(f, extra.path));
+    if (level >= WARN_LEVEL) {
+      const warnings = this.warnings(f).filter((w) => ALL_TOPICS.has(id) || (w.topics ?? [w.topic]).includes(id));
+      if (warnings.length) p.alerts.push('⚠️ Davor warne ich dich gerade:', ...bullets(warnings.map((w) => w.text), 3));
+      else if (ALL_TOPICS.has(id)) p.alerts.push('⚠️ Keine Warnungen – ich melde mich von selbst, sobald etwas anbrennt.');
+    }
+    if (level >= 10) {
+      const all = ALL_TOPICS.has(id);
+      const ranked = this.rankingLines(f, all ? null : id, all ? 5 : 3, false);
+      if (ranked.length) p.ranking.push(all ? '🏆 Rangliste der nächsten Schritte:' : '🏆 Wichtigste Schritte hier:', ...ranked);
+    }
+    return p;
   }
 
   // ---------- Spielstand einsammeln (einmal je Antwort) ----------
@@ -260,7 +433,7 @@ export class AIAdvisor {
       f.aiHot = f.aiServers.filter((d) => f.reached.has(d.id) && !f.aiWorking.includes(d));
       f.racks = servers.racks;
     }
-    f.income = (rentals?.incomePerHour ?? 0) + (ai?.incomePerHour ?? 0);
+    f.income = this.rentIncome() + (ai?.incomePerHour ?? 0);
     f.cost = economy?.costPerHour ?? 0;
     f.climate = climate ? this.climateState() : { hot: [], cold: [], down: [], maxTemp: null, racks: [] };
     return f;
@@ -580,6 +753,8 @@ export class AIAdvisor {
     if (rentals) {
       p.numbers.push(`${plural(rentals.vms.length, 'VM ist', 'VMs sind')} vermietet, ${plural(rentals.requests.length, 'Anfrage wartet', 'Anfragen warten')} · Miete ${euro.format(rentals.incomePerHour)} pro Stunde.`);
     }
+    const disk = this.game.storageRentals; // Speicher-Vermietung auf den NAS (#47)
+    if (disk?.contracts.length) p.numbers.push(`Speicher vermietet: ${plural(disk.contracts.length, 'Vertrag', 'Verträge')} · Miete ${euro.format(disk.incomePerHour)} pro Stunde.`);
     p.numbers.push(`Strom der Server: ${euro.format(servers.powerPerHour)} pro Stunde · Kabel im Vorrat: ${Math.round(servers.cableMeters)} m.`);
     p.problems.push(...this.offlineServers([...f.servers, ...f.aiServers], f));
     if (rentals) {
@@ -596,7 +771,7 @@ export class AIAdvisor {
       }
     }
     if (!p.advice.length) p.advice.push(f.servers.length ? 'Keine Anfragen offen – Server mit hohem Mietfaktor (RISC, GPU) bringen am meisten.' : 'Fang mit einem Schrank, einer Firewall und einem Mini-Server an.');
-    if (rentals) p.forecast.push(`Bis Tagesende bringen die VMs noch etwa ${euro.format(rentals.incomePerHour * Math.floor(this.hoursLeftToday()))}.`);
+    if (rentals) p.forecast.push(`Bis Tagesende bringen die VMs${this.game.storageRentals?.contracts.length ? ' und der vermietete Speicher' : ''} noch etwa ${euro.format(this.rentIncome() * Math.floor(this.hoursLeftToday()))}.`);
     return p;
   }
 
@@ -670,7 +845,7 @@ export class AIAdvisor {
       + `${servers ? `, Server ${euro.format(servers.powerPerHour)}` : ''}${climate ? `, Lüfter ${euro.format(climate.fanPowerPerHour)}` : ''}.`);
     const offline = [...f.servers, ...f.aiServers].filter((d) => !f.reached.has(d.id));
     if (offline.length) {
-      p.problems.push(`${plural(offline.length, 'Server ist', 'Server sind')} offline, ${offline.length === 1 ? 'kostet' : 'kosten'} aber ${euro.format(offline.reduce((s, d) => s + d.type.power, 0))} Strom pro Stunde.`);
+      p.problems.push(`${plural(offline.length, 'Server ist', 'Server sind')} offline, ${offline.length === 1 ? 'kostet' : 'kosten'} aber ${euro.format(offline.reduce((s, d) => s + (servers?.powerOf(d) ?? d.type.power), 0))} Strom pro Stunde.`);
     }
     if (!p.problems.length) p.problems.push('Kein Strom wird verschwendet.');
     const idle = f.printers.filter((x) => x.idle).length;
@@ -687,12 +862,14 @@ export class AIAdvisor {
     p.general.push(`Die Halle kostet ${euro.format(RENT_PER_HOUR)} Miete pro Stunde. Umgekehrt zahlen dir Kunden Miete für VMs auf deinen Servern.`);
     p.numbers.push(`Hallenmiete ${euro.format(RENT_PER_HOUR)} pro Stunde, ${euro.format(RENT_PER_HOUR * 24)} am Tag.`);
     if (rentals) p.numbers.push(`VM-Miete: ${euro.format(rentals.incomePerHour)} pro Stunde von ${plural(rentals.vms.length, 'Vertrag', 'Verträgen')}.`);
+    const disk = this.game.storageRentals; // Speicher-Vermietung auf den NAS (#47)
+    if (disk?.contracts.length) p.numbers.push(`Speicher-Miete: ${euro.format(disk.incomePerHour)} pro Stunde von ${plural(disk.contracts.length, 'Vertrag', 'Verträgen')}.`);
     if (rentals?.requests.length) p.problems.push(`${plural(rentals.requests.length, 'Mietanfrage wartet', 'Mietanfragen warten')} auf einen Server.`);
     if (rentals) {
       const request = rentals.requests[0];
       const server = request && this.bestServer(request, f);
       if (server) p.advice.push(`Vermiete die VM von ${request.customer} auf ${this.serverName(server)} (+${euro.format(rentals.rentPerHour(request, server))} pro Stunde).`);
-      p.forecast.push(`Heute kommen noch etwa ${euro.format((rentals.incomePerHour - RENT_PER_HOUR) * this.hoursLeftToday())} Miete unterm Strich zusammen.`);
+      p.forecast.push(`Heute kommen noch etwa ${euro.format((this.rentIncome() - RENT_PER_HOUR) * this.hoursLeftToday())} Miete unterm Strich zusammen.`);
     }
     return p;
   }
@@ -711,7 +888,6 @@ export class AIAdvisor {
     if (!p.problems.length) p.problems.push('Beim Personal ist alles in Ordnung.');
     if (staff.workers.length < MAX_WORKERS && f.printers.length >= 3) p.advice.push('Stell einen Azubi ein – bei so vielen Druckern spart er dir viele Wege.');
     if (!staff.receptionist && f.orders.length >= 3) p.advice.push('Eine Empfangskraft nimmt Aufträge an, auch wenn du gerade im Serverraum bist.');
-    if (!staff.workers.length) p.advice.push('Ohne Azubi sagen Besuchergruppen ab – sie brauchen jemanden, der sie führt.');
     if (!p.advice.length) p.advice.push('Das Team ist komplett.');
     p.forecast.push(`Lohn bis Tagesende: etwa ${euro.format(staff.wagesPerHour * this.hoursLeftToday())}.`);
     return p;
@@ -719,15 +895,25 @@ export class AIAdvisor {
 
   visitorsTopic() {
     const p = empty();
-    const { visitors, staff } = this.game;
-    p.general.push('Einmal am Tag kann eine Besuchergruppe kommen. Ein Azubi führt sie durch Halle, Lager und Serverraum; sie zahlt Eintritt und bewertet, wie ordentlich alles ist.');
+    const { visitors } = this.game;
+    p.general.push('Zwischen 9 und 18 Uhr kommen Besucher in kleinen Grüppchen (1–7 Personen). Sie zahlen 15 € Eintritt pro Person, schauen sich allein Halle, Lager und Serverraum an und bewerten beim Gehen, wie ordentlich alles ist. 4 bzw. 5 Sterne bringen 1 bzw. 2 XP je Person (höchstens 15 XP am Tag).');
     if (!visitors) return p;
-    const g = visitors.group;
-    if (g) p.numbers.push(`Heute: ${g.name} mit ${g.size} Personen${g.state === 'announced' ? ` um ${clockText(g.time)}` : ' – gerade da'}.`);
-    else p.numbers.push('Heute ist keine Besuchergruppe angemeldet.');
+    const t = visitors.today;
+    const active = visitors.parties?.length ?? 0;
+    if (active) p.numbers.push(`Gerade unterwegs: ${visitors.activePeople} Besucher in ${active} Grüppchen.`);
+    if (t?.parties) {
+      p.numbers.push(`Heute bisher: ${t.people} Besucher in ${t.parties} Grüppchen, Eintritt ${euro.format(t.fees)}, ${t.xp} XP.`);
+    } else {
+      p.numbers.push('Heute waren noch keine Besucher da.');
+    }
+    const avg = visitors.todayAverage;
+    if (avg != null) p.numbers.push(`Tagesschnitt: ${avg.toFixed(1).replace('.', ',')} von 5 Sternen (${t.rated} Bewertungen).`);
+    const next = visitors.nextArrival;
+    if (next) p.forecast.push(`Nächste Besucher gegen ${clockText(next.time)}, noch ${visitors.schedule.length} Grüppchen heute.`);
     const last = visitors.recentRatings?.[0];
-    if (last) p.numbers.push(`Letzte Bewertung: ${last.stars} von 5 Sternen (${last.name}).`);
-    if (g && !staff?.workers.length) p.problems.push('Für die Führung fehlt ein Azubi – ohne ihn sagt die Gruppe ab.');
+    if (last) p.numbers.push(`Letzte Bewertung: ${last.stars} von 5 Sternen (${last.size} Besucher).`);
+    const yesterday = visitors.history?.[0];
+    if (yesterday?.average != null) p.numbers.push(`Tag ${yesterday.day}: ${yesterday.people} Besucher, Schnitt ${yesterday.average.toFixed(1).replace('.', ',')} Sterne.`);
     let preview = null;
     try {
       preview = visitors.preview?.();
@@ -735,7 +921,7 @@ export class AIAdvisor {
       preview = null;
     }
     if (preview) {
-      p.advice.push(`Wenn sie jetzt kämen, gäbe es ${preview.stars} von 5 Sternen.`);
+      p.advice.push(`Wenn jetzt Besucher kämen, gäbe es ${preview.stars} von 5 Sternen.`);
       if (preview.scores?.hall != null && preview.scores.hall < 0.5) p.advice.push('In der Halle stehen zu viele Drucker still oder mit Störung – das gibt Abzug.');
       if (preview.scores?.servers != null && preview.scores.servers < 0.5) p.advice.push('Der Serverraum macht keinen guten Eindruck – offline oder zu heiße Server beheben.');
     }
@@ -844,7 +1030,361 @@ export class AIAdvisor {
     return lines;
   }
 
+  // ---------- Ab Stufe 6: Tagesverlauf, Prognose über Tage, Ziele, Warnungen, Rangliste ----------
+
+  // Vergleich mit gestern (Stufe 6) aus dem Tagesverlauf des KI-Dienstes (core/ai-day-log.js).
+  // keys: income, orders, power, costs, ai, filament, xp, net, trend
+  historyLines(keys) {
+    const log = this.ai?.log;
+    if (!log?.clock) return ['Einen Tagesverlauf habe ich nicht – mir fehlt die Spieluhr.'];
+    const t = log.today;
+    const y = log.yesterday;
+    if (!y) {
+      return [`Von gestern habe ich noch keine Zahlen – ich schreibe erst seit Tag ${t.day}, ${clockText(t.since)} mit. `
+        + `Heute bisher: ${euro.format(t.income)} eingenommen, ${plural(t.orders, 'Auftrag', 'Aufträge')} geliefert.`];
+    }
+    const b = log.days[1] ?? null;
+    const when = y.day === t.day - 1 ? 'gestern' : `an Tag ${y.day}`;
+    const vs = (key) => versus(y[key], b?.[key], b?.day);
+    const elapsed = Math.max(0, (log.clock.minutes % MINUTES_PER_DAY) - t.since);
+    const lines = [];
+    for (const key of keys) {
+      if (key === 'income') lines.push(`Einnahmen ${when}: ${euro.format(y.income)}${vs('income')} · heute bisher ${euro.format(t.income)}.`);
+      else if (key === 'orders') lines.push(`Gelieferte Aufträge ${when}: ${y.orders}${vs('orders')} · heute bisher ${t.orders}.`);
+      else if (key === 'power') lines.push(`Strom ${when}: ${euro.format(y.power)}${vs('power')} · heute bisher ${euro.format(t.power)}.`);
+      else if (key === 'costs') lines.push(`Laufende Kosten ${when} (Miete, Strom, Lohn): ${euro.format(y.costs)}${vs('costs')}.`);
+      else if (key === 'ai') lines.push(`KI-Abo ${when}: ${euro.format(y.aiIncome)}${vs('aiIncome')} · heute bisher ${euro.format(t.aiIncome)}.`);
+      else if (key === 'filament') lines.push(`Verdrucktes Filament ${when}: ${kg(y.filament)}${vs('filament')} · heute bisher ${kg(t.filament)}.`);
+      else if (key === 'xp') lines.push(`XP ${when}: ${y.xp}${vs('xp')} · heute bisher ${t.xp}.`);
+      else if (key === 'net') {
+        lines.push(`Unterm Strich ${when}: ${signed(y.income - y.costs)}${b ? ` (Tag ${b.day}: ${signed(b.income - b.costs)})` : ''}.`);
+      } else if (key === 'trend') {
+        if (elapsed >= 360) {
+          const projected = (t.income * MINUTES_PER_DAY) / Math.max(1, elapsed);
+          lines.push(`Hochgerechnet bringt heute etwa ${euro.format(projected)} – ${projected >= y.income ? 'mehr' : 'weniger'} als ${when}.`);
+        } else {
+          lines.push('Für eine Hochrechnung von heute ist es noch zu früh.');
+        }
+      }
+    }
+    if (y.since > 0) lines.push(`(Tag ${y.day} habe ich erst ab ${clockText(y.since)} mitgeschrieben.)`);
+    return lines;
+  }
+
+  // Filament-Vorrat und Verbrauch pro Tag: { stock, perDay, days } oder null, solange kein Verbrauch bekannt ist
+  filamentOutlook(f) {
+    if (!this.game.economy) return null;
+    const stock = f.spools.reduce((sum, s) => sum + (s.grams ?? 0), 0);
+    const log = this.ai?.log;
+    let perDay = log?.average()?.filament ?? 0;
+    if (!(perDay > 0) && log?.clock) {
+      const elapsed = (log.clock.minutes % MINUTES_PER_DAY) - log.today.since;
+      if (elapsed >= 120 && log.today.filament > 0) perDay = (log.today.filament * MINUTES_PER_DAY) / elapsed;
+    }
+    if (!(perDay > 0)) return stock > 0 ? null : { stock, perDay: 0, days: 0 };
+    return { stock, perDay, days: stock / perDay };
+  }
+
+  // „morgen“, „übermorgen“, „an Tag 9“ – wann etwas in so vielen Spieltagen eintritt
+  dayWhen(days) {
+    const clock = this.game.clock;
+    if (!clock) return `in ca. ${days.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Tagen`;
+    const diff = Math.floor((clock.minutes + days * MINUTES_PER_DAY) / MINUTES_PER_DAY) + 1 - clock.day;
+    if (diff <= 0) return `heute noch (in ca. ${formatMinutes(days * MINUTES_PER_DAY)} Spielzeit)`;
+    if (diff === 1) return 'morgen';
+    if (diff === 2) return 'übermorgen';
+    return `an Tag ${clock.day + diff}`;
+  }
+
+  // Dauer in Spieltagen als Text
+  daysText(days) {
+    if (days < 1) return `ca. ${formatMinutes(days * MINUTES_PER_DAY)} Spielzeit`;
+    if (days < 2) return 'etwa einen Spieltag';
+    if (days > 30) return 'über einen Monat';
+    return `etwa ${Math.floor(days)} Spieltage`;
+  }
+
+  // Prognose über mehrere Tage (Stufe 7). keys: money, filament, orders, ai, power
+  outlookLines(f, keys) {
+    const { economy, clock } = this.game;
+    const avg = this.ai?.log?.average() ?? null;
+    const source = avg ? `im Schnitt ${avg.days === 1 ? 'des letzten Tages' : `der letzten ${avg.days} Tage`}` : null;
+    const lines = [];
+    for (const key of keys) {
+      if (key === 'money' && economy) {
+        if (economy.unlimited) {
+          lines.push('Geld: unendlich (Entwicklermenü) – da muss ich nichts vorrechnen. 😉');
+          continue;
+        }
+        const perDay = avg ? avg.income - avg.costs : (f.income - f.cost) * 24;
+        const money = economy.money - (economy.pendingCosts ?? 0);
+        const how = source ?? 'ohne Aufträge';
+        if (perDay < 0 && money > BANKRUPT_AT) {
+          lines.push(`Geld: ${how} ${signed(perDay)} am Tag – das Geld reicht noch ${this.daysText((money - BANKRUPT_AT) / -perDay)}.`);
+        } else if (perDay < 0) {
+          lines.push('Geld: Das Konto ist schon an der Grenze – jetzt zählt jeder Auftrag.');
+        } else {
+          const day = clock ? ` (Tag ${clock.day + OUTLOOK_DAYS})` : '';
+          lines.push(`Geld: ${how} ${signed(perDay)} am Tag – in ${OUTLOOK_DAYS} Tagen${day} etwa ${euro.format(money + perDay * OUTLOOK_DAYS)} auf dem Konto.`);
+        }
+      } else if (key === 'filament' && economy) {
+        const est = this.filamentOutlook(f);
+        if (!est) lines.push('Filament: Für eine Prognose fehlt mir noch Druckbetrieb – frag mich, wenn eine Weile gedruckt wurde.');
+        else if (est.stock <= 0) lines.push('Filament: Lager und Drucker sind leer – sofort nachkaufen.');
+        else {
+          lines.push(`Filament: ${kg(est.stock)} da, du verdruckst etwa ${kg(est.perDay)} am Tag – `
+            + `${est.days > 14 ? 'das reicht über zwei Wochen.' : `bei dem Tempo ist es ${this.dayWhen(est.days)} leer.`}`);
+        }
+      } else if (key === 'orders' && this.game.orders) {
+        if (avg) {
+          const n = avg.orders;
+          lines.push(`Aufträge: im Schnitt ${n.toLocaleString('de-DE', { maximumFractionDigits: 1 })} am Tag – in ${OUTLOOK_DAYS} Tagen also etwa ${Math.round(n * OUTLOOK_DAYS)} weitere.`);
+        } else {
+          lines.push('Aufträge: Für einen Tagesschnitt fehlt mir noch ein ganzer Tag.');
+        }
+      } else if (key === 'ai' && this.ai) {
+        const fee = this.ai.incomePerHour;
+        lines.push(fee > 0
+          ? `KI-Abo: ${euro.format(fee * 24)} am Tag, in ${OUTLOOK_DAYS} Tagen ${euro.format(fee * 24 * OUTLOOK_DAYS)} – solange alle KI-GPU-Server rechnen.`
+          : 'KI-Abo: bringt gerade nichts – kein KI-GPU-Server rechnet.');
+      } else if (key === 'power' && economy) {
+        lines.push(`Strom: bei ${euro.format(economy.powerPerHour)} pro Stunde etwa ${euro.format(economy.powerPerHour * 24)} am Tag`
+          + `${avg ? ` (Schnitt bisher ${euro.format(avg.power)})` : ''}.`);
+      }
+    }
+    return lines;
+  }
+
+  // Weg zum nächsten Spieler-Level bzw. zur nächsten KI-Stufe (Stufe 8). keys: level, ai
+  pathLines(f, keys) {
+    const { progress } = this.game;
+    const ai = this.ai;
+    const avg = ai?.log?.average() ?? null;
+    const lines = [];
+    for (const key of keys) {
+      if (key === 'level' && progress) {
+        const level = progress.level;
+        const title = TITLES[Math.min(level, TITLES.length - 1)];
+        let line = `Level ${level + 1} („${title}“): noch ${progress.xpToNext} XP.`;
+        if (avg?.xp > 0) line += ` Bei ${Math.round(avg.xp)} XP am Tag schaffst du das in ${this.daysText(progress.xpToNext / avg.xp)}.`;
+        const value = Math.round(f.orders.filter((o) => o.order.stage !== 'counter').reduce((sum, o) => sum + o.order.reward, 0));
+        if (value) line += ` Deine angenommenen Aufträge bringen ${value} XP${value >= progress.xpToNext ? ' – das reicht für den Aufstieg' : ''}.`;
+        const moreOrders = Math.min(8, 3 + Math.floor((level + 1) / 2)) > progress.maxOpenOrders;
+        line += ` Dann zahlen Kunden ${level * 10} % mehr${moreOrders ? ' und du kannst einen Auftrag mehr annehmen' : ''}.`;
+        lines.push(line);
+      } else if (key === 'ai' && ai) {
+        const count = ai.onlineCount;
+        const next = this.nextLevelAt(count);
+        if (!next) {
+          lines.push(`KI: Ich bin auf Stufe ${MAX_LEVEL}, der höchsten. Jeder weitere KI-GPU-Server bringt trotzdem ${euro.format(AI_FEE_PER_SERVER * LEVEL_FACTORS[MAX_LEVEL])} KI-Abo pro Stunde.`);
+          continue;
+        }
+        const need = next.count - count;
+        const idle = Math.max(0, f.aiServers.length - f.aiWorking.length);
+        const buy = Math.max(0, need - idle);
+        const type = serverHardwareById(AI_SERVER_ID);
+        const gain = feeFor(next.count) - feeFor(count) - buy * (type?.power ?? 0);
+        let line = `KI: Noch ${need} KI-GPU-Server bis Stufe ${next.level} – das KI-Abo stiege von ${euro.format(feeFor(count))} auf ${euro.format(feeFor(next.count))} pro Stunde.`;
+        if (idle) line += ` ${plural(Math.min(idle, need), 'eingebauter rechnet', 'eingebaute rechnen')} noch nicht – ${idle >= need ? 'die online zu bringen reicht schon' : 'die zuerst online bringen'}.`;
+        if (buy && type?.price) {
+          line += ` ${buy} neue kosten ${euro.format(buy * type.price)}`
+            + `${gain > 0 ? ` und haben sich nach ca. ${formatMinutes(((buy * type.price) / gain) * 60)} Spielzeit bezahlt gemacht` : ''}.`;
+        }
+        line += ` Neu auf Stufe ${next.level}: ${LEVEL_SKILLS[next.level]}.`;
+        lines.push(line);
+      }
+    }
+    return lines;
+  }
+
+  // Aktuelle Warnungen (Stufe 9), dringendste zuerst: [{ key, topic, text, score }], dazu für die Drosselung
+  // (checkWarnings) wahlweise severity (höher = gefährlicher, Standard 1), repeat (false: solange es bleibt, nur einmal)
+  // und remindOnly (ein anderes System hat es schon gemeldet – erst nach WARN_REPEAT erinnern); topics: weitere Themen
+  warnings(f) {
+    const { economy } = this.game;
+    const list = [];
+    const add = (key, topic, score, text, extra = {}) => list.push({ key, topic, score, text, ...extra });
+    const waiting = f.printers.filter((x) => x.problem?.startsWith('wartet auf Filament'));
+    if (waiting.length) {
+      const names = waiting.slice(0, 3).map((x) => this.printerName(x.p)).join(', ');
+      add('filament-empty', 'filament', 95, `Filament leer: ${names}${waiting.length > 3 ? ` und ${waiting.length - 3} weitere` : ''} ${waiting.length === 1 ? 'wartet' : 'warten'} auf eine neue Spule.`);
+    }
+    const est = this.filamentOutlook(f);
+    if (est && est.stock > 0 && est.days < FILAMENT_WARN_DAYS) {
+      add('filament-low', 'filament', 70, `Filament wird knapp: nur noch ${kg(est.stock)} – reicht etwa ${formatMinutes(est.days * MINUTES_PER_DAY)} Spielzeit.`);
+    }
+    // Defekt bzw. eingefroren meldet schon das Klima selbst (main.js) – die KI erinnert erst nach WARN_REPEAT daran
+    for (const d of f.climate.down) {
+      add(`down-${d.device.id}`, 'climate', 90, `${this.serverName(d.device)} ${d.status === 'broken' ? 'ist noch immer überhitzt und defekt – reparieren' : 'ist noch immer eingefroren – neu starten'}.`, { remindOnly: true });
+    }
+    // Je Schrank eine Warnung, überhitzte KI-GPU-Server stehen mit drin. Zu warm (über idealMax) ohne Schaden meldet
+    // die KI einmal; ab TEMP_LIMITS.hot (Schaden, GPUs drosseln) steigt die Gefahr – dann gleich und alle WARN_REPEAT
+    for (const h of hottestPerRack(f.climate.hot).values()) {
+      const damage = h.temp > TEMP_LIMITS.hot;
+      const ai = f.aiHot.filter((d) => this.game.servers?.rackOf(d)?.id === h.rack.id).length;
+      const aiText = ai ? `, ${plural(ai, 'KI-GPU-Server rechnet', 'KI-GPU-Server rechnen')} nicht mit – das KI-Abo sinkt` : '';
+      add(`hot-${h.rack.id}`, 'climate', damage ? 85 : 80, damage
+        ? `${h.label} ist zu heiß (${degrees(h.temp)}) – die Geräte nehmen Schaden${aiText}. Abluft und Lüfter hochdrehen.`
+        : `${h.label} wird zu warm (${degrees(h.temp)}) – Abluft und Lüfter hochdrehen, ab ${TEMP_LIMITS.hot} °C drosseln die Geräte.`,
+        { severity: damage ? 2 : 1, repeat: damage, topics: ai ? ['climate', 'ai'] : ['climate'] });
+    }
+    if (economy && !economy.unlimited) {
+      const loss = f.cost - f.income;
+      if (economy.money < 0) add('money-minus', 'money', 100, `Konto im Minus (${euro.format(economy.money)}) – ab ${euro.format(BANKRUPT_AT)} bist du pleite.`);
+      else if (loss > 0 && (economy.money - BANKRUPT_AT) / loss < MONEY_WARN_HOURS) {
+        add('money-low', 'money', 92, `Geld knapp: Ohne neue Einnahmen ist das Konto in ca. ${formatMinutes(((economy.money - BANKRUPT_AT) / loss) * 60)} Spielzeit leer.`);
+      }
+    }
+    for (const o of f.orders) {
+      if (o.order.stage !== 'open' || o.done || o.order.minutesLeft >= URGENT_MINUTES / 2) continue;
+      add(`deadline-${o.order.id}`, 'orders', 75, `Frist knapp: ${o.name} – noch ${realTime(o.order.minutesLeft)}, ${o.ready}/${o.order.quantity} fertig.`);
+    }
+    return list.sort((a, b) => b.score - a.score);
+  }
+
+  // Neue Warnungen ab Stufe WARN_LEVEL mit Drosselung: dieselbe Warnung höchstens alle WARN_REPEAT Spielminuten (bei
+  // repeat: false nur einmal, solange das Problem bleibt), sofort aber, wenn die Gefahr steigt (severity); remindOnly
+  // erst nach WARN_REPEAT. Ist sie behoben und kommt erst nach WARN_GAP wieder, gilt sie als neu. Höchstens
+  // WARN_AT_ONCE je Aufruf, der Rest beim nächsten. Die erste Prüfung ab Stufe WARN_LEVEL (nach Start bzw. Laden oder
+  // beim ersten Erreichen der Stufe) fasst alles in einer Meldung zusammen. Gibt die jetzt zu meldenden Warnungen
+  // zurück (main.js zeigt sie über onEvent im HUD).
+  checkWarnings(level = this.ai?.level ?? 0) {
+    // Unter WARN_LEVEL schweigt die KI, behält aber, was sie schon gemeldet hat – sonst kämen beim Pendeln zwischen
+    // Stufe 8 und 9 alle Warnungen sofort wieder
+    if (level < WARN_LEVEL) return [];
+    const now = this.game.clock?.minutes ?? this.elapsed;
+    const current = this.warnings(this.facts());
+    const keys = new Set(current.map((w) => w.key));
+    for (const [key, state] of this.warned) {
+      if (keys.has(key)) continue;
+      state.resolvedAt ??= now;
+      if (now - state.resolvedAt >= WARN_REPEAT) this.warned.delete(key);
+    }
+    if (this.bundlePending) {
+      this.bundlePending = false;
+      for (const w of current) this.warned.set(w.key, { last: now, resolvedAt: null, severity: w.severity ?? 1 });
+      if (!current.length) return [];
+      const [first, ...rest] = current;
+      const more = rest.length ? ` Dazu ${plural(rest.length, 'weitere Warnung', 'weitere Warnungen')} – frag mich „Warnungen?“.` : '';
+      return [{ ...first, key: 'bundle', text: `${first.text}${more}`, count: current.length }];
+    }
+    const fresh = [];
+    for (const w of current) {
+      if (fresh.length >= WARN_AT_ONCE) break;
+      const severity = w.severity ?? 1;
+      let state = this.warned.get(w.key);
+      if (state?.resolvedAt != null) {
+        if (now - state.resolvedAt >= WARN_GAP) state = null; // behoben und lange genug weg: wieder neu
+        else state.resolvedAt = null;
+      }
+      if (!state) {
+        this.warned.set(w.key, { last: now, resolvedAt: null, severity });
+        if (!w.remindOnly) fresh.push(w);
+        continue;
+      }
+      const due = now < state.last || severity > state.severity || (w.repeat !== false && now - state.last >= WARN_REPEAT);
+      if (!due) continue;
+      state.last = now;
+      state.severity = Math.max(state.severity, severity);
+      fresh.push(w);
+    }
+    return fresh;
+  }
+
+  // Läuft in Spielminuten (main.js): nach WARN_GRACE Spielminuten Schonfrist alle WARN_EVERY Spielminuten nach neuen
+  // Warnungen sehen und sie melden
+  advance(gameMinutes) {
+    this.elapsed += gameMinutes;
+    this.sinceWarn += gameMinutes;
+    if (this.elapsed < WARN_GRACE || this.sinceWarn < WARN_EVERY) return [];
+    this.sinceWarn = 0;
+    const fresh = this.checkWarnings();
+    for (const w of fresh) this.onEvent?.('warning', w);
+    return fresh;
+  }
+
+  // Nächste Schritte mit Rangfolge (Stufe 10): [{ score, topic, text, why }], wichtigster zuerst
+  rankedSteps(f) {
+    const { economy, staff, upgrades, rentals } = this.game;
+    const steps = [];
+    // value (€) hebt einen Schritt innerhalb seiner Gruppe etwas an
+    const add = (score, topic, text, why, value = 0) => steps.push({ score: score + Math.min(9, Math.max(0, value) / 500), topic, text, why });
+    if (economy && !economy.unlimited) {
+      const loss = f.cost - f.income;
+      if (economy.money < 0) add(100, 'money', 'Geld reinholen: fertige Aufträge abgeben, nichts Neues kaufen', `Konto ${euro.format(economy.money)}, pleite ab ${euro.format(BANKRUPT_AT)}`);
+      else if (loss > 0 && (economy.money - BANKRUPT_AT) / loss < MONEY_WARN_HOURS) {
+        add(92, 'money', 'Aufträge annehmen und liefern, Ausgaben bremsen', `ohne Einnahmen ist das Geld in ca. ${formatMinutes(((economy.money - BANKRUPT_AT) / loss) * 60)} Spielzeit weg`);
+      }
+    }
+    for (const x of f.printers) {
+      if (!x.problem) continue;
+      if (x.problem.startsWith('wartet auf Filament')) add(95, 'filament', `${this.printerName(x.p)}: neue Spule einlegen`, `${x.problem.replace('wartet auf', 'der Druck wartet auf')}`);
+      else if (x.problem === 'hat kein Filament') add(50, 'printers', `${this.printerName(x.p)}: Spule einlegen`, 'ohne Filament kann er keinen Auftrag drucken');
+      else add(70, 'printers', `${this.printerName(x.p)}: ${x.problem}`, 'solange verdient der Drucker nichts');
+    }
+    for (const d of f.climate.down) add(88, 'climate', `${this.serverName(d.device)} ${d.status === 'broken' ? 'reparieren' : 'neu starten'}`, d.status === 'broken' ? 'überhitzt und defekt' : 'eingefroren');
+    if (f.aiHot.length && this.ai) {
+      const gain = feeFor(f.aiWorking.length + f.aiHot.length) - this.ai.incomePerHour;
+      add(85, 'ai', `${plural(f.aiHot.length, 'KI-GPU-Server', 'KI-GPU-Server')} kühlen`, `+${euro.format(gain)} KI-Abo pro Stunde`, gain * 10);
+    }
+    for (const h of hottestPerRack(f.climate.hot).values()) add(78, 'climate', `${h.label}: Abluft und Lüfter hochdrehen`, `${degrees(h.temp)}, ab ${TEMP_LIMITS.hot} °C drosseln die Geräte`);
+    if (this.game.servers) {
+      for (const d of f.servers.filter((s) => !f.reached.has(s.id))) {
+        const rent = this.game.rentals?.rentOn(d) ?? 0;
+        add(72, 'servers', `${this.serverName(d)} ans Netz bringen`, rent > 0 ? `${euro.format(rent)} Miete pro Stunde fallen aus` : 'kostet offline nur Strom', rent * 10);
+      }
+    }
+    for (const o of f.orders) {
+      const reward = o.order.reward;
+      if (o.order.stage === 'counter') add(76, 'orders', `Auftrag von ${o.order.customer} am Empfang annehmen`, `${euro.format(reward)}, der Kunde geht in ca. ${realTime(o.order.waitLeft)}`, reward);
+      else if (o.order.stage === 'open' && o.done) add(80, 'orders', `${o.name} ins Abholregal legen`, `+${euro.format(reward)} sofort`, reward);
+      else if (o.order.stage === 'open' && o.needs) add(82, 'filament', `${o.needs} nachkaufen`, `sonst wird ${o.name} (${euro.format(reward)}) nicht fertig`, reward);
+      else if (o.order.stage === 'open' && o.order.minutesLeft < URGENT_MINUTES) add(84, 'orders', `${o.name} fertig drucken`, `Frist noch ${realTime(o.order.minutesLeft)}, sonst ist der Kunde verärgert`, reward);
+    }
+    const est = this.filamentOutlook(f);
+    if (est && est.stock > 0 && est.days < 1) add(74, 'filament', 'Filament nachkaufen', `der Vorrat reicht nur noch ${this.daysText(est.days)}`);
+    else if (economy && f.shelf.length < LOW_STOCK) add(60, 'filament', 'Filament nachkaufen', f.shelf.length ? `nur ${plural(f.shelf.length, 'Spule', 'Spulen')} im Lager` : 'keine Spule mehr im Lager');
+    const request = rentals?.requests[0];
+    const server = request && this.bestServer(request, f);
+    if (server) {
+      const rent = rentals.rentPerHour(request, server);
+      add(62, 'servers', `VM von ${request.customer} auf ${this.serverName(server)} vermieten`, `+${euro.format(rent)} pro Stunde`, rent * 10);
+    }
+    const idle = f.printers.find((x) => x.idle);
+    const work = f.orders.filter((o) => o.order.stage === 'open' && !o.done && !o.needs).sort((a, b) => b.perHour - a.perHour)[0];
+    if (idle && work) add(66, 'printers', `Auf ${this.printerName(idle.p)} ${work.template?.name ?? 'den nächsten Druck'} für ${work.order.customer} starten`, `ca. ${euro.format(work.perHour)} pro Druckstunde`, work.perHour);
+    if (f.boxed) add(45, 'printers', 'Drucker aus dem Abstellraum aufstellen', 'im Karton verdienen sie nichts');
+    if (staff && !staff.workers.length && f.printers.length >= 3 && economy?.canAfford(100)) add(40, 'staff', 'Einen Azubi einstellen', 'er räumt Fehldrucke weg und legt Spulen nach');
+    if (staff && !staff.receptionist && f.orders.length >= 3) add(38, 'staff', 'Eine Empfangskraft einstellen', 'sie nimmt Kunden an, auch wenn du nicht am Tresen bist');
+    if (upgrades && economy && upgrades.printerSlots > economy.printers.length && economy.money > 1500 && !idle) add(30, 'printers', 'Einen weiteren Drucker kaufen', 'Platz und Geld sind da, alle Drucker sind beschäftigt');
+    if (this.ai) {
+      const next = this.nextLevelAt(this.ai.onlineCount);
+      const price = serverHardwareById(AI_SERVER_ID)?.price ?? 0;
+      if (next && economy?.money > price) {
+        const gain = feeFor(next.count) - this.ai.incomePerHour;
+        add(28, 'ai', `${plural(next.count - this.ai.onlineCount, 'KI-GPU-Server', 'KI-GPU-Server')} mehr für KI-Stufe ${next.level}`, `+${euro.format(gain)} KI-Abo pro Stunde`);
+      }
+    }
+    const seen = new Set();
+    return steps.sort((a, b) => b.score - a.score).filter((s) => !seen.has(s.text) && seen.add(s.text));
+  }
+
+  // Rangliste als nummerierte Zeilen. topic: nur Schritte zu diesem Thema (null = alle)
+  rankingLines(f, topic = null, max = 5, withEmpty = true) {
+    const related = { servers: ['servers', 'ai', 'climate'], climate: ['climate', 'ai'], printers: ['printers', 'filament'], ai: ['ai'] };
+    const steps = this.rankedSteps(f).filter((s) => !topic || s.topic === topic || related[topic]?.includes(s.topic));
+    if (!steps.length) return withEmpty ? ['Nichts Dringendes – Zeit zu wachsen: mehr Drucker oder KI-GPU-Server.'] : [];
+    const lines = steps.slice(0, max).map((s, i) => `${i + 1}. ${s.text} – ${s.why}`);
+    if (steps.length > max) lines.push(`… und ${steps.length - max} weitere Punkte`);
+    return lines;
+  }
+
   // Spielstunden bis Mitternacht
+  // Miete pro Stunde aus VMs und vermietetem Speicher (#47, storageRentals fehlt ohne NAS-Verdrahtung)
+  rentIncome() {
+    return (this.game.rentals?.incomePerHour ?? 0) + (this.game.storageRentals?.incomePerHour ?? 0);
+  }
+
   hoursLeftToday() {
     const minutes = this.game.clock?.minutes;
     if (minutes == null) return 0;

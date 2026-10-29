@@ -12,6 +12,7 @@ import { ENTRANCE } from './entrance.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { mergeStatic } from '../models/merge-static.js';
 import { euro } from '../core/format.js';
+import { storageText } from '../core/nas.js';
 
 // Lage im Eingangsbereich (Welt-Koordinaten). heading: Blickrichtung der Figur an diesem Platz.
 const COUNTER_POS = { x: -13.3, z: ENTRANCE.z0 + COUNTER.d / 2 + 0.55 };
@@ -29,6 +30,7 @@ export const RECEPTION_SPOTS = {
 
 // Hinweis zu einem Server-Kunden (VM-Anfrage aus core/server-rentals.js) – angenommen wird am PC, nicht am Tresen
 export function rentalHint(request) {
+  if (request.kind === 'storage') return `${request.customer} möchte ${storageText(request.storage)} Speicher mieten – am PC annehmen`; // #47
   return `${request.customer} möchte eine VM mieten: ${request.ram} GB RAM · ${request.cores} Cores – am PC annehmen`;
 }
 

@@ -368,6 +368,8 @@ export function createRoom() {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   room.add(floor);
+  // Boden bleibt ebenfalls ein eigenes Mesh: der Keller (world/basement.js) tauscht ihn gegen einen mit Treppenloch
+  room.userData.floor = floor;
 
   // Decke bleibt ein eigenes Mesh (userData), damit die zweite Etage sie gegen eine Decke mit Treppenloch tauschen kann
   const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), ceilingMaterial());

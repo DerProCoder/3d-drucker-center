@@ -49,8 +49,9 @@ function hideableParts(group) {
 
 // rooms: { hall, storage, office, entrance: [Gruppen] } – der Außenbereich blendet sich in outdoor.update selbst aus,
 // fragt dafür aber outdoorVisible() · onShow: wird aufgerufen, wenn ein Raum wieder auftaucht (Lampenschatten
-// neu zeichnen – solange er ausgeblendet war, fehlte er darin)
-export function createRoomCulling(camera, rooms, onShow = () => {}) {
+// neu zeichnen – solange er ausgeblendet war, fehlte er darin) · underground(p): steht die Kamera so tief im
+// Treppenhaus oder im Keller (world/basement.js), dass oben nichts mehr zu sehen ist? Dann bleibt alles ausgeblendet.
+export function createRoomCulling(camera, rooms, onShow = () => {}, underground = () => false) {
   const frustum = new THREE.Frustum();
   const matrix = new THREE.Matrix4();
   const state = {};
@@ -63,7 +64,7 @@ export function createRoomCulling(camera, rooms, onShow = () => {}) {
     matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(matrix);
     const p = camera.position;
-    const where = Object.keys(AREAS).find((name) => within(p, AREAS[name])) ?? 'outside';
+    const where = underground(p) ? 'underground' : (Object.keys(AREAS).find((name) => within(p, AREAS[name])) ?? 'outside');
     const inHall = where === 'hall';
     const visible = {
       // Halle: von den Anbauten aus durch deren Tür, von draußen durch Glastür und Empfangstür

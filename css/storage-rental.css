@@ -1,0 +1,7 @@
+/* Speicher-Vermietung (#47) in der App „Server-Vermietung“ (src/ui/server-rental-app.js): Balken
+   „Speicher: 1,2 / 4,5 TB belegt“ je NAS – breitere Spalten als die RAM-/Cores-Balken, damit der Text passt. */
+.rental-meter.storage-meter { grid-template-columns: 64px 1fr auto; }
+.rental-meter.storage-meter .bar { background: #ffb366; } /* helles Orange wie die Serie „NAS“ */
+.rental-nas .rental-vms + .rental-meter,
+.rental-nas .empty + .rental-meter { margin-top: 4px; }
+.storage-request .order-note b { white-space: nowrap; }

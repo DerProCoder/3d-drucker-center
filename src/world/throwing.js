@@ -26,8 +26,10 @@ function createMesh(printer, boxed) {
   return mesh;
 }
 
-// onEvent(type, data): 'throw' | 'land' | 'cat-hit' – für Sound, Meldungen und Erfolge
-export function createThrowing({ camera, economy, carry, cat, onEvent }) {
+// onEvent(type, data): 'throw' | 'land' | 'cat-hit' – für Sound, Meldungen und Erfolge · obstacles(): Bereiche der
+// Halle, an denen ein Wurf wie an einer Wand abprallt ([{ minX, maxX, minZ, maxZ }], z. B. Kellerloch und
+// Fahrstuhlschacht aus world/basement.js)
+export function createThrowing({ camera, economy, carry, cat, onEvent, obstacles = () => [] }) {
   const group = new THREE.Group();
   const flying = [];       // { printer, boxed, mesh, velocity, spin }
   const lying = new Map(); // Drucker-ID → Modell auf dem Boden
@@ -75,6 +77,21 @@ export function createThrowing({ camera, economy, carry, cat, onEvent }) {
           mesh.position[axis] = THREE.MathUtils.clamp(mesh.position[axis], min + WALL_MARGIN, max - WALL_MARGIN);
           velocity[axis] *= -0.4;
         }
+      }
+      // Kellerloch, Fahrstuhlschacht: auf kürzestem Weg hinaus (nicht durch die Hallenwand) und abprallen
+      const p = mesh.position;
+      for (const r of obstacles()) {
+        const box = { minX: r.minX - WALL_MARGIN, maxX: r.maxX + WALL_MARGIN, minZ: r.minZ - WALL_MARGIN, maxZ: r.maxZ + WALL_MARGIN };
+        if (p.x <= box.minX || p.x >= box.maxX || p.z <= box.minZ || p.z >= box.maxZ) continue;
+        const exits = [['x', box.minX, p.x - box.minX], ['x', box.maxX, box.maxX - p.x], ['z', box.minZ, p.z - box.minZ], ['z', box.maxZ, box.maxZ - p.z]]
+          .filter(([axis, edge]) => {
+            const [min, max] = axis === 'x' ? [b.minX, b.maxX] : [b.minZ, b.maxZ];
+            return edge >= min + WALL_MARGIN && edge <= max - WALL_MARGIN;
+          });
+        if (!exits.length) continue;
+        const [axis, edge] = exits.reduce((a, e) => (e[2] < a[2] ? e : a));
+        p[axis] = edge;
+        velocity[axis] *= -0.4;
       }
 
       // Kater getroffen? (nur solange der Drucker noch Schwung hat)

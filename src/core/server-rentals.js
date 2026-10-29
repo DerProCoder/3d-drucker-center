@@ -1,7 +1,9 @@
 // Server-Vermietung wie bei einem Hyperscaler: Kunden kommen mit VM-Wünschen (RAM und Cores) zum Empfang, der
 // Spieler wählt selbst einen Server mit genug freiem Platz und nimmt an (oder die privaten Server vergeben
-// automatisch, core/rental-automation.js). Jeder Server hat SERVER_RAM GB und
-// SERVER_CORES Cores (core/server-catalog.js), die VMs darauf dürfen zusammen nicht mehr belegen.
+// automatisch, core/rental-automation.js). Wie viel RAM und Cores ein Server hat, ergibt sich aus seinen eingebauten
+// Teilen (core/server-parts.js, servers.capacityOf – beim Kauf SERVER_RAM GB und SERVER_CORES Cores, aufgerüstet bis
+// 1024 GB / 128 Cores); die VMs darauf dürfen zusammen nicht mehr belegen. Gibt es aufgerüstete Server, kommen auch
+// größere Anfragen (bis zur Größe des größten vermietbaren Servers).
 // Miete pro Spielstunde = (RENT_PER_GB × GB + RENT_PER_CORE × Cores) × rentFactor des Servers, gezahlt zu jeder vollen
 // Spielstunde für jede VM, deren Server gerade online ist. Ein Vertrag läuft eine feste Zeit; ist sein Server zu
 // lange am Stück offline (auch ausgebaut, defekt, eingefroren oder in einen privaten Schrank umgezogen), kündigt der
@@ -32,7 +34,7 @@ const GB_PER_CORE = [2, 8];               // RAM passt grob zur Core-Zahl
 const SIZES = [
   { share: 0.62, cores: [2, 8] },
   { share: 0.3, cores: [10, 24] },
-  { share: 0.08, cores: [26, SERVER_CORES] },
+  { share: 0.08, cores: [26, SERVER_CORES] }, // obere Grenze: größter vermietbarer Server (biggestServer)
 ];
 const JONAS_CHANCE = 0.04;                // so oft kommt Jonas (12) mit seinem Minecraft-Server
 
@@ -75,6 +77,8 @@ export class ServerRentals {
     // andere Anzeigen trotzdem die Miete eines Servers zeigen, ersetzen wir die Funktion durch rentOn – so muss
     // servers.js diese Datei nicht importieren.
     servers.rentOf = (server) => this.rentOn(server);
+    // Belegung je Server für core/server-parts.js (Abrüsten nur, solange die VMs Platz haben)
+    servers.usageOf = (server) => ({ cores: this.usedCores(server), ram: this.usedRam(server) });
   }
 
   // ---------- Abfragen für die UI ----------
@@ -110,12 +114,30 @@ export class ServerRentals {
     return this.vmsOn(server).reduce((sum, v) => sum + v.cores, 0);
   }
 
+  // Ausstattung des Servers aus seinen Teilen: { cores, ram }
+  capacity(server) {
+    return this.servers.capacityOf(server);
+  }
+
   freeRam(server) {
-    return (server.type.ram ?? SERVER_RAM) - this.usedRam(server);
+    return this.capacity(server).ram - this.usedRam(server);
   }
 
   freeCores(server) {
-    return (server.type.cores ?? SERVER_CORES) - this.usedCores(server);
+    return this.capacity(server).cores - this.usedCores(server);
+  }
+
+  // Größter vermietbarer Server außerhalb des privaten Bereichs: { cores, ram } – beide Werte vom selben Server (die
+  // meisten Cores, bei Gleichstand der meiste RAM), damit jede neue Anfrage auf ihn passt. Danach richtet sich die
+  // Größe neuer Anfragen. Ohne solchen Server: Standardausstattung.
+  get biggestServer() {
+    let best = null;
+    for (const server of this.rentableServers) {
+      if (this.servers.isPrivateDevice(server)) continue;
+      const c = this.capacity(server);
+      if (!best || c.cores > best.cores || (c.cores === best.cores && c.ram > best.ram)) best = { cores: c.cores, ram: c.ram };
+    }
+    return best ?? { cores: SERVER_CORES, ram: SERVER_RAM };
   }
 
   // Miete pro Spielstunde für eine Anfrage bzw. VM auf diesem Server (abhängig vom Mietfaktor des Modells)
@@ -222,8 +244,11 @@ export class ServerRentals {
     if (this.random() < JONAS_CHANCE) return { id: this.nextId++, ...JONAS, duration, ...patience };
     let roll = this.random();
     const size = SIZES.find((s) => (roll -= s.share) < 0) ?? SIZES[SIZES.length - 1];
-    const cores = clamp(even(between(...size.cores)), MIN_CORES, SERVER_CORES);
-    const ram = clamp(even(cores * between(...GB_PER_CORE)), MIN_RAM, SERVER_RAM);
+    // Die größten Anfragen wachsen mit dem größten Server (aufgerüstet bis 128 Cores / 1024 GB)
+    const biggest = this.biggestServer;
+    const [minCores, maxCores] = size === SIZES[SIZES.length - 1] ? [size.cores[0], biggest.cores] : size.cores;
+    const cores = clamp(even(between(minCores, maxCores)), MIN_CORES, biggest.cores);
+    const ram = clamp(even(cores * between(...GB_PER_CORE)), MIN_RAM, biggest.ram);
     const names = Object.keys(CUSTOMERS);
     const customer = names[Math.floor(this.random() * names.length)];
     const notes = CUSTOMERS[customer];

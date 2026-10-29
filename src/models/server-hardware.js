@@ -7,6 +7,7 @@ import { box, mat } from './mesh-helpers.js';
 import { canvasTexture } from './canvas-texture.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createFan } from './server-fans.js';
+import { nasBayBoxes, updateNasDisks } from './nas-front.js';
 import { STATUS_LED, chassisMaterial, deviceBackMaterial, deviceFrontMaterial, grilleMaterial } from './server-textures.js';
 
 export const UNIT = 0.0445;        // eine Höheneinheit (HE) in Metern
@@ -75,8 +76,19 @@ export function portPositions(type) {
   });
 }
 
-// Gerät für den Schrank. online: Status-LED eines Servers grün (online) bzw. rot; die übrigen Leuchten sind aufgemalt
-export function createServerDevice(type, { online = true } = {}) {
+// Schächte einer NAS (type.bays) in Gerätekoordinaten: [{ x, y, w, h }] (Mitte und Größe, Index = Schacht-Nummer)
+export const nasBays = (type) => nasBayBoxes(type, FRONT_WIDTH, type.units * UNIT - 0.002);
+
+// Platten einer NAS im Gerät (aus createServerDevice) neu zeigen, z. B. nach dem Einsetzen; bays wie dort
+export function setNasDisks(device, type, bays) {
+  return updateNasDisks(device, type, bays, FRONT_WIDTH, type.units * UNIT - 0.002);
+}
+
+// Gerät für den Schrank. online: Status-LED eines Servers grün (online) bzw. rot; die übrigen Leuchten sind aufgemalt.
+// bays (nur NAS): Platten in den Schächten [{ index, gb, broken }] (core/nas.js baysOf); ohne Angabe die
+// Kauf-Ausstattung (eine Platte mit type.storage GB in Schacht 1) – so zeigen Shop-Bild und Karton eine Platte.
+// userData.disks: Gruppe mit den Platten (setNasDisks tauscht sie aus)
+export function createServerDevice(type, { online = true, bays = null } = {}) {
   const g = new THREE.Group();
   const h = type.units * UNIT - 0.002;
   const caseWidth = FRONT_WIDTH - 0.04;
@@ -132,6 +144,7 @@ export function createServerDevice(type, { online = true } = {}) {
         for (const y of [-span / 2 + 0.003, span / 2 - 0.003]) g.add(box(0.006, 0.006, 0.016, MATS.steel, x, y, 0.008));
       }
     }
+    if (type.bays) setNasDisks(g, type, bays ?? [{ index: 0, gb: type.storage ?? 512, broken: false }]);
   }
   return g;
 }

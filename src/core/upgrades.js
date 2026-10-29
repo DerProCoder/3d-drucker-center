@@ -1,5 +1,6 @@
 // Ausbau der Halle: weitere Drucktische und Regalebenen kauft man mit Spielgeld, dazu eine zweite Etage (mit Treppe)
-// und danach einen Fahrstuhl. Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage und Fahrstuhl baut
+// und danach einen Fahrstuhl, außerdem einen Keller in 70 m Tiefe (mit Treppenhaus) und danach einen eigenen
+// Keller-Fahrstuhl. Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage, Keller und Fahrstühle baut
 // der Lieferdienst gleich ein, Tische stellt man selbst auf.
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
 
@@ -12,6 +13,8 @@ export const TABLE_PRICES = [0, 150, 400, 900];
 export const SHELF_LEVEL_PRICES = [0, 60, 150, 300];
 export const UPPER_FLOOR_PRICE = 2000; // zweite Etage, so groß wie die Halle, mit Treppe
 export const ELEVATOR_PRICE = 3000;    // Fahrstuhl zwischen Halle und zweiter Etage
+export const BASEMENT_PRICE = 5000;    // Keller 70 m unter der Halle, mit Treppenhaus
+export const BASEMENT_ELEVATOR_PRICE = 4000; // Fahrstuhl zwischen Halle und Keller
 
 export class Upgrades {
   constructor(economy) {
@@ -24,7 +27,12 @@ export class Upgrades {
     this.upperFloorOrdered = false;
     this.elevator = false;    // Fahrstuhl gebaut
     this.elevatorOrdered = false;
-    this.deliveries = [];     // { kind: 'table' | 'shelf' | 'floor' | 'elevator', arriveIn (Sekunden) }
+    this.basement = false;    // Keller mit Treppenhaus gebaut
+    this.basementOrdered = false;
+    this.basementElevator = false; // Keller-Fahrstuhl gebaut
+    this.basementElevatorOrdered = false;
+    // { kind: 'table' | 'shelf' | 'floor' | 'elevator' | 'basement' | 'basementElevator', arriveIn (Sekunden) }
+    this.deliveries = [];
     this.listeners = new Set();
     this.onEvent = null;      // (type, data) => void – z. B. 'delivered'
   }
@@ -52,6 +60,8 @@ export class Upgrades {
   get nextShelfPrice() { return SHELF_LEVEL_PRICES[this.shelfOrdered] ?? null; }
   get upperFloorPrice() { return this.upperFloorOrdered ? null : UPPER_FLOOR_PRICE; }
   get elevatorPrice() { return this.elevatorOrdered ? null : ELEVATOR_PRICE; }
+  get basementPrice() { return this.basementOrdered ? null : BASEMENT_PRICE; }
+  get basementElevatorPrice() { return this.basementElevatorOrdered ? null : BASEMENT_ELEVATOR_PRICE; }
 
   // Restzeit einer Lieferung dieser Art (Sekunden) oder null
   arrivalOf(kind) {
@@ -107,6 +117,30 @@ export class Upgrades {
     return true;
   }
 
+  buyBasement() {
+    const price = this.basementPrice;
+    if (this.buyProblem(price) || !this.economy.spend(price)) return false;
+    this.basementOrdered = true;
+    this.deliveries.push({ kind: 'basement', arriveIn: this.economy.deliverySeconds });
+    this.notify();
+    return true;
+  }
+
+  // Grund, warum man den Keller-Fahrstuhl gerade nicht kaufen kann, oder null
+  get basementElevatorProblem() {
+    if (this.basementElevatorOrdered) return 'Alles ausgebaut';
+    if (!this.basement) return 'Erst den Keller bauen';
+    return this.buyProblem(this.basementElevatorPrice);
+  }
+
+  buyBasementElevator() {
+    if (this.basementElevatorProblem || !this.economy.spend(this.basementElevatorPrice)) return false;
+    this.basementElevatorOrdered = true;
+    this.deliveries.push({ kind: 'basementElevator', arriveIn: this.economy.deliverySeconds });
+    this.notify();
+    return true;
+  }
+
   buyShelfLevel() {
     const price = this.nextShelfPrice;
     if (this.buyProblem(price) || !this.economy.spend(price)) return false;
@@ -116,7 +150,8 @@ export class Upgrades {
     return true;
   }
 
-  // Läuft in echter Zeit: angekommene Regalebenen, Etage und Fahrstuhl werden eingebaut, Tische warten aufs Aufstellen
+  // Läuft in echter Zeit: angekommene Regalebenen, Etage, Keller und Fahrstühle werden eingebaut, Tische warten aufs
+  // Aufstellen
   advance(seconds) {
     if (!this.deliveries.length) return;
     let changed = false;
@@ -125,6 +160,8 @@ export class Upgrades {
       if (d.kind === 'shelf') this.shelfLevels++;
       if (d.kind === 'floor') this.upperFloor = true;
       if (d.kind === 'elevator') this.elevator = true;
+      if (d.kind === 'basement') this.basement = true;
+      if (d.kind === 'basementElevator') this.basementElevator = true;
       this.onEvent?.('delivered', { kind: d.kind });
       changed = true;
     }

@@ -6,7 +6,7 @@
 import { MAX_LEVEL } from '../core/ai-advisor.js';
 import { euro } from '../core/format.js';
 
-const THINK_MS = [0, 2400, 1800, 1300, 850, 450]; // so lange „denkt“ die KI je Stufe (echte Millisekunden)
+const THINK_MS = [0, 2400, 1800, 1300, 850, 450, 380, 320, 260, 200, 150]; // so lange „denkt“ die KI je Stufe (echte Millisekunden)
 const MAX_MESSAGES = 100;   // ältere Nachrichten fallen aus dem Verlauf
 const MAX_QUESTION = 200;   // Zeichen im Eingabefeld
 const BOTTOM_SLACK = 24;    // px – so nah am Ende gilt der Verlauf als „unten“ und scrollt mit
@@ -68,7 +68,7 @@ export function createAIApp({ ai = null, advisor }) {
           ${messages.map(bubble).join('')}
           <div class="ai-msg ai thinking" data-ai-thinking ${thinking ? '' : 'hidden'}>KI denkt<span class="ai-dots"><i></i><i></i><i></i></span></div>
         </div>
-        <div class="ai-suggest" data-ai-suggest data-level="${n}">${suggestions(n)}</div>
+        <div class="ai-suggest${n >= 6 ? ' swipe' : ''}" data-ai-suggest data-level="${n}">${suggestions(n)}</div>
         <div class="ai-input">
           <input type="text" data-ai-input data-keep-focus="ai-input" maxlength="${MAX_QUESTION}" autocomplete="off" spellcheck="false"
             placeholder="${offline ? 'Chat gesperrt – KI offline' : 'Frag die KI … (Enter sendet)'}" value="${escapeHtml(draft)}" ${offline ? 'disabled' : ''}>
@@ -162,6 +162,7 @@ export function createAIApp({ ai = null, advisor }) {
     const box = el.querySelector('[data-ai-suggest]');
     if (box && box.dataset.level !== String(n)) {
       box.dataset.level = String(n);
+      box.classList.toggle('swipe', n >= 6); // ab Stufe 6 viele Vorschläge: am Handy eine Wischzeile (css/apps.css)
       box.innerHTML = suggestions(n);
     }
   }

@@ -12,8 +12,9 @@
 // jede Verbindung verbraucht ihre Länge, Abziehen gibt das Stück zurück in den Vorrat.
 // Geld bringen Server nur über vermietete VMs (core/server-rentals.js, Miete zu jeder vollen Spielstunde, solange
 // der Server online ist); Strom kosten alle eingebauten Geräte
-// (economy.extraPowerPerHour, läuft mit der normalen Stromrechnung). Ohne Three.js und DOM.
-import { CABLE_ROLL, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
+// (economy.extraPowerPerHour, läuft mit der normalen Stromrechnung; Server nach ihren Cores, core/server-parts.js).
+// Ein Server, dem ein Pflichtteil fehlt (core/server-parts.js), ist „unvollständig“ und offline. Ohne Three.js und DOM.
+import { CABLE_ROLL, SERVER_CORES, SERVER_RAM, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
 import { meters } from './format.js';
 import { SERVER_SPOTS, isAutomationRack, isPrivateRack } from './server-zones.js';
 import {
@@ -45,6 +46,14 @@ export class Servers {
     this.deviceProblem = () => null;
     // Miete pro Spielstunde der VMs auf einem Server (core/server-rentals.js setzt das; ohne Mieter bringt er nichts)
     this.rentOf = () => 0;
+    // Belegung eines Servers durch VMs { cores, ram } (core/server-rentals.js setzt das)
+    this.usageOf = () => ({ cores: 0, ram: 0 });
+    // Bauteile (core/server-parts.js setzt das): Platz für VMs { cores, ram } aus den eingebauten Teilen, Strom pro
+    // Spielstunde (Server nach Cores) und warum ein Server wegen seiner Teile nicht läuft (z. B. „unvollständig –
+    // Netzteil fehlt“) oder null. Ohne Teile-System: Werte aus dem Katalog.
+    this.capacityOf = (device) => ({ cores: device.type.cores ?? SERVER_CORES, ram: device.type.ram ?? SERVER_RAM });
+    this.powerOf = (device) => device.type.power;
+    this.buildProblem = () => null;
     economy.extraPowerPerHour = () => this.powerPerHour;
   }
 
@@ -435,7 +444,7 @@ export class Servers {
       if (reached.has(device.id)) continue;
       // Nur Switches leiten weiter; Server sind Endgeräte, Patchpanel und Firewall auf LAN-Seite nicht
       if (device.type.kind !== 'server' && device.type.kind !== 'switch') continue;
-      if (this.deviceProblem(device)) continue; // defekt oder eingefroren: arbeitet nicht und leitet nicht weiter
+      if (this.workProblem(device)) continue; // defekt, eingefroren oder unvollständig: arbeitet nicht und leitet nicht weiter
       reached.add(device.id);
       if (device.type.kind === 'switch') {
         const all = Array.from({ length: device.type.ports }, (_, i) => i);
@@ -445,6 +454,12 @@ export class Servers {
     return reached;
   }
 
+  // Warum ein Gerät gerade nicht arbeitet, oder null: defekt bzw. eingefroren (core/server-climate.js), sonst wegen
+  // seiner Bauteile, z. B. „unvollständig – Netzteil fehlt“ (core/server-parts.js)
+  workProblem(device) {
+    return this.deviceProblem(device) ?? this.buildProblem(device);
+  }
+
   isOnline(device, reached = this.reachable()) {
     return device.type.kind === 'server' && reached.has(device.id);
   }
@@ -452,7 +467,7 @@ export class Servers {
   // Warum ein Server offline ist (für das Schrankfenster), oder null
   offlineReason(device, reached = this.reachable()) {
     if (device.type.kind !== 'server' || reached.has(device.id)) return null;
-    const problem = this.deviceProblem(device);
+    const problem = this.workProblem(device);
     if (problem) return problem;
     const ports = Array.from({ length: device.type.ports }, (_, i) => i);
     if (!ports.some((port) => this.cableAt({ id: device.id, port }))) return 'kein Kabel';
@@ -502,7 +517,7 @@ export class Servers {
   }
 
   get powerPerHour() {
-    return this.installed.reduce((sum, d) => sum + d.type.power, 0);
+    return this.installed.reduce((sum, d) => sum + this.powerOf(d), 0);
   }
 
   // ---------- Speichern ----------

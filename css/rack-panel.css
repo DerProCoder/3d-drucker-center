@@ -45,6 +45,10 @@
 .rack-status.on { background: rgba(43, 182, 115, 0.2); color: #7ee08a; }
 .rack-status.off { background: rgba(224, 80, 63, 0.2); color: #ff8a7a; }
 .rack-ports { display: flex; flex-wrap: wrap; gap: 4px; }
+/* NAS: Speicher und Schächte, Hinweis zum Plattentausch im Schrank */
+.rack-nas { font-size: 0.8rem; padding: 4px 8px; border-left: 3px solid #ffb366; border-radius: 3px; background: rgba(255, 179, 102, 0.08); }
+.rack-nas .bad { color: #ff8a7a; }
+.rack-nas-help { display: block; margin-top: 2px; font-size: 0.75rem; opacity: 0.65; }
 .rack-port {
   min-width: 34px;
   padding: 4px 6px;

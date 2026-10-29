@@ -41,6 +41,10 @@ und ihnen nachschreiben, Ergebnisse gegenlesen, dem Nutzer berichten. **Er ände
 - Temporäre Testseiten tragen den Namen des Subagents (`test-<aufgabe>.html`) und jeder nimmt einen eigenen Port
   (8765, 8766, 8767 …) und ein eigenes `--user-data-dir`, damit parallele Prüfungen sich nicht stören.
 - Ändert sich eine Datei unerwartet (anderer Subagent oder Nutzer), nicht zurücksetzen, sondern dem Orchestrator melden.
+- **Rechnerlast:** Headless-Chrome ist der teure Teil. Projektweit läuft immer nur **ein** Chrome gleichzeitig – vor
+  jedem Lauf eine Sperre per `mkdir <scratchpad>/chrome.lock` holen (warten, solange sie existiert), danach im selben
+  Befehl wieder löschen; Läufe zeitlich begrenzen. Höchstens etwa drei Subagents mit Browser-Prüfungen gleichzeitig,
+  reine Code-Arbeit darf daneben laufen.
 
 **Aufgaben als GitHub-Issues**
 - Neue Aufgaben des Nutzers werden zuerst als Issue in `DerProCoder/3d-drucker-center` angelegt – eine Aufgabe pro

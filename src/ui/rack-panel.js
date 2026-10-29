@@ -6,6 +6,9 @@
 // 🌡️ Automatik-Platz).
 // Klima (core/server-climate.js): oben Regler für Zu- und Abluft des Schranks, je Gerät Temperatur und Lüfterregler,
 // Reparieren bzw. Neustarten nach Ausfall. Die Temperaturen laufen live mit, ohne das Fenster neu aufzubauen.
+// Server zeigen ihre Ausstattung aus den Bauteilen (Cores / RAM, core/server-parts.js über servers.capacityOf); ist nach
+// Überhitzung ein Teil defekt, steht es im Status („Lüfter defekt“) – selbst tauschen oder den Techniker rufen.
+// NAS (core/nas.js) zeigen Cores, RAM / max. RAM, Speicher und belegte Schächte; Platten tauscht man direkt im Schrank.
 // Klima-Automatik (core/climate-automation.js): Kopfzeile nennt den regelnden Automatik-Server, Schalter „Automatik an/aus“.
 // Regelt sie, bewegen sich die Regler von selbst; wer einen anfasst, bekommt einen Hinweis – sie übernimmt gleich wieder.
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
@@ -14,6 +17,7 @@ import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
 import { isPrivateRowRack, spotLabel } from '../core/server-zones.js';
 import { CABLE_COLOR } from '../models/server-hardware.js';
 import { euro, meters } from '../core/format.js';
+import { isNas, storageText } from '../core/nas.js';
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const celsius = (t) => `${Math.round(t)} °C`; // Einstufung (climate.level) auch mit dem gerundeten Wert, damit beides passt
@@ -24,7 +28,8 @@ const CLIMATE_REFRESH_MS = 500;
 // rentals: core/server-rentals.js (VMs je Server; fehlt es, zeigt das Fenster nur die Miete über servers.rentOf)
 // automation: core/climate-automation.js (fehlt es, gibt es keine Automatik-Anzeige)
 // ai: KI-Dienst (core/ai-service.js) – KI-GPU-Server zeigen damit, ob sie für die KI rechnen (überhitzt: nein)
-export function createRackPanel({ economy, servers, climate, automation = null, rentals = null, ai = null, onClose }) {
+// nas: core/nas.js (Nas) – NAS zeigen Speicher und Schächte („32 Cores · 256 / 512 GB RAM · 2,5 TB Speicher · 2 / 4 Schächte“)
+export function createRackPanel({ economy, servers, climate, automation = null, rentals = null, ai = null, nas = null, onClose }) {
   const root = document.createElement('div');
   root.id = 'rack-panel';
   root.className = 'hidden';
@@ -74,13 +79,18 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     if (!rentals) return online ? `${rent} Miete` : '';
     const vms = rentals.vmsOn(server).length;
     if (!vms) return online ? (servers.isPrivateDevice(server) ? 'privat' : 'frei, keine VM') : '';
-    const usage = `${vms} ${vms === 1 ? 'VM' : 'VMs'} · RAM ${rentals.usedRam(server)}/${t.ram} GB · Cores ${rentals.usedCores(server)}/${t.cores}`;
+    const cap = servers.capacityOf(server);
+    const usage = `${vms} ${vms === 1 ? 'VM' : 'VMs'} · RAM ${rentals.usedRam(server)}/${cap.ram} GB · Cores ${rentals.usedCores(server)}/${cap.cores}`;
     return online ? `${usage} · ${rent}` : ` · ${usage} – Kunden kündigen bei zu langem Ausfall`;
   }
 
   function deviceRow(rack, device, reached) {
     const t = device.type;
     let status = '';
+    // Ausstattung aus den Bauteilen, z. B. „Server · 128 Cores · 1024 GB“
+    const cap = t.kind === 'server' ? servers.capacityOf(device) : null;
+    const nasInfo = nas && isNas(device) ? nas.summary(device) : null;
+    const kindText = nasInfo ? `NAS · ${nasText(nasInfo)}` : cap ? `${KIND_NAMES[t.kind]} · ${cap.cores} Cores · ${cap.ram} GB` : KIND_NAMES[t.kind];
     if (t.kind === 'server') {
       const why = servers.offlineReason(device, reached);
       // Server mit VMs in einem privaten Schrank: läuft, aber die Kunden zahlen nicht und kündigen (core/server-rentals.js)
@@ -104,7 +114,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
       <div class="rack-device ${t.kind}" style="--units:${t.units}">
         <div class="rack-device-head">
           <span class="rack-units">${unitLabel(device.unit, t.units)}</span>
-          <b>${t.name}</b><span class="rack-kind">${KIND_NAMES[t.kind]}</span>
+          <b>${t.name}</b><span class="rack-kind">${kindText}</span>
           ${status}
           <span class="rack-move">
             <button class="secondary small" data-move="${device.id}:${up}" title="Nach oben schieben" ${up === -1 ? 'disabled' : ''}>▲</button>
@@ -115,8 +125,27 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
             : `<button class="secondary small" data-remove="${device.id}">Ausbauen</button>`}
         </div>
         <div class="rack-ports">${ports}</div>
+        ${nasInfo ? nasRow(device, nasInfo) : ''}
         ${climateRow(device)}
       </div>`;
+  }
+
+  // Ausstattung einer NAS: „32 Cores · 256 / 512 GB RAM · 2,5 TB Speicher · 2 / 4 Schächte“
+  function nasText(s) {
+    return `${s.cores} Cores · ${s.ram} / ${s.maxRam} GB RAM · ${storageText(s.storage)} Speicher · ${s.usedBays} / ${s.bays} Schächte`;
+  }
+
+  // Platten der NAS: vermieteter Speicher, defekte Platten und wie man Platten tauscht (direkt im Schrank,
+  // world/server-room.js)
+  function nasRow(device, s) {
+    const stock = nas.diskStock.reduce((sum, d) => sum + d.count, 0);
+    const broken = nas.baysOf(device).filter((b) => b.part && b.broken).length;
+    const used = s.used ? ` · ${storageText(s.used)} vermietet, ${storageText(s.free)} frei` : '';
+    const defect = broken ? ` · <b class="bad">${broken} ${broken === 1 ? 'Platte' : 'Platten'} defekt – herausnehmen und ersetzen</b>` : '';
+    return `
+      <div class="rack-nas">💽 ${storageText(s.storage)} in ${s.usedBays} / ${s.bays} Schächten${used}${defect}
+        <span class="rack-nas-help">Festplatten tauschen: Glastür öffnen und vorn auf einen Schacht klicken – leer: größte
+        Platte aus dem Teilelager (${stock ? `${stock} im Lager` : 'keine im Lager – im Teile-Shop kaufen'}), voll: herausnehmen.</span></div>`;
   }
 
   // Temperatur, Lüfterregler und – nach einem Ausfall – Reparieren bzw. Neustarten
@@ -125,7 +154,10 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     const s = climate.device(device.id);
     let fix = '';
     if (s.status === 'broken') {
-      fix = `<button class="small" data-repair="${device.id}">Reparieren (${euro.format(climate.repairCost(device))})</button>`;
+      // Server: das defekte Teil lässt sich auch selbst tauschen (Teile-Shop, Werkbank) – der Techniker ist teurer
+      const part = device.type.kind === 'server' ? climate.brokenPart(device) : null;
+      fix = `<button class="small" data-repair="${device.id}" title="${part ? `${part} defekt – selbst tauschen oder den Techniker rufen` : 'Techniker repariert das Gerät'}">`
+        + `Techniker rufen (${euro.format(climate.repairCost(device))})</button>`;
     } else if (s.status === 'frozen') {
       fix = `<button class="small" data-restart="${device.id}">Neu starten</button>`;
     }
@@ -226,7 +258,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     const online = devices.filter((d) => servers.isOnline(d, reached));
     // Miete der VMs (core/server-rentals.js) – nur von Servern, die ihre VMs gerade bedienen (nicht privat)
     const income = online.filter((d) => !rentals || rentals.serves(d, reached)).reduce((sum, d) => sum + servers.rentOf(d), 0);
-    const power = devices.reduce((sum, d) => sum + d.type.power, 0);
+    const power = devices.reduce((sum, d) => sum + servers.powerOf(d), 0);
     const vmCount = rentals ? devices.reduce((sum, d) => sum + (d.type.kind === 'server' ? rentals.vmsOn(d).length : 0), 0) : null;
     // Geräte und freie Lücken von oben nach unten, damit man sieht, wo noch Platz ist
     const gaps = devices.length ? servers.freeGaps(rack) : [];
@@ -289,14 +321,18 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     }
     confirmRemove = null;
     if (remove) {
+      const removed = economy.furnitureById(remove);
       servers.removeDevice(remove);
-      message = 'Gerät ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat.';
+      // Server: auf der Werkbank im Serverraum lassen sich Teile tauschen, auf- und abrüsten (world/workbench.js)
+      message = removed?.type.kind === 'server'
+        ? 'Server ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat – auf der Werkbank (Südwand) Teile tauschen.'
+        : 'Gerät ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat.';
     }
     const repair = e.target.closest('[data-repair]')?.dataset.repair;
     if (repair) {
       const device = economy.furnitureById(Number(repair));
       const problem = climate.repairProblem(device);
-      message = problem ?? `${device.type.name} repariert – jetzt die Lüfter so einstellen, dass es nicht wieder zu heiß wird.`;
+      message = problem ?? `Der Techniker hat ${device.type.name} repariert – jetzt die Lüfter so einstellen, dass es nicht wieder zu heiß wird.`;
       if (!problem) climate.repair(device.id);
     }
     const restart = e.target.closest('[data-restart]')?.dataset.restart;

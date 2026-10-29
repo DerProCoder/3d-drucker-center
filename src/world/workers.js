@@ -3,14 +3,11 @@
 // ins Büro (world/office.js) und werkeln an der Werkbank oder zocken auf der Couch. Fertige Aufträge bringen sie als
 // Paket ins Abholregal am Empfang (world/reception.js). Bewegung über Delta-Zeit.
 // Aussehen und Animationen kommen aus models/people.js (echte Menschenfiguren, je nach Name Mann oder Frau).
-// Führt ein Azubi eine Besuchergruppe (core/visitors.js reserviert ihn), steuert world/visitors.js die Figur über
-// guide(): Er nimmt dann keine Aufgaben an und läuft vorneweg – auch draußen im Garten und die Treppe hinauf.
 import * as THREE from 'three';
 import { ROOM_SIZE, STORAGE_DOOR } from './room.js';
 import { slotX, slotZ } from './hall-layout.js';
 import { OFFICE_PATH, OFFICE_SPOTS, inOffice } from './office.js';
-import { ENTRANCE, ENTRANCE_PATH, inEntrance } from './entrance.js';
-import { STAIRS } from './upper-floor.js';
+import { ENTRANCE_PATH, inEntrance } from './entrance.js';
 import { RECEPTION_SPOTS } from './reception.js';
 import { WAGE_PER_HOUR, WORK_SECONDS, taskKey, taskText, workerGender } from '../core/staff.js';
 import { filamentById } from '../core/catalog.js';
@@ -36,8 +33,6 @@ const IDLE_SECONDS = [20, 45];        // so lange bleiben sie an der Werkbank bz
 const EAST_AISLE_X = 3.15;             // Gang rechts neben den Drucktischen, Richtung Büro
 
 const inStorage = (p) => p.z > HALL_EDGE_Z;
-// Draußen im Garten vor der Haustür (nur beim Führen einer Besuchergruppe)
-const outdoors = (p) => p.x < ENTRANCE.x0;
 // Vom Quergang vor den Tischen durch die Bürotür
 const OFFICE_LANE = [{ x: OFFICE_PATH.hall.x, z: FRONT_Z }, OFFICE_PATH.hall, OFFICE_PATH.inside];
 
@@ -48,8 +43,6 @@ const portal = (p) => (inStorage(p) ? DOOR_IN : inOffice(p) ? OFFICE_LANE[0] : i
 // Zum Büro geht es über den rechten Gang und den Quergang vor den Tischen, im Büro über den Bürogang.
 // Zwischen Eingang und Büro direkt über den Quergang vor den Tischen.
 function route(from, to) {
-  // Aus dem Garten erst durch die Haustür herein
-  if (outdoors(from)) return [ENTRANCE_PATH.frontOutside, ENTRANCE_PATH.frontInside, ...route(ENTRANCE_PATH.frontInside, to)];
   const officeAisle = (p) => ({ x: OFFICE_PATH.aisleX, z: p.z });
   if (inStorage(from) && inStorage(to)) return [to];
   if (inEntrance(from) && inEntrance(to)) return [to];
@@ -101,7 +94,6 @@ function figureFor(worker) {
 
 // Was ein Azubi ohne Aufgabe gerade macht
 function idleText(r) {
-  if (r.guide) return 'führt eine Besuchergruppe';
   if (r.phase === 'desk') return 'werkelt an der Werkbank im Büro';
   if (r.phase === 'couch') return 'zockt im Büro auf der Konsole';
   if (r.phase === 'to-idle') return 'geht ins Büro';
@@ -337,42 +329,9 @@ export function createWorkers({ economy, staff }) {
     return true;
   }
 
-  // Laufende Aufgabe sauber abbrechen (Azubi wird für eine Führung gebraucht): Spule zurück ins Lager, Paket weg –
-  // die Aufgabe selbst bleibt offen und geht an einen anderen Azubi
-  function abortTask(r) {
-    if (r.carried) {
-      if (staff.abortTask) staff.abortTask(r.task, r.carried);
-      else economy.returnFilamentToStorage(r.carried);
-    }
-    dropSpool(r);
-    finishTask(r);
-    r.path = [];
-  }
-
-  // Führender Azubi: world/visitors.js setzt ihn (place) oder schickt ihn über die üblichen Wege (walkTo)
-  function updateGuide(r, dt) {
-    const g = r.guide;
-    let moving = walk(r, dt);
-    if (!moving) moving = g.speed > 0.05;
-    if (g.wave > 0) g.wave -= dt;
-    turnTowards(r.mesh, r.heading, dt);
-    const { person } = r;
-    if (!person) return;
-    person.sitDown(null);
-    person.arms = null;
-    if (moving) person.play('Walk', (r.path.length ? r.speed : g.speed) / WALK_CLIP_SPEED);
-    else person.play(g.wave > 0 ? 'Wave' : 'Idle');
-    person.update(dt);
-    r.mesh.userData.controller.visible = false;
-  }
-
   function update(dt) {
     const reserved = new Set([...runners.values()].filter((x) => x.task).map((x) => taskKey(x.task)));
     for (const r of runners.values()) {
-      if (r.guide) {
-        updateGuide(r, dt);
-        continue;
-      }
       let moving = false;
 
       // Unterwegs zu einer Aufgabe, die sich erledigt hat (z. B. vom Spieler): abbrechen
@@ -380,8 +339,6 @@ export function createWorkers({ economy, staff }) {
         finishTask(r);
         r.path = [];
       }
-      // Für eine Führung reserviert (core/staff.js), aber noch nicht von world/visitors.js übernommen: Aufgabe abbrechen
-      if (r.task && staff.isReserved?.(r.worker.id)) abortTask(r);
 
       if (r.path.length) {
         moving = walk(r, dt);
@@ -395,7 +352,7 @@ export function createWorkers({ economy, staff }) {
         r.look -= dt;
         if (r.look <= 0) {
           r.look = LOOK_FOR_WORK_SECONDS;
-          const task = staff.isReserved?.(r.worker.id) ? null : staff.findTask(reserved, r.worker.id);
+          const task = staff.findTask(reserved);
           if (task && targetOf(task)) {
             reserved.add(taskKey(task));
             startTask(r, task);
@@ -420,51 +377,6 @@ export function createWorkers({ economy, staff }) {
     }
   }
 
-  // Azubi id führt eine Besuchergruppe (world/visitors.js): Er bricht seine Aufgabe ab, steht auf und folgt ab jetzt
-  // nur noch dem, was die Gruppe vorgibt. Gibt eine Steuerung zurück (null, wenn es den Azubi nicht gibt):
-  //   position      Vector3 der Figur (y: Höhe, z. B. auf der Treppe)
-  //   walkTo(pts)   über die üblichen Wege (Halle, Empfang) zum ersten Punkt, danach geradeaus über die übrigen
-  //   walking       noch unterwegs (walkTo)?
-  //   place(x, y, z, heading, speed)  direkt setzen (Rundgang); speed > 0: läuft gerade mit diesem Tempo (m/s)
-  //   face(heading) · wave(s): so lange winken · release(): zurück an die Arbeit · alive: Azubi noch da?
-  function guide(id) {
-    const r = runners.get(id);
-    if (!r) return null;
-    if (!r.guide) {
-      if (r.task) abortTask(r);
-      if (seated(r)) standUp(r);
-      r.path = [];
-      r.phase = 'guide';
-      r.guide = { speed: 0, wave: 0 };
-    }
-    return {
-      get alive() { return runners.get(id) === r && !!r.guide; },
-      get position() { return r.mesh.position; },
-      get walking() { return r.path.length > 0; },
-      walkTo(points) {
-        if (!r.guide) return;
-        r.path = [...route(r.mesh.position, points[0]), ...points.slice(1)];
-      },
-      place(x, y, z, heading, speed = 0) {
-        if (!r.guide) return;
-        r.path = [];
-        r.mesh.position.set(x, y, z);
-        r.heading = heading;
-        r.guide.speed = speed;
-      },
-      face(heading) { r.heading = heading; },
-      wave(seconds) { if (r.guide) r.guide.wave = seconds; },
-      release() {
-        if (!r.guide) return;
-        r.guide = null;
-        r.phase = 'idle';
-        r.path = [];
-        // Oben oder auf der Treppe losgelassen (Gruppe plötzlich weg): unten an der Treppe weitermachen
-        if (r.mesh.position.y > 0.05) r.mesh.position.set((STAIRS.x0 + STAIRS.x1) / 2, 0, STAIRS.zLow + 0.6);
-      },
-    };
-  }
-
   // Spulen, die Mitarbeiter gerade tragen – landen beim Speichern im Regal
   const carriedSpools = () => [...runners.values()].filter((r) => r.carried).map((r) => r.carried);
   // Zockt gerade jemand? (Fernseher im Büro)
@@ -477,5 +389,13 @@ export function createWorkers({ economy, staff }) {
     return r ? `Gerade: ${statusText(r)}` : 'kommt gleich';
   };
 
-  return { group, update, carriedSpools, statusOf, gaming, guide };
+  // Wo die Azubis gerade stehen (Besucher weichen ihnen aus, world/visitors.js)
+  const positionsOut = [];
+  function positions() {
+    positionsOut.length = 0;
+    for (const r of runners.values()) positionsOut.push(r.mesh.position);
+    return positionsOut;
+  }
+
+  return { group, update, carriedSpools, statusOf, gaming, positions };
 }

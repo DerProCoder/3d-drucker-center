@@ -1,0 +1,91 @@
+/* Werkbank-Menü (Ladereihenfolge siehe index.html) */
+
+/* ---------- Werkbank im Serverraum (ui/workbench-panel.js) ---------- */
+#workbench-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(5, 8, 14, 0.45);
+  color: #e6e8ec;
+  user-select: none;
+}
+#workbench-panel.hidden { display: none; }
+.wb-window { width: min(820px, calc(100% - 32px)); transform: translate(-50%, -50%); animation: none; }
+
+/* Kopf: neue Werte groß, darunter Standard, Höchstwerte und Strom */
+.wb-summary {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border-left: 4px solid #2bb673;
+  background: #1c2027;
+}
+.wb-summary.bad { border-left-color: #e0503f; }
+.wb-values b { font: 700 1.6rem 'Rajdhani', 'Inter', system-ui, sans-serif; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.wb-sub { font-size: 0.82rem; opacity: 0.7; }
+.wb-warn, .wb-ok, .wb-note { margin: 0 0 8px; padding: 6px 10px; border-radius: 5px; font-size: 0.88rem; }
+.wb-warn { background: rgba(224, 80, 63, 0.2); color: #ffb0a5; }
+.wb-ok { background: rgba(43, 182, 115, 0.18); color: #9ee8b0; }
+.wb-note { background: #262a31; color: #cfd3da; }
+.wb-message.bad { background: #6a2a20; }
+.wb-stock { margin: 0 0 12px; font-size: 0.85rem; opacity: 0.85; }
+.wb-bad { color: #ff8a7a; font-weight: 600; }
+
+/* Steckplätze als Kacheln, je Art eine Gruppe */
+.wb-group { margin: 0 0 12px; }
+.wb-group h4 { margin: 0 0 6px; font-size: 0.92rem; }
+.wb-group h4 .hint { margin-left: 6px; font-weight: 400; font-size: 0.78rem; opacity: 0.6; }
+.wb-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.wb-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 4px solid #3aa0ff;
+  border-radius: 6px;
+  background: #262a31;
+  color: #e6e8ec;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-slot:hover { background: #2e333c; }
+.wb-slot.empty { border-style: dashed; border-left-style: solid; border-left-color: #555c69; background: #1b1e24; color: #9aa0aa; }
+.wb-slot.broken { border-color: rgba(255, 80, 60, 0.8); border-left-color: #ff3b24; background: rgba(224, 60, 40, 0.22); animation: wb-pulse 1.6s ease-in-out infinite; }
+.wb-slot.selected { outline: 2px solid #4be08a; outline-offset: 1px; }
+.wb-slot-name { font-size: 0.72rem; opacity: 0.65; }
+.wb-slot-value { font-size: 0.85rem; font-weight: 600; }
+@keyframes wb-pulse { 50% { background: rgba(224, 60, 40, 0.4); } }
+
+/* Auswahl unter der Gruppe: ausbauen, einbauen, tauschen – Grund daneben, wenn es nicht geht */
+.wb-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(75, 224, 138, 0.35);
+  background: #181b21;
+}
+.wb-detail-head { margin: 0 0 8px; font-size: 0.88rem; }
+.wb-option { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; }
+.wb-option button { text-align: left; }
+.wb-option button small { display: block; font-weight: 400; font-size: 0.75rem; opacity: 0.8; }
+.wb-option button:disabled { opacity: 0.55; }
+.wb-reason { font-size: 0.78rem; color: #ffb36b; }
+.wb-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 14px; }
+.wb-footer .wb-reason { color: #aab; }
+.wb-footer button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Touch: größere Tippflächen */
+@media (pointer: coarse) {
+  #workbench-panel, #workbench-panel * { cursor: auto !important; }
+  .wb-slot { min-height: 52px; }
+  .wb-option button { min-height: 44px; }
+  .wb-slot:hover { background: #262a31; }
+}
+@media (max-width: 700px) {
+  .wb-slots { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+  .wb-values b { font-size: 1.35rem; }
+}

@@ -1,0 +1,556 @@
+// Keller 70 m unter der Halle (Ausbau, core/upgrades.js): ein leerer, beleuchteter Raum so groß wie die Halle. Hinunter
+// geht es über ein Treppenhaus in der Ecke links hinten (Nordwest) – wie in einem Hochhaus mit 20 Stockwerken zu je
+// 3,5 m: pro Stockwerk zwei gegenläufige Läufe im Zickzack, dazwischen ein Zwischenpodest (Westen) und an jedem
+// Stockwerkspodest (Osten) eine Tiefenanzeige. Später kommt ein eigener Keller-Fahrstuhl direkt südlich daneben dazu.
+// Gebaut wird erst, wenn der Keller geliefert ist: Dann ersetzt ein Hallenboden mit Treppenloch (und Geländer) den
+// bisherigen Boden.
+//
+// Stockwerke der Spielfigur (level, siehe world/collision.js): 0 = Halle, -1 = Treppenhaus, -2 = Keller.
+// footing() sagt, wie hoch der Boden unter ihr ist und auf welchem Stockwerk sie danach steht. Weil das Treppenhaus
+// 20-mal übereinander dieselbe Grundfläche hat, braucht footing() zusätzlich die bisherige Bodenhöhe.
+import * as THREE from 'three';
+import { ROOM_HEIGHT, ROOM_SIZE, WALL_THICKNESS, createCeilingLight } from './room.js';
+import { box } from '../models/mesh-helpers.js';
+import { canvasTexture, speckle } from '../models/canvas-texture.js';
+import { mergeStatic } from '../models/merge-static.js';
+
+const HALF = ROOM_SIZE / 2;
+const T = WALL_THICKNESS;
+export const LEVEL = { HALL: 0, STAIRS: -1, BASEMENT: -2 };
+export const STOREY = ROOM_HEIGHT;        // Höhe eines Stockwerks im Treppenhaus (3,5 m)
+export const STOREYS = 20;                // 20 × 3,5 m = 70 m
+export const BASEMENT_Y = -STOREY * STOREYS; // Kellerboden (−70 m)
+const HALF_STOREY = STOREY / 2;           // Zwischenpodest auf halber Höhe
+
+// Treppenhaus (Innenmaße): Läufe in x-Richtung, oben/unten je ein Podest. Südlicher Lauf (A) führt vom
+// Stockwerkspodest im Osten hinunter nach Westen, nördlicher Lauf (B) vom Zwischenpodest zurück nach Osten.
+export const STAIRWELL = {
+  x0: -HALF, x1: -4.8, z0: -HALF, z1: -7.6,
+  xWest: -8.8,  // Ende Zwischenpodest / Anfang der Läufe
+  xEast: -6.0,  // Ende der Läufe / Anfang Stockwerkspodest – bis hier reicht das Loch im Hallenboden
+  zDivider: [-8.85, -8.75], // Wand zwischen den Läufen
+};
+// Keller-Fahrstuhl: südlich am Treppenhaus an der Westwand, Tür nach Osten
+export const BASEMENT_ELEVATOR = { x0: -HALF, x1: -8.6, z0: -7.4, z1: -5.6 };
+
+const { x0: X0, x1: X1, z0: Z0, z1: Z1, xWest: XW, xEast: XE } = STAIRWELL;
+const [ZD0, ZD1] = STAIRWELL.zDivider;
+const Z_MID = (ZD0 + ZD1) / 2;
+const RUN = XE - XW;                      // Lauflänge (2,8 m)
+const STEPS_PER_FLIGHT = 10;
+const RISE = HALF_STOREY / STEPS_PER_FLIGHT; // 17,5 cm
+const TREAD = RUN / STEPS_PER_FLIGHT;        // 28 cm
+const SLAB = 0.25;                        // Dicke der Laufplatte unter den Stufen
+const RAIL = 0.05;                        // Dicke der Geländer (als Hindernis)
+const RAIL_HEIGHT = 1.0;
+const HALL_VISIBLE_Y = -STOREY - 0.7;     // darunter (Augenhöhe) sieht man die Halle nicht mehr
+const BASEMENT_VISIBLE_Y = BASEMENT_Y + 2 * STOREY; // darüber sieht man den Keller nicht
+const LIGHT_ON = 22;                      // Deckenspots im Keller (wie die zweite Etage)
+const FOLLOW_ON = 9;                      // Licht, das im Treppenhaus über der Spielfigur mitläuft
+const EXIT_GAP = 0.7;                     // so weit vor der Fahrstuhltür taucht man auf
+
+const fmtDepth = (m) => `−${String(m).replace('.', ',')} m`;
+
+// Schild mit großer Schrift (Tiefe) und kleiner zweiter Zeile
+function createSign(big, small, w = 0.5, h = 0.25) {
+  const texture = canvasTexture(256, 128, (ctx, cw, ch) => {
+    ctx.fillStyle = '#1f5a3a';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.strokeStyle = '#e9f2ea';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(6, 6, cw - 12, ch - 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Schrift verkleinern, bis sie ins Schild passt
+    const fit = (text, size, weight, y) => {
+      const font = (px) => `${weight} ${px}px "Segoe UI", Arial, sans-serif`;
+      let px = size;
+      ctx.font = font(px);
+      while (ctx.measureText(text).width > cw - 28 && px > 8) ctx.font = font(--px);
+      ctx.fillText(text, cw / 2, y);
+    };
+    fit(big, 58, 700, ch * 0.42);
+    fit(small, 22, 600, ch * 0.8);
+  }, 1, 1, { wrap: false, anisotropy: 4 });
+  // Hinterleuchtet wie ein Notausgangsschild, damit man es im Treppenhaus auch im Halbdunkel lesen kann
+  const material = new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.7, roughness: 0.5 });
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), material);
+}
+
+function createMaterials() {
+  return {
+    concrete: new THREE.MeshStandardMaterial({ color: 0x9a9da3, roughness: 0.85 }),
+    nosing: new THREE.MeshStandardMaterial({ color: 0x2b2d31, roughness: 0.7 }),
+    wall: new THREE.MeshStandardMaterial({ color: 0xd9d4c8, roughness: 0.95 }),
+    stripe: new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.8 }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x3a3e45, roughness: 0.4, metalness: 0.6 }),
+    housing: new THREE.MeshStandardMaterial({ color: 0xdadada, roughness: 0.4 }),
+    // Heller als Weiß, damit der Bloom-Effekt die Leuchten nachglühen lässt
+    lamp: new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e8).multiplyScalar(4) }),
+  };
+}
+
+// Höhe auf dem obersten Stockwerk (0 … −3,5) an der Stelle x/z des Treppenhauses
+function profile(x, z) {
+  if (x >= XE) return 0;               // Stockwerkspodest
+  if (x <= XW) return -HALF_STOREY;    // Zwischenpodest
+  const t = (XE - x) / RUN;            // 0 im Osten, 1 im Westen
+  return z > Z_MID ? -t * HALF_STOREY : -HALF_STOREY - (1 - t) * HALF_STOREY;
+}
+
+// Gerader Treppenlauf mit Laufplatte und Handlauf an der Außenwand. xStart/yStart: oberes Ende, dir: Richtung nach
+// unten (−1 = nach Westen), lane: [zMin, zMax], railZ: z des Handlaufs
+function flight(m, xStart, yStart, dir, lane, railZ) {
+  const g = new THREE.Group();
+  const [za, zb] = lane;
+  const width = zb - za;
+  const zc = (za + zb) / 2;
+  const height = 2 * RISE + 0.05;
+  for (let i = 0; i < STEPS_PER_FLIGHT; i++) {
+    const top = yStart - i * RISE;
+    g.add(box(TREAD, height, width, m.concrete, xStart + dir * (i + 0.5) * TREAD, top - height / 2, zc));
+    // Dunkle Kante vorn an der Stufe (rutschfest)
+    g.add(box(0.04, 0.012, width, m.nosing, xStart + dir * ((i + 1) * TREAD - 0.02), top + 0.006, zc));
+  }
+  // Laufplatte: Oberkante eine Stufenhöhe unter den Stufenkanten
+  const tilt = Math.atan(-HALF_STOREY / (dir * RUN));
+  const len = Math.hypot(RUN, HALF_STOREY);
+  const midX = xStart + (dir * RUN) / 2;
+  const midY = yStart - RISE - HALF_STOREY / 2;
+  const slab = box(len, SLAB, width, m.concrete, midX + (SLAB / 2) * Math.sin(tilt), midY - (SLAB / 2) * Math.cos(tilt), zc);
+  slab.rotation.z = tilt;
+  g.add(slab);
+  // Handlauf 0,9 m über der Lauflinie
+  const rail = box(len, 0.04, 0.04, m.metal, midX, yStart - HALF_STOREY / 2 + 0.9, railZ);
+  rail.rotation.z = tilt;
+  g.add(rail);
+  return g;
+}
+
+// Wandleuchte (Gehäuse und leuchtende Fläche), an einer Wand mit Blickrichtung normal (x oder z)
+function wallLamp(m, x, y, z, alongX) {
+  const g = new THREE.Group();
+  g.add(alongX ? box(0.5, 0.08, 0.05, m.housing, x, y, z) : box(0.05, 0.08, 0.5, m.housing, x, y, z));
+  g.add(alongX ? box(0.46, 0.05, 0.052, m.lamp, x, y, z) : box(0.052, 0.05, 0.46, m.lamp, x, y, z));
+  return g;
+}
+
+// Ein Stockwerk des Treppenhauses (k = 0 oben … 19 unten): Wände, Lauf A, Zwischenpodest, Lauf B, Stockwerkspodest
+function createStorey(m, k) {
+  const g = new THREE.Group();
+  const top = -STOREY * k;
+  const mid = top - HALF_STOREY;
+  const bottom = top - STOREY;
+  const last = k === STOREYS - 1;
+  // Oben enden die Wände knapp unter dem Hallenboden (sonst flimmern ihre Oberkanten durch die Dielen)
+  const wallH = k === 0 ? STOREY - 0.02 : STOREY;
+  const yc = bottom + wallH / 2;
+  const xc = (X0 + X1) / 2;
+  const zc = (Z0 + Z1) / 2;
+  const width = X1 - X0;
+  const depth = Z1 - Z0;
+
+  // Wände: im untersten Stockwerk sind West- und Nordwand die Kellerwände und nach Osten geht es offen in den Keller
+  if (!last) {
+    g.add(box(T, wallH, depth + 2 * T, m.wall, X0 - T / 2, yc, zc));
+    g.add(box(width + 2 * T, wallH, T, m.wall, xc, yc, Z0 - T / 2));
+    g.add(box(T, wallH, depth + 2 * T, m.wall, X1 + T / 2, yc, zc));
+  }
+  g.add(box(width + 2 * T, wallH, T, m.wall, xc, yc, Z1 + T / 2));
+  // Trennwand zwischen den Läufen (reicht unter die Laufplatten)
+  g.add(box(RUN, wallH + 0.1, ZD1 - ZD0, m.wall, (XW + XE) / 2, yc - 0.05, Z_MID));
+
+  g.add(flight(m, XE, top, -1, [ZD1, Z1], Z1 - 0.06));  // Lauf A (Süden) nach unten Richtung Westen
+  g.add(flight(m, XW, mid, 1, [Z0, ZD0], Z0 + 0.06));   // Lauf B (Norden) zurück nach Osten
+  // Zwischenpodest im Westen und Stockwerkspodest im Osten (das unterste ist der Kellerboden)
+  g.add(box(XW - X0, 0.2, depth, m.concrete, (X0 + XW) / 2, mid - 0.1, zc));
+  if (!last) g.add(box(X1 - XE, 0.2, depth, m.concrete, (XE + X1) / 2, bottom - 0.1, zc));
+  // Unter dem letzten Lauf A: Wand bis zum Boden, damit man unten nicht unter die Treppe läuft
+  if (last) g.add(box(0.1, STOREY - 0.2, Z1 - ZD0, m.wall, XE, bottom + (STOREY - 0.2) / 2, (ZD0 + Z1) / 2));
+
+  // Blauer Streifen an den Wänden der Podeste (Orientierung wie im Hochhaus)
+  if (!last) {
+    g.add(box(0.012, 0.12, depth, m.stripe, X1 - 0.006, bottom + 1.2, zc));
+    g.add(box(0.012, 0.12, depth, m.stripe, X0 + 0.006, mid + 1.2, zc));
+  }
+
+  // Tiefenanzeige am Stockwerkspodest und Leuchten an beiden Podesten
+  const d = STOREY * (k + 1);
+  if (!last) {
+    const sign = createSign(fmtDepth(d), `bis zum Keller noch ${String(-BASEMENT_Y - d).replace('.', ',')} m`);
+    sign.rotation.y = -Math.PI / 2;
+    sign.position.set(X1 - 0.012, bottom + 1.7, zc);
+    g.add(sign);
+    g.add(wallLamp(m, X1 - 0.03, bottom + 2.6, zc, false));
+  } else {
+    const sign = createSign(fmtDepth(d), 'KELLER · Halle ↑');
+    sign.position.set((XE + X1) / 2, bottom + 1.7, Z0 + 0.012);
+    g.add(sign);
+    g.add(wallLamp(m, (XE + X1) / 2, bottom + 2.6, Z0 + 0.03, true));
+  }
+  g.add(wallLamp(m, X0 + 0.03, mid + 2.6, zc, false));
+  g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+  return mergeStatic(g);
+}
+
+// Geländer entlang einer waagrechten Strecke (a → b, je { x, y, z } am Fuß): Handlauf oben, Pfosten etwa alle 1,2 m
+function railing(material, a, b) {
+  const g = new THREE.Group();
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const posts = Math.max(2, Math.ceil(len / 1.2) + 1);
+  for (let i = 0; i < posts; i++) {
+    const t = i / (posts - 1);
+    g.add(box(0.04, RAIL_HEIGHT, 0.04, material, a.x + (b.x - a.x) * t, a.y + RAIL_HEIGHT / 2, a.z + (b.z - a.z) * t));
+  }
+  const alongX = Math.abs(b.x - a.x) > Math.abs(b.z - a.z);
+  const midX = (a.x + b.x) / 2;
+  const midZ = (a.z + b.z) / 2;
+  g.add(alongX
+    ? box(len, 0.05, 0.06, material, midX, a.y + RAIL_HEIGHT, midZ)
+    : box(0.06, 0.05, len, material, midX, a.y + RAIL_HEIGHT, midZ));
+  // Knieleiste auf halber Höhe
+  g.add(alongX
+    ? box(len, 0.03, 0.03, material, midX, a.y + RAIL_HEIGHT / 2, midZ)
+    : box(0.03, 0.03, len, material, midX, a.y + RAIL_HEIGHT / 2, midZ));
+  return g;
+}
+
+// Hallenboden mit Treppenloch (L-förmige Fläche), UVs wie beim bisherigen Boden (PlaneGeometry), damit die
+// Dielen an derselben Stelle bleiben
+function hallFloorWithHole(material) {
+  // Form in x / −z (nach dem Kippen um −90° zeigt die Form-y nach −z)
+  const shape = new THREE.Shape([
+    new THREE.Vector2(XE, -Z0), new THREE.Vector2(HALF, -Z0), new THREE.Vector2(HALF, -HALF),
+    new THREE.Vector2(-HALF, -HALF), new THREE.Vector2(X0, -Z1), new THREE.Vector2(XE, -Z1),
+  ]);
+  const geo = new THREE.ShapeGeometry(shape);
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / ROOM_SIZE + 0.5, pos.getY(i) / ROOM_SIZE + 0.5);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Die Wiese des Außenbereichs (world/outdoor.js) liegt knapp unter dem Hallenboden auch unter dem Gebäude – über dem
+// Treppenhaus bekommt sie ein Loch, sonst verdeckte sie die Treppe, sobald der Außenbereich gezeichnet wird
+function punchGround(outdoor) {
+  const ground = outdoor?.group.children.find((o) => o.isMesh && o.geometry?.type === 'PlaneGeometry' && o.geometry.parameters.width >= 100);
+  if (!ground) return;
+  const { width: w, height: h } = ground.geometry.parameters;
+  const V = (x, y) => new THREE.Vector2(x, y);
+  const shape = new THREE.Shape([V(-w / 2, -h / 2), V(w / 2, -h / 2), V(w / 2, h / 2), V(-w / 2, h / 2)]);
+  // Form-x = Welt-x − Mitte, Form-y = −(Welt-z − Mitte); Loch samt Wänden des Treppenhauses
+  const { x: ox, z: oz } = ground.position;
+  const [hx0, hx1, hy0, hy1] = [X0 - T - ox, X1 + T - ox, -(Z1 + T - oz), -(Z0 - T - oz)];
+  shape.holes.push(new THREE.Path([V(hx0, hy0), V(hx1, hy0), V(hx1, hy1), V(hx0, hy1)]));
+  const geo = new THREE.ShapeGeometry(shape);
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / w + 0.5, pos.getY(i) / h + 0.5); // wie PlaneGeometry
+  ground.geometry.dispose();
+  ground.geometry = geo;
+}
+
+// Der bisherige Hallenboden aus room.js (ebene 20 × 20-Fläche mit Dielen-Material)
+function findHallFloor(room) {
+  if (room.userData.floor) return room.userData.floor;
+  return room.children.find((o) => o.isMesh && o.geometry?.type === 'PlaneGeometry' && o.material?.isMeshPhysicalMaterial
+    && Math.abs(o.position.y) < 1e-6 && o.geometry.parameters.width === ROOM_SIZE) ?? null;
+}
+
+// Teile an der Halle: neuer Boden, Platte über dem obersten Podest, Geländer ums Loch, Schild
+function createHallPart(m, room) {
+  const g = new THREE.Group();
+  const old = findHallFloor(room);
+  if (old) {
+    old.visible = false;
+    g.add(hallFloorWithHole(old.material));
+  }
+  // Unterseite des Hallenbodens über dem obersten Stockwerkspodest (sonst sähe man von unten durch den Boden)
+  g.add(box(X1 - XE, 0.24, Z1 - Z0, m.concrete, (XE + X1) / 2, -0.13, (Z0 + Z1) / 2));
+  // Geländer: Südkante des Lochs, Ostkante am nördlichen Lauf und auf der Trennwand
+  g.add(railing(m.metal, { x: X0, y: 0, z: Z1 + 0.02 }, { x: XE, y: 0, z: Z1 + 0.02 }));
+  g.add(railing(m.metal, { x: XE + 0.02, y: 0, z: Z0 }, { x: XE + 0.02, y: 0, z: ZD1 }));
+  g.add(railing(m.metal, { x: XW, y: 0, z: Z_MID }, { x: XE, y: 0, z: Z_MID }));
+  const sign = createSign('▼ KELLER', fmtDepth(-BASEMENT_Y), 0.44, 0.22);
+  sign.rotation.y = Math.PI / 2;
+  sign.position.set(XE + 0.06, 0.75, (Z0 + ZD0) / 2);
+  g.add(sign);
+  g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+  return mergeStatic(g); // Geländer, Platte und Schild: je Material ein Mesh
+}
+
+// Kellerraum: Betonboden mit Fugen, Wände, Decke (mit Aussparung fürs Treppenhaus), Leuchten
+function createBasementRoom(m) {
+  const g = new THREE.Group();
+  const y = BASEMENT_Y;
+  const floorTexture = canvasTexture(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#8c8f94';
+    ctx.fillRect(0, 0, w, h);
+    speckle(ctx, w, h, 5000, 0.08);
+    ctx.strokeStyle = 'rgba(40,40,40,0.45)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, w - 2, h - 2); // Fuge alle 2 m
+  }, ROOM_SIZE / 2, ROOM_SIZE / 2);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = y;
+  g.add(floor);
+
+  const wall = new THREE.MeshStandardMaterial({ color: 0xc9c5bc, roughness: 0.95 });
+  const plinth = new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.8 });
+  const yc = y + STOREY / 2;
+  g.add(
+    box(ROOM_SIZE + 2 * T, STOREY, T, wall, 0, yc, -HALF - T / 2),
+    box(ROOM_SIZE + 2 * T, STOREY, T, wall, 0, yc, HALF + T / 2),
+    box(T, STOREY, ROOM_SIZE, wall, -HALF - T / 2, yc, 0),
+    box(T, STOREY, ROOM_SIZE, wall, HALF + T / 2, yc, 0),
+    // Sockel (Treppenhaus-Ecke ausgenommen)
+    box(ROOM_SIZE - (X1 - X0), 0.1, 0.02, plinth, (X1 + HALF) / 2, y + 0.05, -HALF + 0.01),
+    box(ROOM_SIZE, 0.1, 0.02, plinth, 0, y + 0.05, HALF - 0.01),
+    box(0.02, 0.1, HALF - Z1, plinth, -HALF + 0.01, y + 0.05, (Z1 + HALF) / 2),
+    box(0.02, 0.1, ROOM_SIZE, plinth, HALF - 0.01, y + 0.05, 0),
+  );
+  // Decke: zwei Platten, die Ecke des Treppenhauses bleibt frei
+  const ceiling = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.95 });
+  const cy = y + STOREY + 0.15;
+  g.add(
+    box(HALF - X1, 0.3, ROOM_SIZE, ceiling, (X1 + HALF) / 2, cy, 0),
+    box(X1 - X0, 0.3, HALF - Z1 - T, ceiling, (X0 + X1) / 2, cy, (Z1 + T + HALF) / 2),
+  );
+  for (const x of [-6, 0, 6]) {
+    for (const z of [-4, 4]) {
+      const lamp = createCeilingLight();
+      for (const light of lamp.children.filter((o) => o.isLight)) lamp.remove(light, light.target);
+      lamp.position.set(x, y + STOREY, z);
+      g.add(lamp);
+    }
+  }
+  g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+  return mergeStatic(g, { cell: 7 });
+}
+
+// Haltestelle des Keller-Fahrstuhls auf Höhe y: Schachtstück, Tür nach Osten, Ruftaster rechts daneben, Schild
+function createElevatorStop(y, target, onRide) {
+  const g = new THREE.Group();
+  const stop = new THREE.Group(); // Tür, Schild und Taster: anklickbar (der Schacht selbst nicht)
+  const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
+  const cz = (z0 + z1) / 2;
+  const shaftMat = new THREE.MeshStandardMaterial({ color: 0xd9d6cf, roughness: 0.8 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.3, metalness: 0.8 });
+  const frame = new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.5 });
+  g.add(box(x1 - x0, STOREY, z1 - z0, shaftMat, (x0 + x1) / 2, y + STOREY / 2, cz));
+  g.add(stop);
+  stop.add(
+    box(0.04, 2.25, 1.1, frame, x1 + 0.02, y + 1.125, cz),
+    box(0.03, 2.1, 0.48, steel, x1 + 0.05, y + 1.05, cz - 0.245),
+    box(0.03, 2.1, 0.48, steel, x1 + 0.05, y + 1.05, cz + 0.245),
+  );
+  const down = target === LEVEL.BASEMENT;
+  const sign = createSign(down ? '▼ KELLER' : '▲ HALLE', down ? fmtDepth(-BASEMENT_Y) : 'Erdgeschoss', 0.5, 0.2);
+  sign.rotation.y = Math.PI / 2;
+  sign.position.set(x1 + 0.006, y + 2.5, cz);
+  stop.add(sign);
+  // Ruftaster rechts neben der Tür (von vorn gesehen, also nach Norden): Pfeil zeigt die Fahrtrichtung
+  const button = new THREE.Group();
+  button.add(box(0.03, 0.18, 0.1, frame, x1 + 0.03, y + 1.2, cz - 0.68));
+  const arrow = new THREE.Mesh(new THREE.CircleGeometry(0.03, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7cc4ff).multiplyScalar(2) }));
+  arrow.rotation.set(0, Math.PI / 2, down ? -Math.PI / 2 : Math.PI / 2);
+  arrow.position.set(x1 + 0.046, y + 1.2, cz - 0.68);
+  button.add(arrow);
+  stop.add(button);
+  stop.userData.interaction = {
+    hint: () => (down ? 'Linksklick: mit dem Fahrstuhl in den Keller' : 'Linksklick: mit dem Fahrstuhl nach oben in die Halle'),
+    action: () => onRide(target),
+  };
+  return mergeStatic(g); // die Haltestelle bleibt anklickbar (interaction an ihrer Gruppe)
+}
+
+// upgrades: Ausbau-Stand · collision: Kollision der Spielfigur · room: Halle (Boden wird gegen einen mit Treppenloch
+// getauscht) · onRide(level): Keller-Fahrstuhl wurde gerufen (LEVEL.HALL bzw. LEVEL.BASEMENT) · sun: Sonnenlicht
+// (optional) – wird unter der Erde ausgeschaltet, sonst schiene es ohne Schattenwurf in Treppenhaus und Keller ·
+// outdoor: Außenbereich (optional) – seine Wiese bekommt über dem Treppenhaus ein Loch
+export function createBasement({ upgrades, collision, room, onRide = () => {}, sun = null, outdoor = null }) {
+  const group = new THREE.Group();      // unter der Erde: Treppenhaus, Keller, Lichter (blendet sich selbst aus)
+  const hallGroup = new THREE.Group();  // in der Halle: Boden mit Loch, Geländer, Fahrstuhltür (für room-culling)
+  group.name = 'basement';
+  hallGroup.name = 'basement-hall';
+  const m = createMaterials();
+  // Lichter von Anfang an da (nur ohne Helligkeit), damit sich die Zahl der Lichter nie ändert – sonst übersetzt
+  // three.js beim Kauf alle Shader neu (siehe world/hall-lights.js)
+  const spots = [-6, 0, 6].map((x) => {
+    const light = new THREE.SpotLight(0xfff1dc, 0, 14, Math.PI * 0.45, 0.8, 2);
+    light.position.set(x, BASEMENT_Y + STOREY - 0.1, 0);
+    light.target.position.set(x, BASEMENT_Y, 0);
+    group.add(light, light.target);
+    return light;
+  });
+  // Ein Licht läuft im Treppenhaus über der Spielfigur mit (20 Stockwerke mit eigenen Lichtern wären zu teuer)
+  const follow = new THREE.SpotLight(0xfff1dc, 0, 8, Math.PI * 0.45, 0.7, 2);
+  group.add(follow, follow.target);
+  const sunOn = sun?.intensity ?? 0;
+
+  const storeys = [];
+  let basementRoom = null;
+  let built = false;
+  let elevatorBuilt = false;
+
+  function colliders() {
+    const boxes = [
+      // Halle: Geländer ums Treppenloch
+      { minX: X0, maxX: XE, minZ: Z1, maxZ: Z1 + RAIL, level: LEVEL.HALL },
+      { minX: XE, maxX: XE + RAIL, minZ: Z0, maxZ: ZD1, level: LEVEL.HALL },
+      { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.HALL },
+      // Treppenhaus: Außenwände und Trennwand
+      { minX: X0 - T, maxX: X0, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS },
+      { minX: X0 - T, maxX: X1 + T, minZ: Z0 - T, maxZ: Z0, level: LEVEL.STAIRS },
+      { minX: X0 - T, maxX: X1 + T, minZ: Z1, maxZ: Z1 + T, level: LEVEL.STAIRS },
+      { minX: X1, maxX: X1 + T, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS },
+      { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.STAIRS },
+      // Keller: Außenwände, Südwand des Treppenhauses, Trennwand, Wand unter dem letzten Lauf A
+      { minX: -HALF - T, maxX: HALF + T, minZ: -HALF - T, maxZ: -HALF, level: LEVEL.BASEMENT },
+      { minX: -HALF - T, maxX: HALF + T, minZ: HALF, maxZ: HALF + T, level: LEVEL.BASEMENT },
+      { minX: -HALF - T, maxX: -HALF, minZ: -HALF, maxZ: HALF, level: LEVEL.BASEMENT },
+      { minX: HALF, maxX: HALF + T, minZ: -HALF, maxZ: HALF, level: LEVEL.BASEMENT },
+      { minX: X0 - T, maxX: X1 + T, minZ: Z1, maxZ: Z1 + T, level: LEVEL.BASEMENT },
+      { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.BASEMENT },
+      { minX: XE - 0.05, maxX: XE + 0.05, minZ: ZD0, maxZ: Z1, level: LEVEL.BASEMENT },
+    ];
+    if (elevatorBuilt) {
+      const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
+      for (const level of [LEVEL.HALL, LEVEL.BASEMENT]) boxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, level });
+    }
+    return boxes;
+  }
+
+  // Ausbau-Stand übernehmen: Keller bzw. Fahrstuhl bauen, sobald sie geliefert sind (auch beim Laden eines Spielstands)
+  function sync() {
+    if (upgrades.basement && !built) {
+      built = true;
+      hallGroup.add(createHallPart(m, room));
+      punchGround(outdoor);
+      for (let k = 0; k < STOREYS; k++) {
+        const storey = createStorey(m, k);
+        storey.visible = false;
+        storeys.push(storey);
+        group.add(storey);
+      }
+      basementRoom = createBasementRoom(m);
+      basementRoom.visible = false;
+      group.add(basementRoom);
+      for (const light of spots) light.intensity = LIGHT_ON;
+    }
+    if (upgrades.basementElevator && built && !elevatorBuilt) {
+      elevatorBuilt = true;
+      hallGroup.add(createElevatorStop(0, LEVEL.BASEMENT, onRide));
+      basementRoom.add(createElevatorStop(BASEMENT_Y, LEVEL.HALL, onRide));
+    }
+    if (built) collision.setDynamic('basement', colliders());
+  }
+  upgrades.subscribe(sync);
+
+  // Höhe am Ort x/z eines Stockwerks k (0 = oben): nächstgelegenes zur bisherigen Bodenhöhe yPrev, k in [kMin, kMax]
+  function storeyHeight(x, z, yPrev, kMin, kMax) {
+    const h = profile(x, z);
+    const top = h === 0 ? kMax : Math.min(kMax, STOREYS - 1); // Stockwerkspodest gibt es 21-mal (inkl. Kellerboden)
+    const k = THREE.MathUtils.clamp(Math.round((h - yPrev) / STOREY), kMin, top);
+    return h - k * STOREY;
+  }
+
+  const inShaft = (x, z) => x > X0 && x < X1 && z > Z0 && z < Z1;
+  const levelFor = (y) => (y > -HALF_STOREY ? LEVEL.HALL : y < BASEMENT_Y + HALF_STOREY ? LEVEL.BASEMENT : LEVEL.STAIRS);
+
+  // Boden unter der Figur bei (x, z), wenn sie bisher auf Stockwerk level mit Bodenhöhe yPrev stand: { y, level } –
+  // oder null, wenn der Keller dafür nicht zuständig ist (dann gilt world/upper-floor.js). Auf den Läufen steigt der
+  // Boden gleichmäßig; ab halber Höhe des obersten bzw. untersten Stockwerks wechselt das Stockwerk.
+  function footing(x, z, level, yPrev = 0) {
+    if (!built) return null;
+    if (level === LEVEL.HALL) {
+      if (!inShaft(x, z) || x >= XE) return null;
+      const y = storeyHeight(x, z, 0, 0, 0);
+      return { y, level: levelFor(y) };
+    }
+    if (level === LEVEL.STAIRS) {
+      const cx = THREE.MathUtils.clamp(x, X0, X1);
+      const cz = THREE.MathUtils.clamp(z, Z0, Z1);
+      const y = storeyHeight(cx, cz, yPrev, 0, STOREYS);
+      return { y, level: levelFor(y) };
+    }
+    if (level === LEVEL.BASEMENT) {
+      if (!inShaft(x, z)) return { y: BASEMENT_Y, level };
+      const y = storeyHeight(x, z, yPrev, STOREYS - 1, STOREYS);
+      return { y, level: levelFor(y) };
+    }
+    return null;
+  }
+
+  // Wo in der Halle nichts hin darf (Treppenloch samt Geländer, Fahrstuhlschacht) – für Kater und Würfe:
+  // [{ minX, maxX, minZ, maxZ }], leer solange der Keller nicht gebaut ist
+  function hallObstacles() {
+    if (!built) return [];
+    const list = [{ minX: X0, maxX: XE + RAIL, minZ: Z0, maxZ: Z1 + RAIL }];
+    if (elevatorBuilt) {
+      const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
+      list.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1 });
+    }
+    return list;
+  }
+
+  // Wo man nach der Fahrt aus dem Fahrstuhl tritt (vor der Tür, Blick nach Osten)
+  const elevatorExit = (level) => ({
+    x: BASEMENT_ELEVATOR.x1 + EXIT_GAP,
+    y: level === LEVEL.BASEMENT ? BASEMENT_Y : 0,
+    z: (BASEMENT_ELEVATOR.z0 + BASEMENT_ELEVATOR.z1) / 2,
+  });
+
+  // Kann man von der Position p (Kamera) aus die Halle sehen? (für world/room-culling.js)
+  const hallVisibleFrom = (p) => p.y > HALL_VISIBLE_Y;
+  // Bereich, in dem p (Kamera) steht: 'hall' (auch oberstes Stockwerk der Treppe), 'stairs' oder 'basement'
+  function zoneOf(p) {
+    if (!built || hallVisibleFrom(p)) return 'hall';
+    return p.y < BASEMENT_Y + STOREY && !inShaft(p.x, p.z) ? 'basement' : 'stairs';
+  }
+
+  const frustum = new THREE.Frustum();
+  const matrix = new THREE.Matrix4();
+  const holeBox = new THREE.Box3(new THREE.Vector3(X0, -2 * STOREY, Z0), new THREE.Vector3(X1, 0.1, Z1));
+
+  // Jedes Bild: Treppenhaus nur in der Nähe der Kamera zeichnen (in der Halle nur, wenn das Loch im Bild ist), Keller
+  // nur von unten, mitlaufendes Licht und Sonne
+  function update(dt, camera) {
+    if (!built) return;
+    const p = camera.position;
+    const inHallArea = Math.abs(p.x) < HALF && Math.abs(p.z) < HALF;
+    let near = inHallArea;
+    if (near && p.y > -STOREY) {
+      camera.updateMatrixWorld();
+      matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      frustum.setFromProjectionMatrix(matrix);
+      near = frustum.intersectsBox(holeBox);
+    }
+    // Aus der Halle (Augenhöhe über dem Boden) sieht man nur ins oberste Stockwerk, sonst bis gut eins tiefer
+    const below = p.y > 0 ? 2 : 6;
+    storeys.forEach((storey, k) => {
+      const top = -STOREY * k;
+      storey.visible = near && top - STOREY < p.y + 4 && top > p.y - below;
+    });
+    basementRoom.visible = inHallArea && p.y < BASEMENT_VISIBLE_Y;
+    const underground = inHallArea && p.y < 0.5;
+    follow.intensity = underground ? FOLLOW_ON : 0;
+    follow.position.set(p.x, p.y + 0.9, p.z);
+    follow.target.position.set(p.x, p.y - 3, p.z);
+    follow.target.updateMatrixWorld();
+    if (sun) sun.intensity = inHallArea && p.y < -STOREY ? 0 : sunOn;
+  }
+
+  return {
+    group, hallGroup, footing, elevatorExit, update, hallVisibleFrom, zoneOf, colliders, hallObstacles,
+    get built() { return built; },
+    get elevatorBuilt() { return elevatorBuilt; },
+    get storeys() { return storeys; },
+    get basementRoom() { return basementRoom; },
+  };
+}

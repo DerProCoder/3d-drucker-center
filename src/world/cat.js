@@ -123,8 +123,20 @@ function createEmojiSprite(emoji, size) {
 
 const createHeart = () => createEmojiSprite('❤️', 0.08);
 
-// onEvent(type): 'pet' | 'meow' | 'knock' – für Sound, Meldungen und Erfolge
-export function createCat({ economy, tableHeight, onEvent }) {
+// Kreuzt der Weg von a nach b (je { x, z }) eines der Rechtecke (mit Abstand margin)? In 20-cm-Schritten geprüft
+function crosses(a, b, rects, margin) {
+  const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.2));
+  for (let i = 0; i <= steps; i++) {
+    const x = a.x + ((b.x - a.x) * i) / steps;
+    const z = a.z + ((b.z - a.z) * i) / steps;
+    if (rects.some((r) => x > r.minX - margin && x < r.maxX + margin && z > r.minZ - margin && z < r.maxZ + margin)) return true;
+  }
+  return false;
+}
+
+// onEvent(type): 'pet' | 'meow' | 'knock' – für Sound, Meldungen und Erfolge · avoid(): Bereiche der Halle, die er
+// meidet ([{ minX, maxX, minZ, maxZ }], z. B. Kellerloch und Fahrstuhlschacht aus world/basement.js)
+export function createCat({ economy, tableHeight, onEvent, avoid = () => [] }) {
   const group = new THREE.Group();
   const cat = createCatModel();
   group.add(cat);
@@ -163,9 +175,10 @@ export function createCat({ economy, tableHeight, onEvent }) {
       // nicht in Tisch oder Computertisch
       if (Math.abs(z) < 0.7 && x > -3 && x < 5) continue;
       if (TABLE_ROWS_Z.some((tz) => Math.abs(z - tz) < 0.7) && x > -3 && x < 3) continue; // weitere Drucktische
+      if (crosses(cat.position, { x, z }, avoid(), 0.4)) continue; // nicht übers Kellerloch oder in den Schacht
       return { x, z };
     }
-    return { x: 0, z: 4 };
+    return { x: 0, z: 4 }; // liegt vom Kellerloch aus gesehen jenseits der Halle – der Weg dorthin kreuzt es nie
   }
 
   // Lieber zu Druckern mit fertigem Teil – da gibt es was zu schubsen
