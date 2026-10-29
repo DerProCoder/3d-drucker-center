@@ -12,7 +12,7 @@ const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '�
 // Eigener Hinweis unter einer Serien-Überschrift, wo der allgemeine („verdienen Geld mit vermieteten VMs“) nicht passt
 const SERIES_HINTS = { ai: 'nicht vermietbar – betreiben die eigene KI, Geld über das KI-Abo (App „KI“)' };
 
-// ai: KI-Dienst (core/ai-service.js) für die Kopfzeile (Stufe, KI-GPU-Server online) – ohne ihn nur die Zahl der KI-Server
+// ai: KI-Dienst (core/ai-service.js) für die Kopfzeile (Stufe, rechnende KI-GPU-Server, KI-Abo) – ohne ihn kein KI-Teil
 export function createServerShop({ economy, servers, upgrades, rentals, ai = null }) {
   const owned = (type) => servers.hardware.filter((f) => f.type === type).length;
   let images = null; // Produktbilder wie im Drucker-Shop, beim ersten Öffnen erzeugt
@@ -50,9 +50,10 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
     const serverList = servers.hardware.filter((f) => f.type.kind === 'server' && !isAIServer(f));
     const aiList = servers.hardware.filter(isAIServer);
     const onlineList = servers.onlineServers;
-    const aiText = aiList.length
-      ? ` · 🧠 KI: <strong>${ai?.level ? `Stufe ${ai.level}` : 'offline'} (${ai?.onlineCount ?? onlineList.filter(isAIServer).length} / ${aiList.length} KI-GPU-Server)</strong>`
-        + `${ai ? ` · KI-Abo <strong>${euro.format(ai.incomePerHour)} / h</strong>` : ''}`
+    // KI-Teil nur mit KI-Dienst (ohne ihn wüsste der Shop weder Stufe noch, welche Server wirklich rechnen)
+    const aiText = ai && aiList.length
+      ? ` · 🧠 KI: <strong>${ai.level ? `Stufe ${ai.level}` : 'offline'} (${ai.onlineCount} / ${aiList.length} KI-GPU-Server)</strong>`
+        + ` · KI-Abo <strong>${euro.format(ai.incomePerHour)} / h</strong>`
       : '';
     const eta = servers.nextCableArrival;
     const cableProblem = servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor);

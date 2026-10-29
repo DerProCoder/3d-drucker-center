@@ -106,6 +106,31 @@ function hottestPerRack(hot) {
   for (const h of hot) if (!map.has(h.rack.id) || map.get(h.rack.id).temp < h.temp) map.set(h.rack.id, h);
   return map;
 }
+// Temperaturspanne „24 °C bis 47 °C“, bei gleichen (gerundeten) Werten nur einer
+function degreeRange(values) {
+  const [lo, hi] = [Math.min(...values), Math.max(...values)].map(degrees);
+  return lo === hi ? lo : `${lo} bis ${hi}`;
+}
+// Aufträge am Empfang je Kunde (gleichnamige Kunden zusammengefasst): Map Kunde → Aufträge
+function byCustomer(list) {
+  const map = new Map();
+  for (const o of list) map.set(o.order.customer, [...(map.get(o.order.customer) ?? []), o]);
+  return map;
+}
+// KI-GPU-Server für die Anzeige: „3 rechnen für die KI, 1 erreichbar, aber überhitzt, 1 offline“
+function aiCountText(f) {
+  const off = f.aiServers.length - f.aiWorking.length - f.aiHot.length;
+  return [
+    `${f.aiWorking.length} ${f.aiWorking.length === 1 ? 'rechnet' : 'rechnen'} für die KI`,
+    f.aiHot.length ? `${f.aiHot.length} erreichbar, aber überhitzt` : '',
+    off > 0 ? `${off} offline` : '',
+  ].filter(Boolean).join(', ');
+}
+// Zusatz „, dazu 2 Kunden am Empfang“ (noch nicht angenommene Aufträge) oder ''
+function counterText(f) {
+  const n = f.orders.filter((o) => o.order.stage === 'counter').length;
+  return n ? `, dazu ${n === 1 ? 'ein Kunde' : `${n} Kunden`} am Empfang` : '';
+}
 const empty = () => ({ general: [], numbers: [], problems: [], advice: [], forecast: [] });
 
 export class AIAdvisor {
@@ -122,7 +147,7 @@ export class AIAdvisor {
 
   // Antwort auf eine Frage bei dieser Stufe (0 = offline): { text, topic, topics }
   answer(question, level = this.ai?.level ?? 0) {
-    level = Math.max(0, Math.min(MAX_LEVEL, Math.floor(level)));
+    level = Number.isFinite(Number(level)) ? Math.max(0, Math.min(MAX_LEVEL, Math.floor(Number(level)))) : 0; // ungültige Stufe wie offline
     if (level <= 0) return { text: this.offlineText(), topic: 'offline', topics: [] };
     const topics = detectTopics(question);
     if (!topics.length) return { text: this.fallback(level), topic: 'unknown', topics: [] };
@@ -215,7 +240,7 @@ export class AIAdvisor {
   facts() {
     const { economy, orders, servers, climate, rentals } = this.game;
     const { ai } = this;
-    const f = { economy, printers: [], spools: [], shelf: [], rackSpools: [], loaded: [], boxed: 0, orders: [], servers: [], aiServers: [], racks: [], reached: new Set() };
+    const f = { economy, printers: [], spools: [], shelf: [], rackSpools: [], loaded: [], boxed: 0, orders: [], servers: [], aiServers: [], aiWorking: [], aiHot: [], racks: [], reached: new Set() };
     if (economy) {
       f.printers = economy.printers.filter((p) => p.location === 'table').map((p) => ({ p, ...this.printerState(p) }));
       f.boxed = economy.printers.filter((p) => p.location === 'storage').length;
@@ -230,6 +255,9 @@ export class AIAdvisor {
       const all = servers.installed.filter((d) => d.type.kind === 'server');
       f.servers = all.filter((d) => !isAIServer(d));
       f.aiServers = all.filter(isAIServer);
+      // Für die KI zählen nur rechnende KI-Server (erreichbar und nicht überhitzt, ai.problemOf) – wie Kopfzeile und Server-Shop
+      f.aiWorking = f.aiServers.filter((d) => (ai?.problemOf ? !ai.problemOf(d, f.reached) : f.reached.has(d.id)));
+      f.aiHot = f.aiServers.filter((d) => f.reached.has(d.id) && !f.aiWorking.includes(d));
       f.racks = servers.racks;
     }
     f.income = (rentals?.incomePerHour ?? 0) + (ai?.incomePerHour ?? 0);
@@ -360,7 +388,7 @@ export class AIAdvisor {
     }
     if (this.game.orders) p.numbers.push(`Aufträge: ${f.orders.length} offen, ${this.game.orders.completed} erledigt.`);
     if (f.servers.length || f.aiServers.length) {
-      p.numbers.push(`Server: ${[...f.servers, ...f.aiServers].filter((d) => f.reached.has(d.id)).length} von ${f.servers.length + f.aiServers.length} online.`);
+      p.numbers.push(`Server: ${f.servers.filter((d) => f.reached.has(d.id)).length} von ${f.servers.length} online${f.aiServers.length ? ` · KI-GPU-Server: ${aiCountText(f)}` : ''}.`);
     }
     const problems = this.allProblems(f);
     p.problems.push(problems.length ? `Es gibt ${plural(problems.length, 'Problem', 'Probleme')}:` : 'Ich sehe gerade keine Probleme. 👍', ...bullets(problems, 3));
@@ -375,7 +403,7 @@ export class AIAdvisor {
     p.general.push('Halte die Drucker beschäftigt: Aufträge am Empfang annehmen, Filament rechtzeitig nachkaufen und Störungen gleich beheben. Später lohnen sich Azubis und Server.');
     if (f.economy) p.numbers.push(this.moneyLine(f));
     const idle = f.printers.filter((x) => x.idle).length;
-    if (f.printers.length) p.numbers.push(`${idle ? plural(idle, 'Drucker steht', 'Drucker stehen') : 'Kein Drucker steht'} still, ${plural(f.orders.filter((o) => !o.done && o.order.stage !== 'packed').length, 'Auftrag wartet', 'Aufträge warten')} auf Teile.`);
+    if (f.printers.length) p.numbers.push(`${idle ? plural(idle, 'Drucker steht', 'Drucker stehen') : 'Kein Drucker steht'} still, ${plural(f.orders.filter((o) => !o.done && o.order.stage === 'open').length, 'angenommener Auftrag wartet', 'angenommene Aufträge warten')} auf Teile${counterText(f)}.`);
     const problems = this.allProblems(f);
     if (problems.length) p.problems.push('Zuerst beheben:', ...bullets(problems, 3));
     const advice = this.recommendations(f);
@@ -389,8 +417,9 @@ export class AIAdvisor {
     const p = empty();
     p.general.push('Typische Probleme: leere Spulen, verstopfte Düsen, Fehldrucke, Server ohne Netz und zu heiße Serverschränke. Am Drucker bzw. im Schrankfenster nachsehen.');
     const printerIssues = f.printers.filter((x) => x.problem).length;
-    const offline = [...f.servers, ...f.aiServers].filter((d) => !f.reached.has(d.id)).length;
-    p.numbers.push(`Drucker mit Störung: ${printerIssues} · Server offline: ${offline} · zu heiße Geräte: ${f.climate.hot.length}.`);
+    const offline = f.servers.filter((d) => !f.reached.has(d.id)).length;
+    const aiIdle = f.aiServers.length - f.aiWorking.length;
+    p.numbers.push(`Drucker mit Störung: ${printerIssues} · Server offline: ${offline}${f.aiServers.length ? ` · KI-GPU-Server, die nicht rechnen: ${aiIdle}` : ''} · zu heiße Geräte: ${f.climate.hot.length}.`);
     const problems = this.allProblems(f);
     p.problems.push(...(problems.length ? bullets(problems, 8) : ['Ich finde gerade keine Probleme. 👍']));
     const advice = this.recommendations(f);
@@ -415,7 +444,7 @@ export class AIAdvisor {
     const ai = this.ai;
     p.general.push('Ich bin die KI deiner Firma. Je mehr KI-GPU-Server online sind, desto schlauer werde ich – und das KI-Abo bringt mehr Geld.');
     if (!ai) return p;
-    p.numbers.push(`Stufe ${ai.level} · ${plural(ai.onlineCount, 'KI-GPU-Server', 'KI-GPU-Server')} online · KI-Abo ${euro.format(ai.incomePerHour)} pro Stunde`
+    p.numbers.push(`Stufe ${ai.level} · ${ai.onlineCount} KI-GPU-Server ${ai.onlineCount === 1 ? 'rechnet' : 'rechnen'} für mich · KI-Abo ${euro.format(ai.incomePerHour)} pro Stunde`
       + (ai.totalIncome ? ` · bisher ${euro.format(ai.totalIncome)} verdient` : '') + '.');
     p.problems.push(...this.offlineServers(f.aiServers, f));
     const next = this.nextLevelAt(ai.onlineCount);
@@ -513,7 +542,10 @@ export class AIAdvisor {
     p.numbers.push(`${plural(open.length, 'Auftrag läuft', 'Aufträge laufen')}, ${counter.length} am Empfang, ${packed.length} im Abholregal · erledigt: ${orders.completed}.`);
     const value = f.orders.reduce((sum, o) => sum + o.order.reward, 0);
     if (value) p.numbers.push(`Zusammen sind sie ${euro.format(value)} wert.`);
-    for (const o of counter) p.problems.push(`${o.order.customer} wartet am Empfang (geht in ca. ${realTime(o.order.waitLeft)}).`);
+    for (const [customer, list] of byCustomer(counter)) {
+      const soonest = Math.min(...list.map((o) => o.order.waitLeft));
+      p.problems.push(`${list.length > 1 ? `${list.length} × ${customer} warten` : `${customer} wartet`} am Empfang (${list.length > 1 ? 'der erste geht' : 'geht'} in ca. ${realTime(soonest)}).`);
+    }
     for (const o of open) {
       if (o.done) p.problems.push(`${o.name}: Teile sind fertig – ab ins Abholregal.`);
       else if (o.order.minutesLeft < URGENT_MINUTES) p.problems.push(`${o.name}: Frist knapp – noch ${realTime(o.order.minutesLeft)}, ${o.ready}/${o.order.quantity} fertig.`);
@@ -544,7 +576,7 @@ export class AIAdvisor {
     if (!servers) return p;
     const online = f.servers.filter((d) => f.reached.has(d.id)).length;
     p.numbers.push(`${plural(f.servers.length, 'Server', 'Server')} eingebaut, ${online} online, in ${plural(f.racks.length, 'Schrank', 'Schränken')}.`);
-    if (f.aiServers.length) p.numbers.push(`Dazu ${f.aiServers.length} KI-GPU-Server (${f.aiServers.filter((d) => f.reached.has(d.id)).length} online).`);
+    if (f.aiServers.length) p.numbers.push(`Dazu ${f.aiServers.length} KI-GPU-Server: ${aiCountText(f)}.`);
     if (rentals) {
       p.numbers.push(`${plural(rentals.vms.length, 'VM ist', 'VMs sind')} vermietet, ${plural(rentals.requests.length, 'Anfrage wartet', 'Anfragen warten')} · Miete ${euro.format(rentals.incomePerHour)} pro Stunde.`);
     }
@@ -587,7 +619,7 @@ export class AIAdvisor {
     }
     p.numbers.push(`${plural(f.racks.length, 'Schrank', 'Schränke')}, heißestes Gerät ${c.maxTemp == null ? '–' : degrees(c.maxTemp)}.`);
     const airs = c.racks.filter((r) => r.air != null).map((r) => r.air);
-    if (airs.length) p.numbers.push(`Luft in den Schränken: ${degrees(Math.min(...airs))} bis ${degrees(Math.max(...airs))}.`);
+    if (airs.length) p.numbers.push(`Luft in den Schränken: ${degreeRange(airs)}.`);
     for (const d of c.down) p.problems.push(`${this.serverName(d.device)} ist ${d.status === 'broken' ? 'überhitzt und defekt – reparieren' : 'eingefroren – neu starten'}.`);
     const hotRacks = hottestPerRack(c.hot);
     for (const h of hotRacks.values()) p.problems.push(`${h.label} ist zu heiß (${h.device.type.name} ${degrees(h.temp)}).`);
@@ -622,7 +654,7 @@ export class AIAdvisor {
     const best = f.orders.filter((o) => !o.done && o.order.stage !== 'packed').sort((a, b) => b.perHour - a.perHour)[0];
     if (best) p.advice.push(`Schnelles Geld: ${best.name} bringt ${euro.format(best.order.reward)}.`);
     const idlePrinters = f.printers.filter((x) => x.idle).length;
-    if (idlePrinters) p.advice.push(`${plural(idlePrinters, 'Drucker steht', 'Drucker stehen')} still und kostet trotzdem Strom (${Math.round(IDLE_POWER_SHARE * 100)} %).`);
+    if (idlePrinters) p.advice.push(`${plural(idlePrinters, 'Drucker steht', 'Drucker stehen')} still und ${idlePrinters === 1 ? 'kostet' : 'kosten'} trotzdem Strom (${Math.round(IDLE_POWER_SHARE * 100)} %).`);
     if (!p.advice.length) p.advice.push('Investier überschüssiges Geld in Drucker oder Server – sie zahlen sich aus.');
     p.forecast.push(...this.forecastLines(f));
     return p;
@@ -751,9 +783,11 @@ export class AIAdvisor {
     for (const d of f.climate.down) list.push(`${this.serverName(d.device)} ${d.status === 'broken' ? 'ist überhitzt und defekt' : 'ist eingefroren'}`);
     const hot = hottestPerRack(f.climate.hot);
     for (const h of hot.values()) list.push(`${h.label} ist zu heiß (${degrees(h.temp)})`);
+    for (const [customer, orders] of byCustomer(f.orders.filter((o) => o.order.stage === 'counter'))) {
+      list.push(orders.length > 1 ? `${orders.length} × ${customer} warten am Empfang` : `${customer} wartet am Empfang`);
+    }
     for (const o of f.orders) {
-      if (o.order.stage === 'counter') list.push(`${o.order.customer} wartet am Empfang`);
-      else if (o.order.stage === 'open' && !o.done && o.order.minutesLeft < URGENT_MINUTES) list.push(`Frist knapp: ${o.name} (noch ${realTime(o.order.minutesLeft)})`);
+      if (o.order.stage === 'open' && !o.done && o.order.minutesLeft < URGENT_MINUTES) list.push(`Frist knapp: ${o.name} (noch ${realTime(o.order.minutesLeft)})`);
     }
     const requests = this.game.rentals?.requests.length ?? 0;
     if (requests) list.push(`${plural(requests, 'Mietanfrage wartet', 'Mietanfragen warten')} auf einen Server`);
