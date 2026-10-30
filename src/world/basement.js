@@ -6,7 +6,8 @@
 // Gebaut wird erst, wenn der Keller geliefert ist: Dann ersetzt ein Hallenboden mit Treppenloch (und Geländer) den
 // bisherigen Boden.
 //
-// Stockwerke der Spielfigur (level, siehe world/collision.js): 0 = Halle, -1 = Treppenhaus, -2 = Keller.
+// Stockwerke der Spielfigur (level, siehe world/collision.js): 0 = Halle, -1 = Treppenhaus, -2 = Keller, -3 = Raum bei
+// −10,5 m (Leitstand und Technikraum, world/control-room.js; Tür am dritten Stockwerkspodest, eigener Fahrstuhlhalt).
 // footing() sagt, wie hoch der Boden unter ihr ist und auf welchem Stockwerk sie danach steht. Weil das Treppenhaus
 // 20-mal übereinander dieselbe Grundfläche hat, braucht footing() zusätzlich die bisherige Bodenhöhe.
 import * as THREE from 'three';
@@ -15,10 +16,11 @@ import { box } from '../models/mesh-helpers.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { mergeStatic } from '../models/merge-static.js';
 import { createBasementFields, VIEW_DIST } from './basement-fields.js';
+import { CONTROL_LEVEL, CONTROL_ROOM, createControlRoom } from './control-room.js';
 
 const HALF = ROOM_SIZE / 2;
 const T = WALL_THICKNESS;
-export const LEVEL = { HALL: 0, STAIRS: -1, BASEMENT: -2 };
+export const LEVEL = { HALL: 0, STAIRS: -1, BASEMENT: -2, CONTROL: CONTROL_LEVEL }; // CONTROL: Raum bei −10,5 m
 export const STOREY = ROOM_HEIGHT;        // Höhe eines Stockwerks im Treppenhaus (3,5 m)
 export const STOREYS = 20;                // 20 × 3,5 m = 70 m
 export const BASEMENT_Y = -STOREY * STOREYS; // Kellerboden (−70 m)
@@ -140,8 +142,9 @@ function wallLamp(m, x, y, z, alongX) {
   return g;
 }
 
-// Ein Stockwerk des Treppenhauses (k = 0 oben … 19 unten): Wände, Lauf A, Zwischenpodest, Lauf B, Stockwerkspodest
-function createStorey(m, k) {
+// Ein Stockwerk des Treppenhauses (k = 0 oben … 19 unten): Wände, Lauf A, Zwischenpodest, Lauf B, Stockwerkspodest.
+// door: Türöffnung in der Ostwand ({ z0, z1, h, signZ }, Raum bei −10,5 m) – Tiefenanzeige und Leuchte rücken neben sie
+function createStorey(m, k, door = null) {
   const g = new THREE.Group();
   const top = -STOREY * k;
   const mid = top - HALF_STOREY;
@@ -159,7 +162,15 @@ function createStorey(m, k) {
   if (!last) {
     g.add(box(T, wallH, depth + 2 * T, m.wall, X0 - T / 2, yc, zc));
     g.add(box(width + 2 * T, wallH, T, m.wall, xc, yc, Z0 - T / 2));
-    g.add(box(T, wallH, depth + 2 * T, m.wall, X1 + T / 2, yc, zc));
+    if (door) {
+      const za = Z0 - T;
+      const zb = Z1 + T;
+      g.add(box(T, wallH, door.z0 - za, m.wall, X1 + T / 2, yc, (za + door.z0) / 2));
+      g.add(box(T, wallH, zb - door.z1, m.wall, X1 + T / 2, yc, (door.z1 + zb) / 2));
+      g.add(box(T, wallH - door.h, door.z1 - door.z0, m.wall, X1 + T / 2, bottom + door.h + (wallH - door.h) / 2, (door.z0 + door.z1) / 2));
+    } else {
+      g.add(box(T, wallH, depth + 2 * T, m.wall, X1 + T / 2, yc, zc));
+    }
   }
   g.add(box(width + 2 * T, wallH, T, m.wall, xc, yc, Z1 + T / 2));
   // Trennwand zwischen den Läufen (reicht unter die Laufplatten)
@@ -175,7 +186,12 @@ function createStorey(m, k) {
 
   // Blauer Streifen an den Wänden der Podeste (Orientierung wie im Hochhaus)
   if (!last) {
-    g.add(box(0.012, 0.12, depth, m.stripe, X1 - 0.006, bottom + 1.2, zc));
+    if (door) {
+      g.add(box(0.012, 0.12, door.z0 - Z0, m.stripe, X1 - 0.006, bottom + 1.2, (Z0 + door.z0) / 2));
+      g.add(box(0.012, 0.12, Z1 - door.z1, m.stripe, X1 - 0.006, bottom + 1.2, (door.z1 + Z1) / 2));
+    } else {
+      g.add(box(0.012, 0.12, depth, m.stripe, X1 - 0.006, bottom + 1.2, zc));
+    }
     g.add(box(0.012, 0.12, depth, m.stripe, X0 + 0.006, mid + 1.2, zc));
   }
 
@@ -184,9 +200,10 @@ function createStorey(m, k) {
   if (!last) {
     const sign = createSign(fmtDepth(d), `bis zum Keller noch ${String(-BASEMENT_Y - d).replace('.', ',')} m`);
     sign.rotation.y = -Math.PI / 2;
-    sign.position.set(X1 - 0.012, bottom + 1.7, zc);
+    const signZ = door ? door.signZ : zc;
+    sign.position.set(X1 - 0.012, bottom + 1.7, signZ);
     g.add(sign);
-    g.add(wallLamp(m, X1 - 0.03, bottom + 2.6, zc, false));
+    g.add(wallLamp(m, X1 - 0.03, bottom + 2.6, signZ, false));
   } else {
     const sign = createSign(fmtDepth(d), 'KELLER · Halle ↑');
     sign.position.set((XE + X1) / 2, bottom + 1.7, Z0 + 0.012);
@@ -196,6 +213,18 @@ function createStorey(m, k) {
   g.add(wallLamp(m, X0 + 0.03, mid + 2.6, zc, false));
   g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
   return mergeStatic(g);
+}
+
+// Ein abgebautes Stockwerk freigeben: Geometrien und eigene Materialien (Schild), nicht die gemeinsamen aus m
+function disposeStatic(object, m) {
+  const shared = new Set(Object.values(m));
+  object.traverse((o) => {
+    o.geometry?.dispose();
+    if (o.material && !shared.has(o.material)) {
+      o.material.map?.dispose();
+      o.material.dispose();
+    }
+  });
 }
 
 // Geländer entlang einer waagrechten Strecke (a → b, je { x, y, z } am Fuß): Handlauf oben, Pfosten etwa alle 1,2 m
@@ -287,10 +316,21 @@ function createHallPart(m, room) {
   return mergeStatic(g); // Geländer, Platte und Schild: je Material ein Mesh
 }
 
-// Haltestelle des Keller-Fahrstuhls auf Höhe y: Schachtstück, Tür nach Osten, Ruftaster rechts daneben, Schild
-function createElevatorStop(y, target, onRide) {
+// Ziele des Keller-Fahrstuhls (Ruftaster) mit Schrift auf dem Taster
+const STOP_TARGETS = [
+  { level: LEVEL.HALL, label: 'HALLE', hint: 'Linksklick: mit dem Fahrstuhl nach oben in die Halle' },
+  { level: LEVEL.CONTROL, label: '−10,5 m', hint: 'Linksklick: mit dem Fahrstuhl zum Raum bei −10,5 m (Leitstand)' },
+  { level: LEVEL.BASEMENT, label: 'KELLER', hint: 'Linksklick: mit dem Fahrstuhl in den Keller' },
+];
+const stopY = (level) => (level === LEVEL.HALL ? 0 : level === LEVEL.CONTROL ? CONTROL_ROOM.y : BASEMENT_Y);
+
+// Haltestelle des Keller-Fahrstuhls auf dem Stockwerk here: Schachtstück, Tür nach Osten, Schild. Den Ruftaster
+// rechts daneben baut createCallPanel (er wechselt, sobald es den Halt bei −10,5 m gibt). targets(): Liste der
+// Stockwerke, die man von hier erreicht – bei genau einem fährt auch ein Klick auf die Tür los.
+function createElevatorStop(here, targets, onRide) {
+  const y = stopY(here);
   const g = new THREE.Group();
-  const stop = new THREE.Group(); // Tür, Schild und Taster: anklickbar (der Schacht selbst nicht)
+  const stop = new THREE.Group(); // Tür und Schild: anklickbar (der Schacht selbst nicht)
   const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
   const cz = (z0 + z1) / 2;
   const shaftMat = new THREE.MeshStandardMaterial({ color: 0xd9d6cf, roughness: 0.8 });
@@ -303,28 +343,83 @@ function createElevatorStop(y, target, onRide) {
     box(0.03, 2.1, 0.48, steel, x1 + 0.05, y + 1.05, cz - 0.245),
     box(0.03, 2.1, 0.48, steel, x1 + 0.05, y + 1.05, cz + 0.245),
   );
-  const down = target === LEVEL.BASEMENT;
-  const sign = createSign(down ? '▼ KELLER' : '▲ HALLE', down ? fmtDepth(-BASEMENT_Y) : 'Erdgeschoss', 0.5, 0.2);
+  const [big, small] = here === LEVEL.HALL ? ['▼ KELLER', fmtDepth(-BASEMENT_Y)]
+    : here === LEVEL.CONTROL ? ['FAHRSTUHL', 'Halle · −10,5 m · Keller'] : ['▲ HALLE', 'Erdgeschoss'];
+  const sign = createSign(big, small, 0.5, 0.2);
   sign.rotation.y = Math.PI / 2;
   sign.position.set(x1 + 0.006, y + 2.5, cz);
   stop.add(sign);
-  // Ruftaster rechts neben der Tür (von vorn gesehen, also nach Norden): Pfeil zeigt die Fahrtrichtung
-  const button = new THREE.Group();
-  button.add(box(0.03, 0.18, 0.1, frame, x1 + 0.03, y + 1.2, cz - 0.68));
-  const arrow = new THREE.Mesh(new THREE.CircleGeometry(0.03, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7cc4ff).multiplyScalar(2) }));
-  arrow.rotation.set(0, Math.PI / 2, down ? -Math.PI / 2 : Math.PI / 2);
-  arrow.position.set(x1 + 0.046, y + 1.2, cz - 0.68);
-  button.add(arrow);
-  stop.add(button);
   stop.userData.interaction = {
-    hint: () => (down ? 'Linksklick: mit dem Fahrstuhl in den Keller' : 'Linksklick: mit dem Fahrstuhl nach oben in die Halle'),
-    action: () => onRide(target),
+    hint: () => {
+      const list = targets();
+      return list.length === 1 ? STOP_TARGETS.find((t) => t.level === list[0]).hint : 'Fahrstuhl: Ziel am Ruftaster rechts neben der Tür wählen';
+    },
+    action: () => {
+      const list = targets();
+      if (list.length === 1) onRide(list[0]);
+    },
   };
   return mergeStatic(g); // die Haltestelle bleibt anklickbar (interaction an ihrer Gruppe)
 }
 
+// Ruftaster rechts neben der Fahrstuhltür (von vorn gesehen, also nach Norden). Ohne Halt bei −10,5 m ein Taster mit
+// Pfeil wie bisher, sonst drei beschriftete Taster (Halle, −10,5 m, Keller); der des eigenen Stockwerks leuchtet
+// gelb und fährt nicht.
+const panelMaterials = new Map();
+function labelMaterial(label, current) {
+  const key = `${label}|${current}`;
+  if (!panelMaterials.has(key)) {
+    const texture = canvasTexture(128, 48, (ctx, w, h) => {
+      ctx.fillStyle = current ? '#d8a21c' : '#1d4f78';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = current ? '#fff2c4' : '#9fd3ff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(3, 3, w - 6, h - 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 26px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, w / 2, h / 2 + 1);
+    }, 1, 1, { wrap: false, anisotropy: 4 });
+    panelMaterials.set(key, new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 }));
+  }
+  return panelMaterials.get(key);
+}
+
+function createCallPanel(here, multi, onRide) {
+  const y = stopY(here);
+  const { x1, z0, z1 } = BASEMENT_ELEVATOR;
+  const cz = (z0 + z1) / 2;
+  const frame = new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.5 });
+  const panel = new THREE.Group();
+  if (!multi) {
+    const down = here === LEVEL.HALL;
+    const target = STOP_TARGETS.find((t) => t.level === (down ? LEVEL.BASEMENT : LEVEL.HALL));
+    panel.add(box(0.03, 0.18, 0.1, frame, x1 + 0.03, y + 1.2, cz - 0.68));
+    const arrow = new THREE.Mesh(new THREE.CircleGeometry(0.03, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7cc4ff).multiplyScalar(2) }));
+    arrow.rotation.set(0, Math.PI / 2, down ? -Math.PI / 2 : Math.PI / 2);
+    arrow.position.set(x1 + 0.046, y + 1.2, cz - 0.68);
+    panel.add(arrow);
+    panel.userData.interaction = { hint: () => target.hint, action: () => onRide(target.level) };
+    return panel;
+  }
+  // Drei Taster übereinander: oben Halle, Mitte −10,5 m, unten Keller
+  panel.add(box(0.02, 0.62, 0.3, frame, x1 + 0.01, y + 1.2, cz - 0.72));
+  STOP_TARGETS.forEach((t, i) => {
+    const current = t.level === here;
+    const button = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.12), labelMaterial(t.label, current));
+    button.rotation.y = Math.PI / 2;
+    button.position.set(x1 + 0.022, y + 1.4 - i * 0.19, cz - 0.72);
+    button.userData.interaction = current
+      ? { hint: () => `Du bist hier (${t.label === 'HALLE' ? 'Halle' : t.label === 'KELLER' ? 'Keller' : 'Raum bei −10,5 m'})` }
+      : { hint: () => t.hint, action: () => onRide(t.level) };
+    panel.add(button);
+  });
+  return panel;
+}
+
 // upgrades: Ausbau-Stand · collision: Kollision der Spielfigur · room: Halle (Boden wird gegen einen mit Treppenloch
-// getauscht) · onRide(level): Keller-Fahrstuhl wurde gerufen (LEVEL.HALL bzw. LEVEL.BASEMENT) · sun: Sonnenlicht
+// getauscht) · onRide(level): Keller-Fahrstuhl wurde gerufen (LEVEL.HALL, LEVEL.CONTROL bzw. LEVEL.BASEMENT) · sun: Sonnenlicht
 // (optional) – wird unter der Erde ausgeschaltet, sonst schiene es ohne Schattenwurf in Treppenhaus und Keller ·
 // outdoor: Außenbereich (optional) – seine Wiese bekommt über dem Treppenhaus ein Loch
 export function createBasement({ upgrades, collision, room, onRide = () => {}, sun = null, outdoor = null }) {
@@ -359,6 +454,12 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
   let basementRoom = null; // Felder und Fahrstuhl-Haltestelle unten
   let built = false;
   let elevatorBuilt = false;
+  // Raum bei −10,5 m (Ausbau, world/control-room.js): Materialien gleich anlegen, gebaut wird nach der Lieferung
+  const controlRoom = createControlRoom({ materials: m, createSign, collision });
+  group.add(controlRoom.group);
+  let controlBuilt = false;
+  let stairDoorOpen = null; // Tür am Podest −10,5 m für die Kollision offen (nur, wenn man auf diesem Stockwerk ist)
+  const stops = new Map();  // Haltestellen des Keller-Fahrstuhls je Stockwerk: { parent, panel }
 
   function colliders() {
     const boxes = [
@@ -370,7 +471,11 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       { minX: X0 - T, maxX: X0, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS },
       { minX: X0 - T, maxX: X1 + T, minZ: Z0 - T, maxZ: Z0, level: LEVEL.STAIRS },
       { minX: X0 - T, maxX: X1 + T, minZ: Z1, maxZ: Z1 + T, level: LEVEL.STAIRS },
-      { minX: X1, maxX: X1 + T, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS },
+      // Ostwand: mit Raum bei −10,5 m Öffnung für dessen Tür (zu, außer auf dem Podest −10,5 m: stairDoorColliders)
+      ...(controlBuilt
+        ? [{ minX: X1, maxX: X1 + T, minZ: Z0 - T, maxZ: CONTROL_ROOM.stairDoor.z0, level: LEVEL.STAIRS },
+          { minX: X1, maxX: X1 + T, minZ: CONTROL_ROOM.stairDoor.z1, maxZ: Z1 + T, level: LEVEL.STAIRS }]
+        : [{ minX: X1, maxX: X1 + T, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS }]),
       { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.STAIRS },
       // Keller: Südwand des Treppenhauses, Trennwand, Wand unter dem letzten Lauf A (Außenwände, Stützen und
       // Bunkerwände wachsen mit dem Ausbau, siehe fields.colliders)
@@ -380,7 +485,7 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
     ];
     if (elevatorBuilt) {
       const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
-      for (const level of [LEVEL.HALL, LEVEL.BASEMENT]) boxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, level });
+      for (const level of [LEVEL.HALL, LEVEL.BASEMENT, LEVEL.CONTROL]) boxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, level });
     }
     return [...boxes, ...fields.colliders()];
   }
@@ -404,16 +509,65 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       group.add(basementRoom);
       for (const light of spots) light.intensity = LIGHT_ON;
     }
+    if (upgrades.controlRoom && built && !controlBuilt) {
+      controlBuilt = true;
+      // Drittes Stockwerk (Podest −10,5 m) mit Tür in der Ostwand neu bauen
+      const k = Math.round(-CONTROL_ROOM.y / STOREY) - 1;
+      const old = storeys[k];
+      const storey = createStorey(m, k, CONTROL_ROOM.stairDoor);
+      storey.visible = old.visible;
+      group.remove(old);
+      disposeStatic(old, m);
+      storeys[k] = storey;
+      group.add(storey);
+      controlRoom.build();
+      setStairDoor(false);
+    }
     if (upgrades.basementElevator && built && !elevatorBuilt) {
       elevatorBuilt = true;
-      hallGroup.add(createElevatorStop(0, LEVEL.BASEMENT, onRide));
-      basementRoom.add(createElevatorStop(BASEMENT_Y, LEVEL.HALL, onRide));
+      addStop(LEVEL.HALL, hallGroup);
+      addStop(LEVEL.BASEMENT, basementRoom);
+    }
+    if (elevatorBuilt && controlBuilt && !stops.has(LEVEL.CONTROL)) {
+      addStop(LEVEL.CONTROL, controlRoom.group);
+      controlRoom.setElevator(true);
+    }
+    // Ruftaster: drei Ziele, sobald der Fahrstuhl auch bei −10,5 m hält
+    const multi = stops.has(LEVEL.CONTROL);
+    for (const [here, stop] of stops) {
+      if (stop.multi === multi) continue;
+      if (stop.panel) {
+        stop.parent.remove(stop.panel);
+        stop.panel.traverse((o) => o.geometry?.dispose());
+      }
+      stop.panel = createCallPanel(here, multi, onRide);
+      stop.multi = multi;
+      stop.parent.add(stop.panel);
     }
     if (built) {
       fields.sync(); // billig, solange sich Stufe und Feldarten nicht geändert haben
       collision.setDynamic('basement', colliders());
     }
   }
+  // Stockwerke, die der Keller-Fahrstuhl von here aus anfährt
+  function elevatorTargets(here) {
+    const all = [LEVEL.HALL, ...(stops.has(LEVEL.CONTROL) ? [LEVEL.CONTROL] : []), LEVEL.BASEMENT];
+    return all.filter((l) => l !== here);
+  }
+  function addStop(here, parent) {
+    parent.add(createElevatorStop(here, () => elevatorTargets(here), onRide));
+    stops.set(here, { parent, panel: null, multi: null });
+  }
+
+  // Tür vom Podest −10,5 m in den Raum: Das Treppenhaus ist für die Kollision ein einziges Stockwerk (−1) über alle
+  // 20 Stockwerke – die Türöffnung darf deshalb nur offen sein, solange man auf dem Podest −10,5 m steht.
+  function setStairDoor(open) {
+    if (!controlBuilt || open === stairDoorOpen) return;
+    stairDoorOpen = open;
+    const { z0, z1 } = CONTROL_ROOM.stairDoor;
+    collision.setDynamic('basement-stair-door', open ? [] : [{ minX: X1, maxX: X1 + T, minZ: z0, maxZ: z1, level: LEVEL.STAIRS }]);
+  }
+
   upgrades.subscribe(sync);
   // Das Laden eines Spielstands meldet die Kellerkarte nur selbst (nicht über upgrades.notify)
   layout.subscribe(() => sync());
@@ -434,6 +588,8 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
   // Boden gleichmäßig; ab halber Höhe des obersten bzw. untersten Stockwerks wechselt das Stockwerk.
   function footing(x, z, level, yPrev = 0) {
     if (!built) return null;
+    if (level === LEVEL.CONTROL) return controlRoom.footing(x, z);
+    if (level === LEVEL.STAIRS && controlRoom.entersFromStairs(x, z, yPrev)) return { y: CONTROL_ROOM.y, level: LEVEL.CONTROL };
     if (level === LEVEL.HALL) {
       if (!inShaft(x, z) || x >= XE) return null;
       const y = storeyHeight(x, z, 0, 0, 0);
@@ -468,15 +624,17 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
   // Wo man nach der Fahrt aus dem Fahrstuhl tritt (vor der Tür, Blick nach Osten)
   const elevatorExit = (level) => ({
     x: BASEMENT_ELEVATOR.x1 + EXIT_GAP,
-    y: level === LEVEL.BASEMENT ? BASEMENT_Y : 0,
+    y: stopY(level),
     z: (BASEMENT_ELEVATOR.z0 + BASEMENT_ELEVATOR.z1) / 2,
   });
 
   // Kann man von der Position p (Kamera) aus die Halle sehen? (für world/room-culling.js)
   const hallVisibleFrom = (p) => p.y > HALL_VISIBLE_Y;
-  // Bereich, in dem p (Kamera) steht: 'hall' (auch oberstes Stockwerk der Treppe), 'stairs' oder 'basement'
+  // Bereich, in dem p (Kamera) steht: 'hall' (auch oberstes Stockwerk der Treppe), 'stairs', 'control' (Raum bei
+  // −10,5 m samt Vorraum) oder 'basement'
   function zoneOf(p) {
     if (!built || hallVisibleFrom(p)) return 'hall';
+    if (controlBuilt && controlRoom.onDoorStorey(p) && controlRoom.contains(p)) return 'control';
     return p.y < BASEMENT_Y + STOREY && !inShaft(p.x, p.z) ? 'basement' : 'stairs';
   }
 
@@ -532,6 +690,9 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
     });
     const shown = p.y < BASEMENT_VISIBLE_Y;
     basementRoom.visible = shown;
+    // Raum bei −10,5 m: nur in seiner Nähe zeichnen, Tür am Podest nur auf diesem Stockwerk offen
+    const controlShown = controlRoom.update(camera);
+    setStairDoor(controlRoom.onDoorStorey(p));
     setBasementFog(shown);
     // Felder: Neubau nach dem Ausbau (verteilt auf mehrere Bilder), nur nahe Felder zeichnen, Stahltüren
     fields.update(dt, camera, shown, p.y < BASEMENT_Y + STOREY);
@@ -551,6 +712,13 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
         light.target.position.set(x, BASEMENT_Y, z);
         light.target.updateMatrixWorld();
       });
+    } else if (controlShown) {
+      // Im Raum bei −10,5 m leuchten die Deckenspots des Kellers (gleiche Zahl an Lichtern, kein Neuübersetzen)
+      controlRoom.lightPoints.forEach((q, k) => {
+        spots[k].position.set(q.x, q.y, q.z);
+        spots[k].target.position.set(q.x, CONTROL_ROOM.y, q.z);
+        spots[k].target.updateMatrixWorld();
+      });
     }
     if (sun) sun.intensity = deep ? 0 : sunOn;
   }
@@ -561,5 +729,8 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
     get elevatorBuilt() { return elevatorBuilt; },
     get storeys() { return storeys; },
     get basementRoom() { return basementRoom; },
+    // Raum bei −10,5 m (world/control-room.js): leitstand/technik-Gruppen, anchors, bounds für #58/#59
+    controlRoom,
+    get controlRoomBuilt() { return controlBuilt; },
   };
 }

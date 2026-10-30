@@ -1,6 +1,6 @@
 // Ausbau der Halle: weitere Drucktische und Regalebenen kauft man mit Spielgeld, dazu eine zweite Etage (mit Treppe)
 // und danach einen Fahrstuhl, außerdem einen Keller in 70 m Tiefe (mit Treppenhaus) und danach einen eigenen
-// Keller-Fahrstuhl. Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage, Keller und Fahrstühle baut
+// Keller-Fahrstuhl und den Raum bei −10,5 m am Kellertreppenhaus (Leitstand und Technikraum). Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage, Keller und Fahrstühle baut
 // der Lieferdienst gleich ein, Tische stellt man selbst auf. Den Keller kann man danach in Stufen bis 120 × 120 m
 // ausbauen (basementStage; Felder, Größen und Preise in core/basement-layout.js).
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
@@ -17,6 +17,7 @@ export const UPPER_FLOOR_PRICE = 2000; // zweite Etage, so groß wie die Halle, 
 export const ELEVATOR_PRICE = 3000;    // Fahrstuhl zwischen Halle und zweiter Etage
 export const BASEMENT_PRICE = 5000;    // Keller 70 m unter der Halle, mit Treppenhaus
 export const BASEMENT_ELEVATOR_PRICE = 4000; // Fahrstuhl zwischen Halle und Keller
+export const CONTROL_ROOM_PRICE = 10000;     // Raum bei −10,5 m am Kellertreppenhaus (Leitstand und Technikraum)
 export const BASEMENT_STAGE_DELIVERY_FACTOR = 2; // Kellerausbau dauert doppelt so lange wie eine Lieferung
 
 export class Upgrades {
@@ -37,7 +38,10 @@ export class Upgrades {
     this.basementLayout = new BasementLayout(() => this.basementStage); // Felder: Lager oder Daten-Bunker
     this.basementElevator = false; // Keller-Fahrstuhl gebaut
     this.basementElevatorOrdered = false;
-    // { kind: 'table' | 'shelf' | 'floor' | 'elevator' | 'basement' | 'basementElevator' | 'basementStage',
+    this.controlRoom = false; // Raum bei −10,5 m gebaut
+    this.controlRoomOrdered = false;
+    // { kind: 'table' | 'shelf' | 'floor' | 'elevator' | 'basement' | 'basementElevator' | 'basementStage' |
+    //   'controlRoom',
     //   arriveIn (Sekunden), bei 'basementStage' dazu stage }
     this.deliveries = [];
     this.listeners = new Set();
@@ -104,6 +108,7 @@ export class Upgrades {
   get elevatorPrice() { return this.elevatorOrdered ? null : ELEVATOR_PRICE; }
   get basementPrice() { return this.basementOrdered ? null : BASEMENT_PRICE; }
   get basementElevatorPrice() { return this.basementElevatorOrdered ? null : BASEMENT_ELEVATOR_PRICE; }
+  get controlRoomPrice() { return this.controlRoomOrdered ? null : CONTROL_ROOM_PRICE; }
 
   // Restzeit einer Lieferung dieser Art (Sekunden) oder null
   arrivalOf(kind) {
@@ -183,6 +188,21 @@ export class Upgrades {
     return true;
   }
 
+  // Grund, warum man den Raum bei −10,5 m gerade nicht kaufen kann, oder null (erst nach dem Keller)
+  get controlRoomProblem() {
+    if (this.controlRoomOrdered) return 'Alles ausgebaut';
+    if (!this.basement) return 'Erst den Keller bauen';
+    return this.buyProblem(this.controlRoomPrice);
+  }
+
+  buyControlRoom() {
+    if (this.controlRoomProblem || !this.economy.spend(this.controlRoomPrice)) return false;
+    this.controlRoomOrdered = true;
+    this.deliveries.push({ kind: 'controlRoom', arriveIn: this.economy.deliverySeconds });
+    this.notify();
+    return true;
+  }
+
   buyShelfLevel() {
     const price = this.nextShelfPrice;
     if (this.buyProblem(price) || !this.economy.spend(price)) return false;
@@ -204,6 +224,7 @@ export class Upgrades {
       if (d.kind === 'elevator') this.elevator = true;
       if (d.kind === 'basement') this.basement = true;
       if (d.kind === 'basementElevator') this.basementElevator = true;
+      if (d.kind === 'controlRoom') this.controlRoom = true;
       if (d.kind === 'basementStage') this.basementStage = Math.max(this.basementStage, d.stage);
       if (d.kind === 'basement' || d.kind === 'basementStage') {
         this.basementLayout.emit({ type: 'stage', stage: this.basementStage });

@@ -369,6 +369,7 @@ const DELIVERED = {
   elevator: '🛗 Fahrstuhl eingebaut – neben der Treppe, Ruftaster rechts an der Tür',
   basement: '🏗️ Keller fertig – das Treppenhaus nach unten ist links hinten in der Halle (70 m)',
   basementElevator: '🛗 Keller-Fahrstuhl eingebaut – neben dem Treppenhaus, Ruftaster rechts an der Tür',
+  controlRoom: '🏗️ Raum bei −10,5 m fertig – die Tür ist am dritten Podest (−10,5 m) im Kellertreppenhaus',
 };
 upgrades.onEvent = (type, d) => {
   if (type !== 'delivered') return;
@@ -380,7 +381,8 @@ upgrades.onEvent = (type, d) => {
 
 // Zweite Etage mit Treppe und Fahrstuhl (Ausbau) – baut sich selbst, sobald sie geliefert ist
 const screenFade = createScreenFade();
-let playerLevel = 0;  // Stockwerk der Spielfigur: 0 = Halle, 1 = zweite Etage, −1 = Treppenhaus, −2 = Keller
+let playerLevel = 0;  // Stockwerk der Spielfigur: 0 = Halle, 1 = zweite Etage, −1 = Treppenhaus, −2 = Keller,
+                      // −3 = Raum bei −10,5 m (world/control-room.js)
 let groundY = 0;      // Bodenhöhe unter der Spielfigur (auf der Treppe dazwischen)
 let eyeHeight = EYE_HEIGHT;
 const upperFloor = createUpperFloor({ upgrades, collision, room, outdoor, onRide: rideElevator });
@@ -401,9 +403,14 @@ function rideElevator(level) {
 const basement = createBasement({ upgrades, collision, room, sun, outdoor, onRide: rideBasementElevator });
 scene.add(basement.group, basement.hallGroup);
 
-// Keller-Fahrstuhl: wie oben, nur zwischen Halle (0) und Keller (−2)
+// Keller-Fahrstuhl: wie oben, zwischen Halle (0), Raum bei −10,5 m (−3) und Keller (−2)
+const BASEMENT_RIDE_TEXT = {
+  0: '🛗 Fahrstuhl fährt nach oben in die Halle …',
+  [-2]: '🛗 Fahrstuhl fährt hinunter in den Keller …',
+  [-3]: '🛗 Fahrstuhl fährt zum Raum bei −10,5 m …',
+};
 function rideBasementElevator(level) {
-  screenFade.run(level ? '🛗 Fahrstuhl fährt hinunter in den Keller …' : '🛗 Fahrstuhl fährt nach oben in die Halle …', () => {
+  screenFade.run(BASEMENT_RIDE_TEXT[level], () => {
     const exit = basement.elevatorExit(level);
     playerLevel = level;
     groundY = exit.y;

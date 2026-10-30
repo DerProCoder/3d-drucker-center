@@ -44,7 +44,8 @@ const KEY = 'druckercenter-save';
 // 28: Internet-Kästen in jedem Bunker-Feld (#61, core/cable-tray.js) – 4 Kästen à 33 Ports je Feld mit neuen
 //     Port-Nummern ab BASEMENT_WAN_PORT0; die einzelne Glasfaser-Säule (Ports 1000…1031, servers.basementWanField)
 //     entfällt. Ihre Kabel stecken danach am Kasten 1 (Nordwest) im selben Feld und werden neu verlegt.
-const VERSION = 28;
+// 29: Raum bei −10,5 m am Kellertreppenhaus (#56, core/upgrades.js) – upgrades.controlRoom/controlRoomOrdered
+const VERSION = 29;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -154,6 +155,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       basementStage: upgrades.basementStage, basementStageOrdered: upgrades.basementStageOrdered,
       basementFields: upgrades.basementLayout.save(),
       basementElevator: upgrades.basementElevator, basementElevatorOrdered: upgrades.basementElevatorOrdered,
+      controlRoom: upgrades.controlRoom, controlRoomOrdered: upgrades.controlRoomOrdered,
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
     clock: { minutes: clock.minutes },
@@ -406,6 +408,14 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     migrateBasementWan(data);
     data.version = 28;
   }
+  // Version 28 kennt den Raum bei −10,5 m noch nicht: nicht gekauft
+  if (data?.version === 28) {
+    if (data.upgrades) {
+      data.upgrades.controlRoom = false;
+      data.upgrades.controlRoomOrdered = false;
+    }
+    data.version = 29;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -445,6 +455,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades.basementStageOrdered = Math.max(upgrades.basementStage, data.upgrades.basementStageOrdered ?? upgrades.basementStageOrdered);
     upgrades.basementElevator = data.upgrades.basementElevator ?? false;
     upgrades.basementElevatorOrdered = data.upgrades.basementElevatorOrdered ?? upgrades.basementElevator;
+    upgrades.controlRoom = data.upgrades.controlRoom ?? false;
+    upgrades.controlRoomOrdered = data.upgrades.controlRoomOrdered ?? upgrades.controlRoom;
   } else {
     const highestSlot = Math.max(-1, ...economy.printers.filter((p) => p.location === 'table').map((p) => p.slot));
     upgrades.tables = Math.max(1, Math.ceil((highestSlot + 1) / SLOTS_PER_TABLE));

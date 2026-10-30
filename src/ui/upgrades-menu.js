@@ -1,5 +1,5 @@
-// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage, Keller (mit Ausbaustufen und Kellerkarte) und
-// Fahrstühle kaufen, dazu die laufenden Kosten pro Stunde.
+// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage, Keller (mit Ausbaustufen und Kellerkarte),
+// Fahrstühle und den Raum bei −10,5 m kaufen, dazu die laufenden Kosten pro Stunde.
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE, SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import { RENT_PER_HOUR } from '../core/economy.js';
 import { euro } from '../core/format.js';
@@ -148,6 +148,11 @@ export function createUpgradesMenu(upgrades, economy) {
           problem: upgrades.basementElevatorProblem,
         })}
         ${basementStageCard()}
+        ${card({
+          id: 'controlRoom', title: 'Raum bei −10,5 m', perStep: '14 × 10 m am Kellertreppenhaus',
+          sub: `Leitstand und Technikraum hinter Glas – Tür am Podest −10,5 m im Treppenhaus${upgrades.basementElevator ? ', der Keller-Fahrstuhl hält dort' : ''}${buildStatus('controlRoom', upgrades.controlRoom)}`,
+          owned: upgrades.controlRoom ? 1 : 0, max: 1, price: upgrades.controlRoomPrice, problem: upgrades.controlRoomProblem,
+        })}
       </div>
       ${basementMap()}
       <p class="slots power-note">💸 Laufende Kosten, abgebucht zu jeder vollen Spielstunde: <strong>${euro.format(economy.costPerHour)} / h</strong>
@@ -163,6 +168,7 @@ export function createUpgradesMenu(upgrades, economy) {
     if (id === 'elevator' && upgrades.buyElevator()) return `Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben der Treppe eingebaut`;
     if (id === 'basement' && upgrades.buyBasement()) return `Keller bestellt – wird in ${economy.deliverySeconds} s gebaut, das Treppenhaus beginnt links hinten in der Halle`;
     if (id === 'basementElevator' && upgrades.buyBasementElevator()) return `Keller-Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben dem Treppenhaus eingebaut`;
+    if (id === 'controlRoom' && upgrades.buyControlRoom()) return `Raum bei −10,5 m bestellt – wird in ${economy.deliverySeconds} s gebaut, die Tür ist am Podest −10,5 m im Kellertreppenhaus`;
     if (id === 'basementStage' && upgrades.buyBasementStage()) {
       const size = upgrades.basementStageOrdered * FIELD_SIZE;
       return `Kellerausbau bestellt – in ${upgrades.basementStageSeconds} s ist der Keller ${size} × ${size} m groß`;
