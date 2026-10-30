@@ -25,9 +25,10 @@ import { SERVER_SPOTS } from '../core/servers.js';
 import {
   basementWan, endField, fieldLabel, isBasementWanPort, isWanRef, toggleWaypoint, trayArea, trayPath, wanEnd, wanPortName,
 } from '../core/cable-tray.js';
-import { bunkerFieldOf, spotArea, spotPosition, spotUsable, spotsInZone } from '../core/server-zones.js';
+import { bunkerFieldOf, spotArea, spotFacing, spotPosition, spotUsable, spotsInZone } from '../core/server-zones.js';
 import { BASEMENT_FLOOR_Y } from '../core/basement-layout.js';
 import { createBunker } from './bunker.js';
+import { mergeStatic } from '../models/merge-static.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { meters } from '../core/format.js';
 import { isServerHardware, portName } from '../core/server-catalog.js';
@@ -46,12 +47,14 @@ import {
 
 const DOOR_OPEN_ANGLE = 1.9;     // Bogenmaß, so weit schwingt die Glastür auf
 const DOOR_SPEED = 3.5;          // Bogenmaß pro Sekunde
+const LOD_NEAR = 2.6;            // m – so nah um die Spielfigur werden Bunker-Schränke voll gezeichnet (Klickweite 2,5 m)
 // Klickfläche eines Ports: unsichtbar, aber vom Strahl getroffen (material.visible = false)
 const PORT_HIT_GEOMETRY = new THREE.BoxGeometry(0.016, 0.014, 0.012);
 const PORT_HIT_MATERIAL = new THREE.MeshBasicMaterial({ visible: false });
 const CLIP_HIT_GEOMETRY = new THREE.BoxGeometry(0.034, 0.03, 0.04);
 // beim Neuaufbau nicht freigeben (Stecker und Knickschutz der Kabel kommen aus world/cable-tray.js)
 const SHARED_GEOMETRY = new Set([PORT_HIT_GEOMETRY, CLIP_HIT_GEOMETRY, ...SHARED_CABLE_GEOMETRY]);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const AIM_MATERIAL = new THREE.MeshBasicMaterial({ visible: false, side: THREE.FrontSide });
 
 // Lage der Stellplätze (Schränke schauen nach Süden, +z) steht in core/server-zones.js
@@ -177,6 +180,17 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   // Bereich eines Schranks bzw. Ports ('upper' | 'bunker') und die Gruppe mit seinen Bodenkoordinaten
   const areaOfRack = (rack) => (spotArea(rack?.slot) === 'bunker' ? 'bunker' : 'upper');
   let bunker = null; // world/bunker.js, unten angelegt (braucht die Abläufe beim Verlegen)
+  // Lage im Schrank (Schrankkoordinaten, Front nach +z) ↔ Bodenkoordinaten des Bereichs: Schränke mit Front nach
+  // Norden (Bunker-Reihen 1, 3, 5, core/server-zones.js spotFacing) sind um 180° gedreht
+  const rackAngle = (rack) => (rack && spotFacing(rack.slot) < 0 ? Math.PI : 0);
+  const toFrame = (rack, v) => {
+    const { x, z } = spotPosition(rack.slot);
+    return v.clone().applyAxisAngle(Y_AXIS, rackAngle(rack)).add(new THREE.Vector3(x, 0, z));
+  };
+  const toRack = (rack, v) => {
+    const { x, z } = spotPosition(rack.slot);
+    return v.clone().sub(new THREE.Vector3(x, 0, z)).applyAxisAngle(Y_AXIS, -rackAngle(rack));
+  };
   const frameOf = (area) => (area === 'bunker' && bunker ? bunker.frame : group);
   // Hilfsobjekt (Vorschau, Markierung) in den Bereich hängen, in dem es gerade gebraucht wird
   const place = (object, area) => {
@@ -245,8 +259,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         preview.visible = unit !== -1;
         if (!preview.visible) return;
         place(preview, areaOfRack(rack));
-        const { x, z } = spotPosition(rack.slot);
-        preview.position.copy(devicePlacement(rack.type, unit, item.type.units)).add(new THREE.Vector3(x, 0, z + 0.015));
+        preview.position.copy(toFrame(rack, devicePlacement(rack.type, unit, item.type.units).add(new THREE.Vector3(0, 0, 0.015))));
+        preview.rotation.y = rackAngle(rack);
         preview.scale.y = item.type.units * UNIT;
       },
       unhover: () => { preview.visible = false; },
@@ -318,9 +332,9 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         preview.visible = false;
         const b = nasBays(device.type)[index];
         place(bayMarker, areaOfRack(rack));
-        const { x, z } = spotPosition(rack.slot);
         bayMarker.material.color.setHex(BAY_COLORS[bayAction(device, index).mode]);
-        bayMarker.position.copy(at).add(new THREE.Vector3(x + b.x, b.y, z + 0.006));
+        bayMarker.position.copy(toFrame(rack, at.clone().add(new THREE.Vector3(b.x, b.y, 0.006))));
+        bayMarker.rotation.y = rackAngle(rack);
         bayMarker.scale.set(b.w + 0.003, b.h + 0.003, 1);
         bayMarker.visible = true;
       },
@@ -403,8 +417,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     const rack = rackOfRef(ref);
     const at = portPos.get(portKey(ref));
     if (!rack || !at) return null;
-    const { x, z } = spotPosition(rack.slot);
-    return rackRise(at, { x, z, type: rack.type }, lane);
+    // In Schrankkoordinaten rechnen (Front nach +z) und an Platz und Drehung des Schranks setzen
+    return rackRise(toRack(rack, at), { x: 0, z: 0, type: rack.type }, lane).map((p) => toFrame(rack, p));
   };
   // Läuft dieses Kabel über das Gitter? (zwischen zwei Schränken, zur Wand oder mit Gitterfeldern)
   const isTrayCable = (cable) => !sameRack(cable.a, cable.b);
@@ -469,19 +483,19 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     if (pickedMarker.visible) {
       // Buchsen am Wandkasten zeigen nach +x (im Keller nach +z), hinten an den Geräten nach −z
       const wan = isWanRef(picked) && !isBasementWanPort(picked.port);
-      const dz = isWanRef(picked) ? (wan ? 0 : 0.002) : -0.002;
+      const turned = !isWanRef(picked) && rackAngle(pickedRack()) !== 0; // Schrank mit Front nach Norden
+      const dz = isWanRef(picked) ? (wan ? 0 : 0.002) : (turned ? 0.002 : -0.002);
       place(pickedMarker, areaOfRef(picked));
-      pickedMarker.rotation.y = wan ? Math.PI / 2 : 0;
+      pickedMarker.rotation.y = wan ? Math.PI / 2 : turned ? Math.PI : 0;
       pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(wan ? 0.002 : 0, 0, dz));
     }
     clipMarkers.clear();
     const rack = pickedRack();
     if (rack) {
       place(clipMarkers, areaOfRack(rack));
-      const { x, z } = spotPosition(rack.slot);
       for (const c of pickedClips) {
         const marker = new THREE.Mesh(CLIP_MARKER_GEOMETRY, pickedMarker.material);
-        marker.position.copy(clipPosition(rack.type, c.side, c.index)).add(new THREE.Vector3(x, 0, z));
+        marker.position.copy(toFrame(rack, clipPosition(rack.type, c.side, c.index)));
         marker.raycast = () => {};
         clipMarkers.add(marker);
       }
@@ -539,10 +553,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     if (inRack) {
       // Route in Schrankkoordinaten rechnen und an die Stelle des Schranks verschieben
       const rack = pickedRack();
-      const { x, z } = spotPosition(rack.slot);
-      const offset = new THREE.Vector3(x, 0, z);
-      const local = (ref) => portPos.get(portKey(ref)).clone().sub(offset);
-      points = cableRoute(rack.type, local(picked), local(to), nextRackLane(), pickedClips).map((p) => p.add(offset));
+      const local = (ref) => toRack(rack, portPos.get(portKey(ref)));
+      points = cableRoute(rack.type, local(picked), local(to), nextRackLane(), pickedClips).map((p) => toFrame(rack, p));
     } else if (fields) {
       const lane = nextTrayLane();
       const start = riseOf(picked, lane);
@@ -680,8 +692,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   function buildRack(rack, reached) {
     const g = new THREE.Group();
     const { x, z } = spotPosition(rack.slot);
-    const offset = new THREE.Vector3(x, 0, z);
-    g.position.copy(offset);
+    g.position.set(x, 0, z);
+    g.rotation.y = rackAngle(rack); // im Bunker schauen die Reihen 1, 3, 5 nach Norden
     const rackFans = [];
     const ports = new Map();
     const shell = createServerRack(rack.type);
@@ -725,7 +737,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         hitbox.name = `port:${key}`;
         hitbox.userData.interaction = portInteraction({ id: device.id, port });
         g.add(hitbox);
-        ports.set(key, pos.add(offset));
+        ports.set(key, toFrame(rack, pos));
       });
     }
     // Unsichtbare Zielfläche genau in der Front der Höheneinheiten: Zielt man zum Einbauen in einen leeren Bereich,
@@ -746,6 +758,9 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       }
     }
     g.userData.interaction = rackI;
+    // Im Bunker stehen bis zu 120 Schränke je Feld: unbewegliche Teile je Material zusammenfassen (Tür, Lüfter, Platten
+    // und Klickflächen bleiben einzeln, models/merge-static.js) – spart etwa ein Viertel der Draw Calls je Schrank
+    if (areaOfRack(rack) === 'bunker') mergeStatic(g);
     return { group: g, ports, fans: rackFans, nasViews };
   }
 
@@ -768,7 +783,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       // Bunker-Schränke hängen im Inhalt ihres Kellerfeldes (werden mit dem Feld ausgeblendet)
       const parent = areaOfRack(rack) === 'bunker' && bunker ? bunker.holder(bunkerFieldOf(rack.slot)) : racks;
       parent.add(built.group);
-      rackCache.set(rack.id, { key, ...built });
+      rackCache.set(rack.id, { key, rack, bunker: areaOfRack(rack) === 'bunker', ...built });
       changed = true;
     }
     for (const [id, cached] of rackCache) {
@@ -806,9 +821,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     const pa = portPos.get(portKey(cable.a));
     const pb = portPos.get(portKey(cable.b));
     if (!rack || !pa || !pb) return null;
-    const { x, z } = spotPosition(rack.slot);
-    const offset = new THREE.Vector3(x, 0, z);
-    const points = cableRoute(rack.type, pa.clone().sub(offset), pb.clone().sub(offset), lane, cable.clips).map((p) => p.add(offset));
+    const points = cableRoute(rack.type, toRack(rack, pa), toRack(rack, pb), lane, cable.clips).map((p) => toFrame(rack, p));
     return createCable(points, CABLE_COLOR);
   }
 
@@ -845,6 +858,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   function buildRoom() {
     const reached = servers.reachable();
     syncRacks(reached);
+    lodKey = ''; // neu gebaute Schränke sind erst einmal sichtbar – Detailstufe neu verteilen
+    lodBuild++;
     syncCables();
     if (picked && !portPos.has(portKey(picked))) cancelPick();
     showPicked();
@@ -873,7 +888,43 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     for (const fan of fans) fan.rotor.rotation.z -= (fan.speed() / 100) * MAX_FAN_SPEED * dt;
   }
 
-  function update(dt = 0) {
+  // Daten-Bunker (#60): Bis zu 120 Schränke je Feld. Volle Schränke mit Geräten, Türen und Lüftern nur im Umkreis von
+  // LOD_NEAR um die Spielfigur (und nur, wenn sie im Keller ist) – alle anderen zeichnet world/bunker.js als einfache
+  // Kästen (ein Draw Call je Feld). Leere Plätze kosten nichts.
+  let lodKey = '';
+  let lodBuild = 0; // zählt Neuaufbauten der Schränke (dann ändern sich auch die Geräte in den einfachen Kästen)
+  const KIND_COLORS = { switch: 0x4a5566, firewall: 0x9a3b3b, patch: 0x30353c };
+  function updateLod(camera) {
+    const p = camera.position;
+    const below = p.y < BASEMENT_FLOOR_Y + 10;
+    const nearOf = new Map();
+    let key = `${lodBuild}|`;
+    for (const cached of rackCache.values()) {
+      // abgebaut, aber noch nicht aus dem Zwischenspeicher (das passiert beim nächsten Neuaufbau)
+      if (!cached.bunker || cached.rack.location !== 'server' || spotArea(cached.rack.slot) !== 'bunker') continue;
+      const { x, z } = spotPosition(cached.rack.slot);
+      const near = below && Math.abs(p.x - x) < LOD_NEAR && Math.abs(p.z - z) < LOD_NEAR && Math.hypot(p.x - x, p.z - z) < LOD_NEAR;
+      if (cached.group.visible !== near) cached.group.visible = near;
+      nearOf.set(cached, near);
+      key += near ? '1' : '0';
+    }
+    if (key === lodKey && !bunker.farStale) return;
+    lodKey = key;
+    const far = [];
+    for (const [cached, near] of nearOf) {
+      if (near) continue;
+      const rack = cached.rack;
+      const devices = servers.devicesIn(rack.id).map((d) => {
+        const at = toFrame(rack, devicePlacement(rack.type, d.unit, d.type.units).add(new THREE.Vector3(0, 0, 0.004)));
+        return { x: at.x, y: at.y, z: at.z, h: d.type.units * UNIT - 0.004, color: d.type.color ?? KIND_COLORS[d.type.kind] ?? 0x5a6068 };
+      });
+      far.push({ slot: rack.slot, units: rack.type.units, devices });
+    }
+    bunker.setFarRacks(far, key);
+  }
+
+  // camera: Spielkamera (für die Detailstufe der Bunker-Schränke; ohne sie werden alle voll gezeichnet)
+  function update(dt = 0, camera = null) {
     group.visible = upgrades.upperFloor;
     if (!group.visible) return;
     // Daten-Bunker: Gitter, Markierungen und Keller-Anschluss den Kellerfeldern anpassen (billig ohne Änderung)
@@ -892,6 +943,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       for (const [spot, marker] of markers.children.entries()) marker.visible = carrying && !servers.spotUsed(spot);
       bunker?.showMarkers((spot) => carrying && spotUsable(spot) && !servers.spotUsed(spot));
     }
+    if (bunker && camera) updateLod(camera);
     if (!dirty) return;
     dirty = false;
     const reached = servers.reachable();

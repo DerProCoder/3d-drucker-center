@@ -22,7 +22,8 @@ import {
   setBunkerLayout, setBunkerWanField, spotUsable,
 } from './server-zones.js';
 import {
-  BASEMENT_WALL_PORTS, BASEMENT_WAN_PORT0, CABLE_SLACK, WALL_PORTS, WAN_ID, basementCellOf, basementWan, endField,
+  BASEMENT_TRAY_NX, BASEMENT_TRAY_NZ, BASEMENT_WALL_PORTS, BASEMENT_WAN_PORT0, CABLE_SLACK, WALL_PORTS, WAN_ID, basementAutoRoute,
+  basementCellOf, basementWan, endField,
   isBasementWanPort, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath, trayProblem, trayToJSON,
   validWanRef, wanEnd, wanPortName,
 } from './cable-tray.js';
@@ -133,13 +134,14 @@ export class Servers {
     }
     const col = i % GRID;
     const row = Math.floor(i / GRID);
-    const last = 19; // letzte Gitterreihe eines Kellerfeldes (20 × 20 Felder)
+    const lastX = BASEMENT_TRAY_NX - 1; // letzte Trassenspalte bzw. -zeile eines Kellerfeldes
+    const lastZ = BASEMENT_TRAY_NZ - 1;
     const touches = (f) => {
       const c = basementCellOf(f);
       if (!c) return false;
       if (c.area === i) return true;
-      return (row > 0 && c.area === i - GRID && c.lz === last) || (row < GRID - 1 && c.area === i + GRID && c.lz === 0)
-        || (col > 0 && c.area === i - 1 && c.lx === last) || (col < GRID - 1 && c.area === i + 1 && c.lx === 0);
+      return (row > 0 && c.area === i - GRID && c.lz === lastZ) || (row < GRID - 1 && c.area === i + GRID && c.lz === 0)
+        || (col > 0 && c.area === i - 1 && c.lx === lastX) || (col < GRID - 1 && c.area === i + 1 && c.lx === 0);
     };
     const through = this.cables.filter((c) => this.trayRoute(c)?.fields.some(touches)).length;
     if (through) return through === 1 ? 'Durch das Feld läuft noch ein Kabel im Kabelgitter' : `Durch das Feld laufen noch ${through} Kabel im Kabelgitter`;
@@ -600,6 +602,25 @@ export class Servers {
     };
   }
 
+  // Kabel im Bunker aus einem Spielstand vor den Trassen (#60, core/save.js Version 26 setzt reroute): Die alten
+  // Wegpunkte im 1-m-Gitter passen nicht mehr, das Kabel wird über den kürzesten Trassenweg neu verlegt. Die neue
+  // Länge wird mit dem Vorrat verrechnet; reicht der Vorrat dafür nicht oder gibt es keinen Weg, gibt load das Kabel
+  // ganz in den Vorrat zurück (false) – es geht also kein Meter verloren.
+  reroute(c) {
+    const ea = this.trayEnd(c.a);
+    const eb = this.trayEnd(c.b);
+    if (!ea || !eb) return false;
+    const tray = basementAutoRoute(endField(ea), endField(eb));
+    if (!tray || trayProblem(ea, eb, tray)) return false;
+    const length = trayCableLength(ea, eb, tray);
+    const extra = round1(length - (c.length ?? 0));
+    if (extra > this.cableMeters) return false;
+    this.cableMeters = round1(this.cableMeters - extra);
+    c.tray = tray;
+    c.length = length;
+    return true;
+  }
+
   load(data) {
     this.cables = data?.cables ?? [];
     this.cableMeters = data?.cableMeters ?? 0;
@@ -616,10 +637,12 @@ export class Servers {
     };
     const routeOk = (c) => {
       if (!this.isTrayCable(c.a, c.b)) return true;
+      if (c.reroute) return this.reroute(c);
       c.tray = sanitizeTray(c.tray);
       return !trayProblem(this.trayEnd(c.a), this.trayEnd(c.b), c.tray);
     };
     const broken = this.cables.filter((c) => !ok(c.a) || !ok(c.b) || !routeOk(c));
+    for (const c of this.cables) delete c.reroute;
     this.cables = this.cables.filter((c) => !broken.includes(c));
     for (const c of this.cables) {
       if (this.isTrayCable(c.a, c.b)) {

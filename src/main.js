@@ -1165,7 +1165,7 @@ renderer.setAnimationLoop(() => {
   safely('Drucker', () => workshop.animate(dt));
   // Wer die zweite Etage bzw. den Keller verlässt (Treppe, Fahrstuhl), bricht ein dort angefangenes Verlegen ab
   serverRoom.leaveLevel(playerLevel);
-  safely('Serverraum', () => serverRoom.update(dt));
+  safely('Serverraum', () => serverRoom.update(dt, camera)); // Kamera: Detailstufe der Bunker-Schränke
   safely('Werkbank', () => workbenchStation.update(dt)); // offener Server nur, solange einer darauf liegt
   safely('Ausstellungsregal', () => displayWall.update());
   // Unter der Erde (ab dem ersten Schritt die Treppe hinunter) zählt man nicht als „in der Halle“ – das Hallenlicht

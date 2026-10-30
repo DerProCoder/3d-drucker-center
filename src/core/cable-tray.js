@@ -28,7 +28,8 @@
 // (außerhalb, ungültig) und gar kein Wegpunkt – ohne angeklicktes Feld läge das Kabel nicht im Gitter, sondern hinge
 // frei durch den Raum (Fertig-Kriterium in #28: „ohne Gitterfelder → abgelehnt“).
 import {
-  BASEMENT_FIELD_SIZE, SERVER_SPOTS, bunkerNumber, bunkerWanField, isBunkerField, spotArea, spotPosition,
+  BASEMENT_FIELD_SIZE, BUNKER_COLD_Z, BUNKER_CROSS_X, BUNKER_ROW_X, BUNKER_WARM_Z, SERVER_SPOTS, bunkerNumber,
+  bunkerRowOf, bunkerWanField, isBunkerField, spotArea, spotFacing, spotPosition,
 } from './server-zones.js';
 import { GRID, fieldBounds } from './basement-layout.js';
 import { SERVER_RACKS, UNIT_METERS } from './server-catalog.js';
@@ -47,6 +48,7 @@ const ELEVATOR = { x0: 7.1, x1: 8.7, z0: -10, z1: -8.6 };
 // und core/ nicht models/ (das braucht three), deshalb stehen Sockel und Dach hier noch einmal als Zahlen.
 const RACK_BASE = 0.1;                // Sockel unter der untersten HE
 const RACK_TOP = 0.08;                // Dach über der obersten HE
+const RACK_DEPTH = 0.8;               // Schranktiefe (RACK_FOOTPRINT.d)
 export const rackHeightOf = (units) => RACK_BASE + units * UNIT_METERS + RACK_TOP;
 export const MAX_RACK_UNITS = Math.max(...SERVER_RACKS.map((r) => r.units));      // 42
 export const MAX_RACK_HEIGHT = round3(rackHeightOf(MAX_RACK_UNITS));                // 2,049 m
@@ -99,30 +101,50 @@ export const BLOCKED = Object.freeze(Array.from({ length: TRAY_FIELDS }, (_, i) 
 }));
 const BLOCKED_SET = new Set(BLOCKED);
 
-// ---------- Gitter im Daten-Bunker (Keller, #52) ----------
-// Eigenes 1-m-Raster über den ganzen Keller (120 × 120 Felder ab der Nordwest-Ecke x/z = −10), Feld-Index
-// = BASEMENT_TRAY_BASE + ix + iz · BASEMENT_TRAY_COLS – so kommen sich die Nummern beider Bereiche nie in die Quere.
-// Gitterfelder gibt es nur in fertigen Bunker-Feldern (core/server-zones.js isBunkerField), und dort nicht
-//   - am Feldrand zu einer Wand (Außenwand oder Bunkerwand zu einem Nachbarn, der kein Bunker ist) – zwischen zwei
-//     Bunker-Feldern läuft das Gitter durch,
-//   - in den vier Feldecken (Betonstützen),
-//   - in den 2 × 2 Feldern in der Mitte (dort hängt das Schild von der Decke),
-//   - über der Glasfaser-Säule (BASEMENT_WAN_COLUMN, in jedem Bunker-Feld freigehalten, damit sich das Gitter nicht
-//     ändert, wenn der Anschluss umzieht).
-// Die Mitten liegen auf halben Metern, genau über den Bunker-Stellplätzen (core/server-zones.js BUNKER_ROW_X/Z).
-// Höhe wie oben: Keller und zweite Etage sind beide 3,5 m hoch, das Gitter hängt auf TRAY_HEIGHT über dem Kellerboden.
+// ---------- Kabeltrassen im Daten-Bunker (Keller, #52, Reihen wie im Rechenzentrum #60) ----------
+// Statt eines flächigen Gitters hängen im Bunker Trassen über den Reihen. Je Kellerfeld ein festes, ungleichmäßiges
+// Raster aus Spalten BASEMENT_TRAY_XS und Zeilen BASEMENT_TRAY_ZS (Meter ab der Nordwest-Ecke des Feldes); jede
+// Kreuzung ist ein „Trassenfeld“ (Wegpunkt), gültig nur dort, wo eine Trasse hängt:
+//   - über jedem warmen Gang (Rücken an Rücken, BUNKER_WARM_Z) eine Längstrasse von der West- bis zur Ostspinne, mit
+//     je einem Feld über jeder Schrankspalte (0,6 m) und dem Quergang – dort kommen die Kabel aus den Schränken an,
+//   - drei Quertrassen („Spinnen“) in Nord-Süd-Richtung: West (x 2,5), Mitte über dem Quergang (x 10) und Ost (x 17,5),
+//     von der Nordtrasse (z 3,5, dort mündet die Trasse vom Glasfaser-Anschluss) bis zur Südtrasse (z 16,5),
+//   - zu einem Nachbarfeld, das auch Bunker ist, laufen die Längstrassen bzw. die Spinnen bis an den Feldrand weiter
+//     (Felder x/z 0,5 bzw. 19,5) und treffen dort die Trassen des Nachbarn.
+// Feld-Index = BASEMENT_TRAY_BASE + gi + gj · BASEMENT_TRAY_COLS mit gi = Kellerspalte · NX + Spalte im Feld, gj
+// ebenso – alle Felder des Kellers nutzen dasselbe Raster, so laufen Wege über Feldgrenzen hinweg. Ein Weg geht wie
+// oben gerade von Wegpunkt zu Wegpunkt (erst x, dann z); quert er dabei eine Stelle ohne Trasse (z. B. über eine
+// Schrankreihe), ist er unterbrochen – dann einen Wegpunkt auf einer Spinne setzen. Die Länge im Bunker ist die
+// echte Strecke zwischen den Feldmitten (nicht Felder × 1 m).
 export const BASEMENT_TRAY_BASE = 100000;
-const B_FIELD = BASEMENT_FIELD_SIZE;                 // 20 Gitterfelder je Kellerfeld und Richtung
-export const BASEMENT_TRAY_COLS = GRID * B_FIELD;    // 120
+const B_FIELD = BASEMENT_FIELD_SIZE;                 // 20 m je Kellerfeld
 const B_ORIGIN = fieldBounds(0).minX;                // −10 (Nordwest-Ecke des Kellers, x und z)
-const bIndex = (ix, iz) => BASEMENT_TRAY_BASE + ix + iz * BASEMENT_TRAY_COLS;
-const inBasementRaster = (field) => Number.isInteger(field) && field >= BASEMENT_TRAY_BASE
-  && field < BASEMENT_TRAY_BASE + BASEMENT_TRAY_COLS * BASEMENT_TRAY_COLS;
+export const BASEMENT_SPINE_X = Object.freeze([2.5, BUNKER_CROSS_X, 17.5]);
+const NORTH_Z = 3.5;
+const SOUTH_Z = 16.5;
+const EDGE_LO = 0.5;
+const EDGE_HI = B_FIELD - 0.5;
+export const BASEMENT_TRAY_XS = Object.freeze([
+  EDGE_LO, BASEMENT_SPINE_X[0], ...BUNKER_ROW_X.slice(0, BUNKER_ROW_X.length / 2), BASEMENT_SPINE_X[1],
+  ...BUNKER_ROW_X.slice(BUNKER_ROW_X.length / 2), BASEMENT_SPINE_X[2], EDGE_HI,
+]);
+export const BASEMENT_TRAY_ZS = Object.freeze([
+  EDGE_LO, NORTH_Z, BUNKER_WARM_Z[0], BUNKER_COLD_Z[0], BUNKER_WARM_Z[1], BUNKER_COLD_Z[1], BUNKER_WARM_Z[2], SOUTH_Z, EDGE_HI,
+]);
+export const BASEMENT_TRAY_NX = BASEMENT_TRAY_XS.length;   // 25
+export const BASEMENT_TRAY_NZ = BASEMENT_TRAY_ZS.length;   // 9
+export const BASEMENT_TRAY_COLS = GRID * BASEMENT_TRAY_NX; // 150
+const B_ROWS = GRID * BASEMENT_TRAY_NZ;
+const SPINE_I = new Set(BASEMENT_SPINE_X.map((x) => BASEMENT_TRAY_XS.indexOf(x)));
+const WARM_J = new Set(BUNKER_WARM_Z.map((z) => BASEMENT_TRAY_ZS.indexOf(z)));
+const bIndex = (gi, gj) => BASEMENT_TRAY_BASE + gi + gj * BASEMENT_TRAY_COLS;
+function inBasementRaster(field) {
+  return Number.isInteger(field) && field >= BASEMENT_TRAY_BASE && field < BASEMENT_TRAY_BASE + BASEMENT_TRAY_COLS * B_ROWS;
+}
 // Glasfaser-Säule (Feldkoordinaten in m ab der Nordwest-Ecke des Kellerfeldes): steht in der Nordwest-Ecke des
-// Feldes, weit weg von den Türen (Mitte der Feldseiten) und den Schrankreihen; der Wandkasten hängt an ihrer
-// Südseite (Ports nach Süden)
+// Feldes vor der Westspinne, weit weg von den Türen (Mitte der Feldseiten) und den Schrankreihen; der Wandkasten
+// hängt an ihrer Südseite (Ports nach Süden), seine Trasse mündet in die Nordtrasse (x 2,5, z 3,5)
 export const BASEMENT_WAN_COLUMN = Object.freeze({ x: 2.5, z: 2.3, w: 0.6, d: 0.4 });
-const COLUMN_CELL = { lx: Math.floor(BASEMENT_WAN_COLUMN.x), lz: Math.floor(BASEMENT_WAN_COLUMN.z) };
 
 // Bereich eines Feld-Index: 'upper' | 'basement' | null
 export function trayArea(field) {
@@ -139,53 +161,134 @@ function fieldCoords(field) {
   return { ix: field % TRAY_COLS, iz: Math.floor(field / TRAY_COLS) };
 }
 
-// Kellerfeld (Feldnummer core/basement-layout.js) und Lage im Feld (lx, lz: 0…19) eines Keller-Gitterfeldes
+// Kellerfeld (Feldnummer core/basement-layout.js) und Lage im Trassenraster des Feldes (lx: Spalte 0…24, lz: Zeile
+// 0…8) eines Trassenfeldes
 function basementCell(field) {
   const { ix, iz } = fieldCoords(field);
-  return { ix, iz, lx: ix % B_FIELD, lz: iz % B_FIELD, area: Math.floor(iz / B_FIELD) * GRID + Math.floor(ix / B_FIELD) };
+  const lx = ix % BASEMENT_TRAY_NX;
+  const lz = iz % BASEMENT_TRAY_NZ;
+  return { ix, iz, lx, lz, area: Math.floor(iz / BASEMENT_TRAY_NZ) * GRID + Math.floor(ix / BASEMENT_TRAY_NX) };
+}
+
+// Trasse an Spalte lx, Zeile lz im Bunker-Feld area? (Regeln oben)
+function trayAt(area, lx, lz) {
+  if (!isBunkerField(area)) return false;
+  const col = area % GRID;
+  const row = Math.floor(area / GRID);
+  const lastX = BASEMENT_TRAY_NX - 1;
+  const lastZ = BASEMENT_TRAY_NZ - 1;
+  if (WARM_J.has(lz)) {
+    if (lx === 0) return col > 0 && isBunkerField(area - 1);
+    if (lx === lastX) return col < GRID - 1 && isBunkerField(area + 1);
+    return true;
+  }
+  if (!SPINE_I.has(lx)) return false;
+  if (lz === 0) return row > 0 && isBunkerField(area - GRID);
+  if (lz === lastZ) return row < GRID - 1 && isBunkerField(area + GRID);
+  return true;
 }
 
 function isBasementField(field) {
   if (!inBasementRaster(field)) return false;
   const { lx, lz, area } = basementCell(field);
-  if (!isBunkerField(area)) return false;
-  const last = B_FIELD - 1;
-  if ((lx === 0 || lx === last) && (lz === 0 || lz === last)) return false;      // Stützen in den Ecken
-  if ((lx === 9 || lx === 10) && (lz === 9 || lz === 10)) return false;          // Schild in der Mitte
-  if (lx === COLUMN_CELL.lx && lz === COLUMN_CELL.lz) return false;              // Glasfaser-Säule
-  const col = area % GRID;
-  const row = Math.floor(area / GRID);
-  if (lz === 0 && !(row > 0 && isBunkerField(area - GRID))) return false;
-  if (lz === last && !(row < GRID - 1 && isBunkerField(area + GRID))) return false;
-  if (lx === 0 && !(col > 0 && isBunkerField(area - 1))) return false;
-  if (lx === last && !(col < GRID - 1 && isBunkerField(area + 1))) return false;
-  return true;
+  return trayAt(area, lx, lz);
 }
 
-// Kellerfeld (Feldnummer) eines Keller-Gitterfeldes oder null – z. B. für „durch welches Feld läuft das Kabel?“
+// Kellerfeld (Feldnummer) eines Trassenfeldes oder null – z. B. für „durch welches Feld läuft das Kabel?“
 export const basementAreaOf = (field) => (inBasementRaster(field) ? basementCell(field).area : null);
-// Lage eines Keller-Gitterfeldes im Kellerfeld { area, lx, lz } oder null
+// Lage eines Trassenfeldes im Kellerfeld { area, lx, lz } oder null
 export const basementCellOf = (field) => (inBasementRaster(field) ? basementCell(field) : null);
 
-// Keller-Gitterfeld, in dem der Punkt (x, z) liegt, oder null (kein Gitter dort)
+// Nächster Index in einer aufsteigenden Liste von Lagen, wenn v höchstens tol davon entfernt ist, sonst -1
+function nearestIndex(list, v, tol) {
+  let best = -1;
+  let bestD = Infinity;
+  list.forEach((p, i) => {
+    const d = Math.abs(p - v);
+    if (d < bestD) { bestD = d; best = i; }
+  });
+  return bestD <= tol ? best : -1;
+}
+
+// Trassenfeld, über dem der Punkt (x, z) liegt, oder null (keine Trasse dort). Getroffen ist das nächste Feld, wenn
+// der Punkt höchstens 0,5 m quer bzw. 0,55 m längs davon entfernt ist.
 export function basementFieldAt(x, z) {
-  const ix = Math.floor(x - B_ORIGIN);
-  const iz = Math.floor(z - B_ORIGIN);
-  if (ix < 0 || iz < 0 || ix >= BASEMENT_TRAY_COLS || iz >= BASEMENT_TRAY_COLS) return null;
-  const field = bIndex(ix, iz);
+  const fx = x - B_ORIGIN;
+  const fz = z - B_ORIGIN;
+  if (fx < 0 || fz < 0 || fx > GRID * B_FIELD || fz > GRID * B_FIELD) return null;
+  const col = Math.min(GRID - 1, Math.floor(fx / B_FIELD));
+  const row = Math.min(GRID - 1, Math.floor(fz / B_FIELD));
+  const lx = nearestIndex(BASEMENT_TRAY_XS, fx - col * B_FIELD, 0.55);
+  const lz = nearestIndex(BASEMENT_TRAY_ZS, fz - row * B_FIELD, 0.55);
+  if (lx < 0 || lz < 0) return null;
+  const field = bIndex(col * BASEMENT_TRAY_NX + lx, row * BASEMENT_TRAY_NZ + lz);
   return isBasementField(field) ? field : null;
 }
 
-// Alle Gitterfelder eines Bunker-Feldes (für das 3D-Gitter) bzw. die Lücken darin als Feldkoordinaten { x, z } (0…19)
-export function basementTraySkips(area) {
-  const b = fieldBounds(area);
-  const skip = [];
-  for (let lz = 0; lz < B_FIELD; lz++) {
-    for (let lx = 0; lx < B_FIELD; lx++) {
-      if (!isBasementField(bIndex(Math.round(b.minX - B_ORIGIN) + lx, Math.round(b.minZ - B_ORIGIN) + lz))) skip.push({ x: lx, z: lz });
+// Alle Trassenfelder eines Bunker-Feldes mit Lage im Feld (für world/bunker.js): [{ lx, lz, x, z }] (x/z ab der
+// Nordwest-Ecke des Feldes)
+export function basementTrayCells(area) {
+  const list = [];
+  for (let lz = 0; lz < BASEMENT_TRAY_NZ; lz++) {
+    for (let lx = 0; lx < BASEMENT_TRAY_NX; lx++) {
+      if (trayAt(area, lx, lz)) list.push({ lx, lz, x: BASEMENT_TRAY_XS[lx], z: BASEMENT_TRAY_ZS[lz] });
     }
   }
-  return skip;
+  return list;
+}
+
+// Trassenstücke eines Bunker-Feldes zum Zeichnen: [{ alongX, from, to, at }] in Feldkoordinaten – längs x von from
+// bis to auf z = at bzw. längs z auf x = at. Laufen sie an den Feldrand (Nachbar ist Bunker), reichen sie bis dorthin.
+export function basementTraySegments(area) {
+  const segs = [];
+  const runs = (n, ok) => {
+    const out = [];
+    let start = -1;
+    for (let k = 0; k <= n; k++) {
+      if (k < n && ok(k)) { if (start < 0) start = k; } else if (start >= 0) { out.push([start, k - 1]); start = -1; }
+    }
+    return out;
+  };
+  const edge = (v) => (v === EDGE_LO ? 0 : v === EDGE_HI ? B_FIELD : v);
+  for (let lz = 0; lz < BASEMENT_TRAY_NZ; lz++) {
+    for (const [a, b] of runs(BASEMENT_TRAY_NX, (lx) => trayAt(area, lx, lz) && trayAt(area, Math.min(lx + 1, BASEMENT_TRAY_NX - 1), lz) && lx < BASEMENT_TRAY_NX - 1)) {
+      segs.push({ alongX: true, from: edge(BASEMENT_TRAY_XS[a]), to: edge(BASEMENT_TRAY_XS[b + 1]), at: BASEMENT_TRAY_ZS[lz] });
+    }
+  }
+  for (let lx = 0; lx < BASEMENT_TRAY_NX; lx++) {
+    for (const [a, b] of runs(BASEMENT_TRAY_NZ, (lz) => trayAt(area, lx, lz) && lz < BASEMENT_TRAY_NZ - 1 && trayAt(area, lx, lz + 1))) {
+      segs.push({ alongX: false, from: edge(BASEMENT_TRAY_ZS[a]), to: edge(BASEMENT_TRAY_ZS[b + 1]), at: BASEMENT_TRAY_XS[lx] });
+    }
+  }
+  return segs;
+}
+
+// Kürzester Weg durch die Trassen von Feld a nach Feld b (Breitensuche über Nachbarfelder in x und z, nur im Keller)
+// als Wegpunkte für trayPath: die Ecken des Weges (ohne Start und Ziel; mindestens ein Wegpunkt), oder null, wenn
+// es keinen Weg gibt. Für die Umwandlung alter Spielstände (core/servers.js).
+export function basementAutoRoute(a, b) {
+  if (!isBasementField(a) || !isBasementField(b)) return null;
+  const prev = new Map([[a, null]]);
+  const queue = [a];
+  while (queue.length && !prev.has(b)) {
+    const f = queue.shift();
+    const { ix, iz } = fieldCoords(f);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = ix + dx;
+      const nz = iz + dz;
+      if (nx < 0 || nz < 0 || nx >= BASEMENT_TRAY_COLS || nz >= B_ROWS) continue;
+      const n = bIndex(nx, nz);
+      if (prev.has(n) || !isBasementField(n)) continue;
+      prev.set(n, f);
+      queue.push(n);
+    }
+  }
+  if (!prev.has(b)) return null;
+  const path = [];
+  for (let f = b; f !== null; f = prev.get(f)) path.unshift(f);
+  // Alle Felder dazwischen als Wegpunkte: trayPath läuft so genau diesen Weg (jedes Stück ist ein Schritt)
+  const inner = path.slice(1, -1);
+  return inner.length ? inner : [b];
 }
 
 // ---------- Beide Bereiche ----------
@@ -197,8 +300,10 @@ export const isField = (field) => (inRaster(field) ? !BLOCKED_SET.has(field) : i
 export function fieldCenter(field) {
   if (!isField(field)) return null;
   if (inBasementRaster(field)) {
-    const { ix, iz } = fieldCoords(field);
-    return { x: round3(B_ORIGIN + ix + 0.5), z: round3(B_ORIGIN + iz + 0.5) };
+    const { ix, iz, lx, lz } = basementCell(field);
+    const col = Math.floor(ix / BASEMENT_TRAY_NX);
+    const row = Math.floor(iz / BASEMENT_TRAY_NZ);
+    return { x: round3(B_ORIGIN + col * B_FIELD + BASEMENT_TRAY_XS[lx]), z: round3(B_ORIGIN + row * B_FIELD + BASEMENT_TRAY_ZS[lz]) };
   }
   return rasterCenter(field);
 }
@@ -220,7 +325,10 @@ export function fieldAt(x, z) {
 export function fieldAbove(spot) {
   const p = spotPosition(spot);
   if (!p) return null;
-  return spotArea(spot) === 'bunker' ? basementFieldAt(p.x, p.z) : fieldAt(p.x, p.z);
+  if (spotArea(spot) !== 'bunker') return fieldAt(p.x, p.z);
+  // Im Bunker: Trassenfeld über dem warmen Gang hinter der Reihe, in der Spalte des Schranks
+  const warm = BUNKER_WARM_Z[Math.floor(bunkerRowOf(spot).row / 2)];
+  return basementFieldAt(p.x, fieldBounds(p.field).minZ + warm);
 }
 
 // Feld für die Anzeige: „Feld 3/7“ (Spalte von West, Reihe von Nord, ab 1; im Keller je Bunker-Feld gezählt)
@@ -228,7 +336,13 @@ export function fieldLabel(field) {
   if (!isField(field)) return 'kein Gitterfeld';
   if (inBasementRaster(field)) {
     const { lx, lz, area } = basementCell(field);
-    return `Feld ${lx + 1}/${lz + 1} (Bunker ${bunkerNumber(area)})`;
+    const warm = BUNKER_WARM_Z.indexOf(BASEMENT_TRAY_ZS[lz]);
+    const spine = BASEMENT_SPINE_X.indexOf(BASEMENT_TRAY_XS[lx]);
+    const spineName = ['West', 'Mitte', 'Ost'][spine] ?? null;
+    const where = warm >= 0
+      ? `Trasse über Reihe ${2 * warm + 1}/${2 * warm + 2}${spineName ? ` · Kreuzung ${spineName}` : BUNKER_ROW_X.includes(BASEMENT_TRAY_XS[lx]) ? ` · über Platz ${BUNKER_ROW_X.indexOf(BASEMENT_TRAY_XS[lx]) + 1}` : ' · Übergang'}`
+      : `Quertrasse ${spineName ?? ''}${lz === 1 ? ' · Nord' : lz === BASEMENT_TRAY_NZ - 2 ? ' · Süd' : lz === 0 || lz === BASEMENT_TRAY_NZ - 1 ? ' · Übergang' : ''}`;
+    return `${where} (Bunker ${bunkerNumber(area)})`;
   }
   const { ix, iz } = fieldCoords(field);
   return `Feld ${ix + 1}/${iz + 1}`;
@@ -353,11 +467,20 @@ export function endRise(end) {
     }
     return Math.abs(p.z - WAN_TRACE.z) + (TRAY_HEIGHT - p.y) + Math.abs(fieldCenter(WAN_FIELD).x - WAN_TRACE.x);
   }
-  if (fieldAbove(end?.spot) === null) return null;
+  const above = fieldAbove(end?.spot);
+  if (above === null) return null;
   const { rackUnits, unit, units } = end;
   if (![rackUnits, unit, units].every(Number.isFinite)) return null;
   const portHeight = RACK_BASE + (rackUnits - unit - units / 2) * UNIT_METERS;
-  return TRAY_HEIGHT - portHeight + RACK_EXIT;
+  // Im Bunker hängt die Trasse über dem warmen Gang hinter dem Schrank: oben aus der Kabeleinführung (hinten im Dach)
+  // waagerecht bis zur Mitte der Trasse
+  let across = 0;
+  if (spotArea(end.spot) === 'bunker') {
+    const p = spotPosition(end.spot);
+    const exitZ = p.z - spotFacing(end.spot) * (RACK_DEPTH / 2 - 0.05);
+    across = Math.abs(fieldCenter(above).z - exitZ);
+  }
+  return TRAY_HEIGHT - portHeight + RACK_EXIT + across;
 }
 
 // ---------- Weg durch das Gitter ----------
@@ -404,7 +527,7 @@ export function trayPath(startField, waypoints, endField) {
     const part = straight(fields[fields.length - 1], target);
     if (part.some((f) => !isField(f))) {
       return { problem: basement
-        ? 'Kabelweg im Gitter nicht verbunden (Lücke im Gitter: Schild, Stütze, Wand oder kein Bunker – mit Wegpunkten außen herum führen)'
+        ? 'Kabelweg im Gitter nicht verbunden (ohne Trasse dazwischen – über die Quertrassen West, Mitte oder Ost führen)'
         : 'Kabelweg im Gitter nicht verbunden (Fahrstuhlschacht im Weg)' };
     }
     fields.push(...part);
@@ -435,12 +558,24 @@ export function trayProblem(a, b, waypoints) {
   return trayPath(fa, waypoints, fb).problem ?? null;
 }
 
+// Länge eines Weges durch die Felder in Metern: Summe der Abstände der Feldmitten (oben je Schritt 1 m, im Bunker
+// so weit, wie die Trassenfelder auseinanderliegen)
+function pathLength(fields) {
+  let sum = 0;
+  for (let k = 1; k < fields.length; k++) {
+    const p = fieldCenter(fields[k - 1]);
+    const q = fieldCenter(fields[k]);
+    sum += Math.abs(p.x - q.x) + Math.abs(p.z - q.z);
+  }
+  return round3(sum);
+}
+
 // Aufschlüsselung der Kabellänge in Metern (für Tests und Hinweise) oder null, wenn der Weg nicht geht:
 // { riseA, tray, riseB, slack, total } – total auf 10 cm aufgerundet wie in servers.js
 export function trayLengthParts(a, b, waypoints) {
   if (trayProblem(a, b, waypoints)) return null;
   const path = trayPath(endField(a), waypoints, endField(b));
-  const parts = { riseA: endRise(a), tray: path.steps * FIELD_SIZE, riseB: endRise(b), slack: CABLE_SLACK };
+  const parts = { riseA: endRise(a), tray: pathLength(path.fields), riseB: endRise(b), slack: CABLE_SLACK };
   const sum = parts.riseA + parts.tray + parts.riseB + parts.slack;
   return { ...parts, total: round1(Math.ceil(round3(sum) * 10) / 10) };
 }

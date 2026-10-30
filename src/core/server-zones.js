@@ -2,7 +2,7 @@
 //   0–15  Kundenbereich: zwei Reihen à 8 (z = −4 und 2), wie von Anfang an – gespeicherte slot-Werte bleiben gültig
 //   16–23 Private Server (orange umrandet): eine Reihe à 8 hinter der Kundenreihe z = −4
 //   24–27 Automatik (grün umrandet): eine Reihe à 4 dahinter an der Nordwand – ebenfalls privat
-//   ab 28 Daten-Bunker (#52): je Kellerfeld 16 Plätze (Platz = 28 + Feldnummer × 16 + n), nur nutzbar, solange das
+//   ab 28 Daten-Bunker (#52, #60): je Kellerfeld 120 Plätze (Platz = 28 + Feldnummer × 120 + n), nur nutzbar, solange das
 //         Feld ausgebaut und als Daten-Bunker festgelegt ist. Kundenschränke wie Reihe A/B, aber die Miete aller
 //         VMs und des Speichers darauf ist BUNKER_RENT_FACTOR-mal so hoch.
 // Private Schränke gehören einem selbst: Ihre Server laufen und kosten Strom, sind aber nicht an Kunden vermietbar.
@@ -13,10 +13,13 @@
 // vorderen und die Glastüren der hinteren Reihe zugleich. Hinter der Automatik-Reihe (Rückseite z = −8,4) bleiben
 // bis zur Nordwand (z = −10) 1,6 m zum Verkabeln. Treppe (x ab 8,75) und Aufzug (x 7,1–8,7) liegen weit im Osten.
 //
-// Bunker-Plätze liegen in Kellerkoordinaten (Welt-x/z, Boden y = −70, core/basement-layout.js): je Feld zwei Reihen
-// (Feld-z 6,5 und 12,5 ab der Nordkante), jede Reihe aus zwei Vierergruppen (Feld-x 5,5–8,5 und 11,5–14,5) mit 3 m
-// Gang in der Mitte – dort, wo die Stahltüren in der Mitte der Feldseiten liegen (world/basement-fields.js). Die
-// Schrankmitten liegen auf den Mitten der 1-m-Gitterfelder im Keller (core/cable-tray.js).
+// Bunker-Plätze liegen in Kellerkoordinaten (Welt-x/z, Boden y = −70, core/basement-layout.js) dicht wie im
+// Rechenzentrum (#60): je Feld 3 Reihenpaare = 6 Reihen (Nord nach Süd), je Reihe 2 Blöcke à 10 Schränke lückenlos
+// (0,6 m Mitte-Mitte = Schrankbreite) mit 1,5 m Quergang in der Mitte – genau vor den Stahltüren in der Mitte der
+// Feldseiten. Zwei Reihen eines Paares stehen Rücken an Rücken (1,0 m warmer Gang, darüber die Kabeltrasse), zwischen
+// den Paaren liegt ein 1,2 m kalter Gang; die Fronten zeigen in den kalten Gang bzw. nach außen (spotFacing: Reihen
+// 1, 3, 5 nach Norden, 2, 4, 6 nach Süden). Der Block sitzt mittig im Feld (x 3,25–16,75, z 4,9–15,1), rundherum
+// bleiben gut 3 m Laufweg zu Wänden, Türen und der Glasfaser-Säule in der Nordwest-Ecke.
 import { GRID, FIELD_SIZE as BASEMENT_FIELD_SIZE, fieldBounds } from './basement-layout.js';
 
 export const CUSTOMER_SPOTS = 16;
@@ -26,14 +29,42 @@ export const FIRST_PRIVATE_SPOT = CUSTOMER_SPOTS;                  // 16
 export const FIRST_AUTOMATION_SPOT = FIRST_PRIVATE_SPOT + PRIVATE_SPOTS; // 24
 export const SERVER_SPOTS = FIRST_AUTOMATION_SPOT + AUTOMATION_SPOTS;   // 28 Plätze in der zweiten Etage
 
-// Daten-Bunker (#52)
-export const BUNKER_SPOTS_PER_FIELD = 16;
+// Daten-Bunker (#52, Reihen wie im Rechenzentrum #60)
+export const BUNKER_SPOTS_PER_FIELD = 120;
 export const FIRST_BUNKER_SPOT = SERVER_SPOTS;                                  // 28
-export const ALL_SPOTS = FIRST_BUNKER_SPOT + GRID * GRID * BUNKER_SPOTS_PER_FIELD; // 604 (Feld 0 bleibt immer Lager)
+export const ALL_SPOTS = FIRST_BUNKER_SPOT + GRID * GRID * BUNKER_SPOTS_PER_FIELD; // 4348 (Feld 0 bleibt immer Lager)
 export const BUNKER_RENT_FACTOR = 1.5;  // Miet-Aufschlag für VMs und Speicher auf Servern bzw. NAS im Bunker
-// Lage im Feld (Meter ab der Nordwest-Ecke des Feldes): Schrankmitten in x je Reihe, z der beiden Reihen
-export const BUNKER_ROW_X = Object.freeze([5.5, 6.5, 7.5, 8.5, 11.5, 12.5, 13.5, 14.5]);
-export const BUNKER_ROW_Z = Object.freeze([6.5, 12.5]);
+// Lage im Feld (Meter ab der Nordwest-Ecke des Feldes)
+const round3 = (m) => Math.round(m * 1000) / 1000;
+export const BUNKER_RACK_PITCH = 0.6;   // Schrankbreite (models/server-hardware.js RACK_WIDTH) – Schränke lückenlos
+export const BUNKER_RACK_DEPTH = 0.8;   // Schranktiefe (RACK_FOOTPRINT.d)
+export const BUNKER_BLOCK = 10;         // Schränke je Block, zwei Blöcke je Reihe
+export const BUNKER_CROSS_AISLE = 1.5;  // Quergang zwischen den Blöcken
+export const BUNKER_WARM_AISLE = 1.0;   // Rücken an Rücken
+export const BUNKER_COLD_AISLE = 1.2;   // Front an Front
+const ROW_LENGTH = 2 * BUNKER_BLOCK * BUNKER_RACK_PITCH + BUNKER_CROSS_AISLE;          // 13,5 m
+const PAIR_DEPTH = 2 * BUNKER_RACK_DEPTH + BUNKER_WARM_AISLE;                         // 2,6 m
+const ROWS_DEPTH = 3 * PAIR_DEPTH + 2 * BUNKER_COLD_AISLE;                            // 10,2 m
+export const BUNKER_ROWS_BOUNDS = Object.freeze({
+  minX: round3((BASEMENT_FIELD_SIZE - ROW_LENGTH) / 2), maxX: round3((BASEMENT_FIELD_SIZE + ROW_LENGTH) / 2),
+  minZ: round3((BASEMENT_FIELD_SIZE - ROWS_DEPTH) / 2), maxZ: round3((BASEMENT_FIELD_SIZE + ROWS_DEPTH) / 2),
+});
+// Schrankmitten in x (20 je Reihe, West nach Ost) und z der 6 Reihen (Nord nach Süd)
+export const BUNKER_ROW_X = Object.freeze(Array.from({ length: 2 * BUNKER_BLOCK }, (_, k) => {
+  const block = Math.floor(k / BUNKER_BLOCK);
+  return round3(BUNKER_ROWS_BOUNDS.minX + block * (BUNKER_BLOCK * BUNKER_RACK_PITCH + BUNKER_CROSS_AISLE)
+    + ((k % BUNKER_BLOCK) + 0.5) * BUNKER_RACK_PITCH);
+}));
+export const BUNKER_ROW_Z = Object.freeze(Array.from({ length: 6 }, (_, r) => {
+  const pair = Math.floor(r / 2);
+  const start = BUNKER_ROWS_BOUNDS.minZ + pair * (PAIR_DEPTH + BUNKER_COLD_AISLE);
+  return round3(start + BUNKER_RACK_DEPTH / 2 + (r % 2) * (BUNKER_RACK_DEPTH + BUNKER_WARM_AISLE));
+}));
+// Mitte der drei warmen Gänge (dort hängen die Kabeltrassen) und der zwei kalten Gänge zwischen den Paaren
+export const BUNKER_WARM_Z = Object.freeze([0, 1, 2].map((p) => round3((BUNKER_ROW_Z[2 * p] + BUNKER_ROW_Z[2 * p + 1]) / 2)));
+export const BUNKER_COLD_Z = Object.freeze([0, 1].map((p) => round3((BUNKER_ROW_Z[2 * p + 1] + BUNKER_ROW_Z[2 * p + 2]) / 2)));
+// Mitte des Quergangs (x)
+export const BUNKER_CROSS_X = round3(BASEMENT_FIELD_SIZE / 2);
 
 const FIRST_X = -8;
 const SPACING = 1.0;
@@ -130,6 +161,21 @@ export const isAutomationRack = (rack) => rack?.location === 'server' && isAutom
 // Aufgestellter Schrank im Daten-Bunker (Miet-Aufschlag BUNKER_RENT_FACTOR)
 export const isBunkerRack = (rack) => rack?.location === 'server' && isBunkerSpot(rack.slot);
 
+// Reihe (0…5, Nord nach Süd) und Platz in der Reihe (0…19, West nach Ost) eines Bunker-Platzes, oder null
+export function bunkerRowOf(spot) {
+  if (!isBunkerSpot(spot)) return null;
+  const n = spot - bunkerSpot(bunkerFieldOf(spot), 0);
+  return { row: Math.floor(n / BUNKER_ROW_X.length), k: n % BUNKER_ROW_X.length };
+}
+
+// Richtung der Front (Glastür) eines Schranks auf dem Platz: +1 = nach Süden (+z), −1 = nach Norden. Oben schauen
+// alle nach Süden, im Bunker die Reihen 1, 3, 5 nach Norden und 2, 4, 6 nach Süden (Fronten in den kalten Gang,
+// Rücken an Rücken im warmen Gang).
+export function spotFacing(spot) {
+  const r = bunkerRowOf(spot);
+  return r && r.row % 2 === 0 ? -1 : 1;
+}
+
 // Mitte des Stellplatzes auf dem Boden: { x, z } in Metern – in der zweiten Etage Welt-x/z der Etage, im Bunker
 // Welt-x/z des Kellers (dort zusätzlich field: Kellerfeld). Die Höhe ergibt sich aus spotArea.
 export function spotPosition(spot) {
@@ -138,7 +184,7 @@ export function spotPosition(spot) {
     const n = spot - bunkerSpot(field, 0);
     const b = fieldBounds(field);
     const row = Math.floor(n / BUNKER_ROW_X.length);
-    return { x: b.minX + BUNKER_ROW_X[n % BUNKER_ROW_X.length], z: b.minZ + BUNKER_ROW_Z[row], field };
+    return { x: round3(b.minX + BUNKER_ROW_X[n % BUNKER_ROW_X.length]), z: round3(b.minZ + BUNKER_ROW_Z[row]), field };
   }
   const row = spotRow(spot);
   if (!row) return null;
@@ -155,12 +201,13 @@ export function spotDistance(a, b) {
 }
 
 // Stellplatz für die Anzeige (Schrankfenster, Server-App): „Reihe A · Platz 3“, „🔒 Privat · Platz 3“,
-// „🌡️ Automatik-Platz 2“, „Bunker 2 · Platz 5“ – Platz von West nach Ost gezählt, ab 1 (im Bunker erst die
-// nördliche, dann die südliche Reihe)
+// „🌡️ Automatik-Platz 2“, „Bunker 2 · Reihe 3 · Platz 7“ – Platz von West nach Ost gezählt, ab 1 (Bunker-Reihen von
+// Nord nach Süd)
 export function spotLabel(spot) {
   if (isBunkerSpot(spot)) {
     const field = bunkerFieldOf(spot);
-    return `Bunker ${bunkerNumber(field)} · Platz ${spot - bunkerSpot(field, 0) + 1}`;
+    const n = spot - bunkerSpot(field, 0);
+    return `Bunker ${bunkerNumber(field)} · Reihe ${Math.floor(n / BUNKER_ROW_X.length) + 1} · Platz ${(n % BUNKER_ROW_X.length) + 1}`;
   }
   const row = spotRow(spot);
   if (!row) return 'kein Stellplatz';

@@ -484,3 +484,47 @@ export function createWallRiser({ height, width = 0.3, reach = 0, depth = 0.07 }
   g.userData.top = { y: height, z: back + reach };
   return g;
 }
+
+// ---------- Kabelleitern im Daten-Bunker (#60) ----------
+
+// Leiter-Kabeltrassen wie im Rechenzentrum: je Stück zwei Seitenholme und Sprossen alle 0,3 m, alle 2 m an zwei
+// Gewindestangen von der Decke abgehängt. segments: [{ x0, z0, x1, z1 }] – achsparallele Mittellinien (Modell-
+// koordinaten, y 0 = Boden); Oberkante der Sprossen auf height. Alles in einem Mesh je Material (2 Draw Calls),
+// Klicks gehen an eigene Klickflächen in world/bunker.js.
+export function createLadderTrays(segments, { height, ceiling, width = 0.5 }) {
+  const g = new THREE.Group();
+  g.name = 'ladder-trays';
+  const parts = mergedParts();
+  const RAIL_H = 0.06;
+  const RAIL_W = 0.012;
+  const RUNG = 0.3;
+  const top = height;
+  for (const s of segments) {
+    const alongX = s.z0 === s.z1;
+    const a = alongX ? Math.min(s.x0, s.x1) : Math.min(s.z0, s.z1);
+    const b = alongX ? Math.max(s.x0, s.x1) : Math.max(s.z0, s.z1);
+    const len = b - a;
+    if (len <= 0) continue;
+    const mid = (a + b) / 2;
+    const at = alongX ? s.z0 : s.x0;
+    const box = (along, across, h, w, d, y) => (alongX ? boxGeo(w, h, d, along, y, at + across) : boxGeo(d, h, w, at + across, y, along));
+    for (const side of [-1, 1]) parts.add(MATS.zinc, box(mid, side * (width / 2), RAIL_H, len, RAIL_W, top + RAIL_H / 2 - 0.012));
+    const rungs = Math.max(1, Math.round(len / RUNG));
+    for (let k = 0; k <= rungs; k++) parts.add(MATS.zinc, box(a + (k * len) / rungs, 0, 0.012, 0.03, width, top - 0.006));
+    // Abhängung: alle 2 m (und an den Enden) zwei Stangen bis zur Decke mit Querträger darunter
+    const hangers = Math.max(1, Math.round(len / 2));
+    for (let k = 0; k <= hangers; k++) {
+      const p = a + (k * len) / hangers;
+      parts.add(MATS.zinc, box(p, 0, STRUT_H, STRUT_W, width + 0.08, top - 0.012 - STRUT_H / 2));
+      for (const side of [-1, 1]) {
+        const x = alongX ? p : at + side * (width / 2 + 0.025);
+        const z = alongX ? at + side * (width / 2 + 0.025) : p;
+        const rodLen = ceiling - (top - 0.012 - STRUT_H);
+        parts.add(MATS.rod, new THREE.CylinderGeometry(ROD_R, ROD_R, rodLen, 6, 1, true).translate(x, ceiling - rodLen / 2, z));
+      }
+    }
+  }
+  const meshes = parts.meshes();
+  if (meshes.length) g.add(...meshes);
+  return g;
+}

@@ -5,6 +5,8 @@
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
+import { BUNKER_ROW_X, BUNKER_ROW_Z, BUNKER_SPOTS_PER_FIELD, FIRST_BUNKER_SPOT, bunkerSpot } from './server-zones.js';
+import { BASEMENT_WAN_PORT0 } from './cable-tray.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
@@ -32,7 +34,10 @@ const KEY = 'druckercenter-save';
 //     und Feldtypen upgrades.basementFields (36 Einträge, core/basement-layout.js: 'storage' | 'bunker' | null)
 // 25: Eigene Website (#54, core/website.js) – Einstellungen, Status (veröffentlicht, läuft, Hochfahren) und Statistik je
 //     Tag (website); Online-Anfragen und Verträge daraus tragen source: 'website' (rentals/storageRentals, kein eigenes Feld)
-const VERSION = 25;
+// 26: Daten-Bunker mit Reihen wie im Rechenzentrum (#60, core/server-zones.js) – 120 statt 16 Plätze je Kellerfeld, neue
+//     Platznummern (Schränke ziehen auf den nächstgelegenen freien Platz im selben Feld), Kabel im Bunker über Trassen
+//     (cables[].reroute: core/servers.js verlegt sie beim Laden neu)
+const VERSION = 26;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -167,6 +172,50 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
 // Alte Spielstände (Version 2) ins neue Format bringen: Spulen bekommen Feuchte und Regalplätze,
 // fertige Teile eine Farbe (die erste passende, weil sie früher nicht gespeichert wurde),
 // laufende Drucke haben ihr Filament schon beim Start abgezogen.
+// Version 25 → 26 (#60): Bunker-Schränke auf die Reihen wie im Rechenzentrum. Jeder Schrank kommt auf den Platz im
+// selben Kellerfeld, der seinem alten am nächsten liegt und noch frei ist (in der Reihenfolge der alten Plätze).
+// Geräte bleiben im Schrank (rackId). Kabel mit einem Ende im Bunker (Keller-Anschluss oder Gerät in einem
+// Bunker-Schrank) bekommen reroute: Ihre Wegpunkte gehören zum alten 1-m-Gitter und passen nicht auf die Trassen –
+// core/servers.js verlegt sie beim Laden über den kürzesten Trassenweg neu (geht das nicht, kommt das Kabel
+// vollständig in den Vorrat zurück).
+const OLD_BUNKER_SPOTS = 16;
+const OLD_BUNKER_X = [5.5, 6.5, 7.5, 8.5, 11.5, 12.5, 13.5, 14.5];
+const OLD_BUNKER_Z = [6.5, 12.5];
+function migrateBunkerRows(data) {
+  const furniture = data.economy?.furniture ?? [];
+  const racks = furniture
+    .filter((f) => f.location === 'server' && Number.isInteger(f.slot) && f.slot >= FIRST_BUNKER_SPOT)
+    .sort((a, b) => a.slot - b.slot);
+  if (!racks.length) return;
+  const used = new Set();
+  for (const rack of racks) {
+    const old = rack.slot - FIRST_BUNKER_SPOT;
+    const field = Math.floor(old / OLD_BUNKER_SPOTS);
+    const n = old % OLD_BUNKER_SPOTS;
+    const ox = OLD_BUNKER_X[n % OLD_BUNKER_X.length];
+    const oz = OLD_BUNKER_Z[Math.floor(n / OLD_BUNKER_X.length)];
+    let best = null;
+    let bestD = Infinity;
+    for (let m = 0; m < BUNKER_SPOTS_PER_FIELD; m++) {
+      const spot = bunkerSpot(field, m);
+      if (used.has(spot)) continue;
+      const d = Math.hypot(BUNKER_ROW_X[m % BUNKER_ROW_X.length] - ox, BUNKER_ROW_Z[Math.floor(m / BUNKER_ROW_X.length)] - oz);
+      if (d < bestD) { bestD = d; best = spot; }
+    }
+    used.add(best);
+    rack.slot = best;
+  }
+  const bunkerRacks = new Set(racks.map((r) => r.id));
+  const inBunker = (ref) => {
+    if (ref?.id === 'wan') return ref.port >= BASEMENT_WAN_PORT0;
+    const device = furniture.find((f) => f.id === ref?.id);
+    return !!device && device.location === 'rack' && bunkerRacks.has(device.rackId);
+  };
+  for (const c of data.servers?.cables ?? []) {
+    if (inBunker(c.a) || inBunker(c.b)) c.reroute = true;
+  }
+}
+
 function migrateV2(data) {
   const e = data.economy;
   let shelfSlot = 0;
@@ -301,6 +350,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 24) {
     data.website ??= null;
     data.version = 25;
+  }
+  // Version 25 hat 16 Bunker-Plätze je Kellerfeld im 1-m-Gitter: auf die neuen Reihen umziehen
+  if (data?.version === 25) {
+    migrateBunkerRows(data);
+    data.version = 26;
   }
   if (data?.version !== VERSION) return false;
 
