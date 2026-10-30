@@ -1,13 +1,13 @@
 // HUD oben links: Level mit XP-Balken, Kontostand (zählt animiert hoch/runter, mit +/−-Einblendungen),
-// Spieluhr, laufende Kosten und offene Aufträge. Dazu die Level-Up-Einblendung, Meldungen (Pannen, Lieferungen …),
+// Spieluhr, Stromtarif bzw. Stromausfall (#57), laufende Kosten und offene Aufträge. Dazu die Level-Up-Einblendung, Meldungen (Pannen, Lieferungen …),
 // Erfolge und das Speichern-Symbol.
 import { BANKRUPT_AT } from '../core/economy.js';
 import { euro } from '../core/format.js';
 
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
 
-// clock: Spieluhr (game-clock.js)
-export function createHud(economy, orders, progress, clock) {
+// clock: Spieluhr (game-clock.js), powerGrid: Stromnetz (core/power-grid.js, #57) für Tarif bzw. Stromausfall
+export function createHud(economy, orders, progress, clock, powerGrid = null) {
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.innerHTML = `
@@ -24,6 +24,7 @@ export function createHud(economy, orders, progress, clock) {
       <div class="hud-money-popups"></div>
     </div>
     <div class="hud-row hud-clock"><span class="hud-label">🕒<span class="hud-label-text"> Uhrzeit</span></span><span class="hud-value" data-field="clock"></span></div>
+    ${powerGrid ? '<div class="hud-row hud-power"><span class="hud-label">⚡<span class="hud-label-text"> Strom</span></span><span class="hud-value" data-field="power"></span></div>' : ''}
     <div class="hud-row hud-costs"><span class="hud-label">💸<span class="hud-label-text"> Laufende Kosten</span></span><span class="hud-value" data-field="costs"></span></div>
     <div class="hud-row hud-orders"><span class="hud-label">📋<span class="hud-label-text"> Aufträge</span></span><span class="hud-value" data-field="orders"></span></div>
     <div class="hud-warning hidden" data-field="warning"></div>
@@ -88,6 +89,10 @@ export function createHud(economy, orders, progress, clock) {
     if (text === lastClock) return;
     lastClock = text;
     field('clock').textContent = text;
+    if (powerGrid) {
+      field('power').textContent = powerGrid.statusText();
+      field('power').parentElement.classList.toggle('outage', powerGrid.isOutage);
+    }
     field('costs').textContent = `${euro.format(economy.costPerHour)} / h`;
   }
 

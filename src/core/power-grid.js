@@ -69,8 +69,10 @@ const num = (v) => (Number.isFinite(v) ? v : null);
 
 export class PowerGrid {
   // random: Zufallsquelle (für Tests austauschbar, auch später über this.random)
-  constructor({ random = Math.random } = {}) {
+  // clock: Spieluhr (GameClock, optional) – liefert die aktuelle Spielzeit für Tarif und Status
+  constructor({ random = Math.random, clock = null } = {}) {
     this.random = random;
+    this.clock = clock;
     this.outage = null;        // { minutesLeft, duration } während eines Ausfalls
     this.nextOutageIn = null;  // Spielminuten bis zum nächsten Ausfall, null ohne Notstrom
     this.lastOutage = null;    // { start (Spielminute, wenn bekannt), duration } – für die Anzeige im Leitstand (#59)
@@ -84,19 +86,45 @@ export class PowerGrid {
 
   // ---------- Tarif ----------
 
+  // Aktuelle Spielzeit: aus der Spieluhr, sonst die zuletzt in advance gesehene
+  get time() {
+    return this.clock?.minutes ?? this.now ?? 0;
+  }
+
   // Aktueller Tarif; minutes: Spielzeit oder ein Objekt mit .minutes (GameClock)
-  tariff(minutes = this.now ?? 0) {
+  tariff(minutes = this.time) {
     return tariffAt(typeof minutes === 'object' ? minutes.minutes : minutes);
   }
 
   // Faktor für die Stromkosten über [from, from + minutes): Tarif, während eines Ausfalls 0
-  costFactorOver(from, minutes) {
+  costFactorOver(from = this.time, minutes = 0) {
     return this.outage ? 0 : averageTariff(from, minutes);
   }
 
-  // Text fürs HUD: „⚡ Stromausfall“ während eines Ausfalls, sonst „🌙 Nachtstrom“ / „☀️ Tagstrom“
-  statusText(minutes = this.now ?? 0) {
-    return this.outage ? '⚡ Stromausfall' : this.tariff(minutes).text;
+  // Faktor für die Stromkosten genau jetzt (Anzeige „laufende Kosten“)
+  get costFactor() {
+    return this.costFactorOver(this.time, 0);
+  }
+
+  // Text fürs HUD: „⚡ Stromausfall · noch 34 min“ während eines Ausfalls, sonst „🌙 Nachtstrom“ / „☀️ Tagstrom“
+  statusText(minutes = this.time) {
+    if (this.outage) return `⚡ Stromausfall · noch ${Math.max(1, Math.ceil(this.outage.minutesLeft))} min`;
+    return this.tariff(minutes).text;
+  }
+
+  // Alles auf einen Blick, z. B. für den Leitstand (#58): Tarif, Ausfall, Notstrom und welche Gruppe Strom hat
+  status(minutes = this.time) {
+    const tariff = this.tariff(minutes);
+    return {
+      tariff,
+      factor: this.costFactorOver(minutes, 0),
+      text: this.statusText(minutes),
+      outage: this.outage ? { ...this.outage } : null,
+      nextOutageIn: this.nextOutageIn,
+      lastOutage: this.lastOutage ? { ...this.lastOutage } : null,
+      backup: this.backup,
+      powered: Object.fromEntries(POWER_GROUPS.map((g) => [g, this.isPowered(g)])),
+    };
   }
 
   // ---------- Ausfälle ----------
@@ -117,7 +145,7 @@ export class PowerGrid {
   }
 
   // Spielminuten laufen lassen. clock (optional, GameClock): für Tarifwechsel-Meldungen und den Start im Leitstand
-  advance(gameMinutes, clock = null) {
+  advance(gameMinutes, clock = this.clock) {
     if (clock) this.now = clock.minutes;
     let rest = Math.max(0, gameMinutes);
     while (rest > 0) {
@@ -172,7 +200,7 @@ export class PowerGrid {
   // Test/Cheat: Ausfall sofort auslösen (auch ohne Notstrom) bzw. vorzeitig beenden
   triggerOutage(minutes = Math.round(between(this.random, OUTAGE_MINUTES))) {
     if (this.outage) this.outage = null;
-    this.startOutage(minutes);
+    this.startOutage(minutes, this.clock?.minutes ?? this.now);
   }
 
   endOutage() {

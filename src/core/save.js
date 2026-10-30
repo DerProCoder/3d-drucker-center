@@ -1,7 +1,7 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
 // game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench,
-// nas, storageRentals, website }
+// nas, storageRentals, website, powerGrid }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -45,7 +45,9 @@ const KEY = 'druckercenter-save';
 //     Port-Nummern ab BASEMENT_WAN_PORT0; die einzelne Glasfaser-Säule (Ports 1000…1031, servers.basementWanField)
 //     entfällt. Ihre Kabel stecken danach am Kasten 1 (Nordwest) im selben Feld und werden neu verlegt.
 // 29: Raum bei −10,5 m am Kellertreppenhaus (#56, core/upgrades.js) – upgrades.controlRoom/controlRoomOrdered
-const VERSION = 29;
+// 30: Stromnetz (#57, core/power-grid.js) – laufender Stromausfall (Restdauer), Zeit bis zum nächsten Ausfall und der
+//     letzte Ausfall (powerGrid). Alte Stände: kein Ausfall, Zählung beginnt erst mit Notstrom (#59)
+const VERSION = 30;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -68,7 +70,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website, powerGrid }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -171,6 +173,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     serverParts: serverParts?.toJSON(), // Bauteile je Server, Teilelager und Lieferungen (core/server-parts.js)
     storageRentals: storageRentals?.toJSON(), // Speicher-Anfragen und -Verträge auf den NAS (core/storage-rentals.js)
     website: website?.toJSON(), // eigene Website: Einstellungen, Status, Statistik (core/website.js)
+    powerGrid: powerGrid?.toJSON(), // Stromausfall und Zeit bis zum nächsten (core/power-grid.js, #57)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -284,7 +287,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage, powerGrid }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -416,6 +419,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     }
     data.version = 29;
   }
+  // Version 29 kennt das Stromnetz noch nicht: kein Ausfall (powerGrid.load ohne Daten)
+  if (data?.version === 29) {
+    data.powerGrid ??= null;
+    data.version = 30;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -511,6 +519,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   storageRentals?.load(data.storageRentals); // nach serverParts und rentals: Verträge auf fehlenden NAS fallen weg
   rentalAutomation?.load(data.rentalAutomation);
   website?.load(data.website); // nach rentals und storageRentals (Online-Anfragen stehen dort)
+  powerGrid?.load(data.powerGrid); // Stromnetz (#57): laufender Ausfall, Zeit bis zum nächsten
   aiService?.load(data.aiService);
   economy.notify();
   orders.notify();

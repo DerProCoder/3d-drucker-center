@@ -170,7 +170,17 @@ export class ServerClimate {
     if (minutes <= 0) return;
     let changed = false;
     const installed = new Set();
-    for (const rack of this.servers.racks) {
+    // Stromausfall (#57, Gruppe 'servers'): Geräte, Lüfter und Klimaanlage sind aus – alles nimmt Raumtemperatur an
+    // wie ausgebaute Geräte, ohne Hitze- oder Kälteschaden. Mit Notstrom (#59) läuft das Klima normal weiter.
+    const powered = this.servers.powered?.() ?? true;
+    if (!powered) {
+      for (const rack of this.servers.racks) {
+        const r = this.rack(rack.id);
+        r.inlet = ROOM_TEMP;
+        r.air = approach(r.air, ROOM_TEMP, minutes, RACK_TAU);
+      }
+    }
+    for (const rack of powered ? this.servers.racks : []) {
       const r = this.rack(rack.id);
       r.inlet = inletTemp(r.bottom);
       const devices = this.servers.devicesIn(rack.id);
@@ -183,7 +193,7 @@ export class ServerClimate {
         changed = this.stress(d, s, minutes) || changed;
       }
     }
-    // Ausgebaute Geräte nehmen Raumtemperatur an, Schäden heilen (defekt bleibt defekt)
+    // Ausgebaute (bzw. stromlose) Geräte nehmen Raumtemperatur an, Schäden heilen (defekt bleibt defekt)
     for (const [id, s] of this.devices) {
       if (installed.has(id)) continue;
       s.temp = approach(s.temp, ROOM_TEMP, minutes, DEVICE_TAU);

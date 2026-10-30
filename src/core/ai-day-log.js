@@ -2,8 +2,9 @@
 // Spieltag Einnahmen, KI-Abo, gelieferte Aufträge, Strom, laufende Kosten, verdrucktes Filament und XP. Gehört zum
 // KI-Dienst (core/ai-service.js) und wird mit ihm gespeichert. Ohne Three.js und DOM.
 // Einnahmen: jede Erhöhung des Kontostands zwischen zwei economy.notify() – alle Einnahmen laufen über
-// economy.earn(), das sofort meldet. Strom und Kosten werden je Spielminute aus powerPerHour bzw. costPerHour
-// aufsummiert, Filament über job.gramsUsed der laufenden Drucke, Aufträge und XP als Zuwachs von orders.completed
+// economy.earn(), das sofort meldet. Strom und Kosten sind die tatsächlich angefallenen Beträge (mit Tag-/Nachttarif,
+// bei Stromausfall kein Strom, #57): Zuwachs von economy.powerCostTotal bzw. costTotal zwischen zwei Messungen,
+// ohne diese Zähler aus powerCostPerHour bzw. costPerHour aufsummiert, Filament über job.gramsUsed der laufenden Drucke, Aufträge und XP als Zuwachs von orders.completed
 // bzw. progress.xp. Ohne Uhr (clock) gibt es keine Tage und damit keinen Verlauf.
 
 export const LOG_DAYS = 7;          // so viele abgeschlossene Tage werden gemerkt
@@ -36,6 +37,8 @@ export class DayLog {
     this.lastMoney = economy?.money ?? 0;
     this.lastCompleted = null;  // Zählerstände der letzten Messung (null = noch nicht gemessen)
     this.lastXp = null;
+    this.lastPowerTotal = num(economy?.powerCostTotal); // Zählerstände der Kosten (core/economy.js)
+    this.lastCostTotal = num(economy?.costTotal);
     this.jobGrams = new WeakMap(); // Druckauftrag → bei der letzten Messung verbrauchte Gramm
     this.primed = false;     // erste Messung nach Start/Laden merkt nur die Zählerstände
     this.sinceSample = 0;
@@ -99,8 +102,18 @@ export class DayLog {
     const t = this.today;
     const { economy, orders, progress } = this;
     if (economy) {
-      t.power = round2(t.power + (num(economy.powerPerHour) * minutes) / 60);
-      t.costs = round2(t.costs + (num(economy.costPerHour) * minutes) / 60);
+      if (Number.isFinite(economy.powerCostTotal) && Number.isFinite(economy.costTotal)) {
+        // tatsächlich abgerechnet seit der letzten Messung (Zähler können nach einem Neustart kleiner sein)
+        const power = economy.powerCostTotal - this.lastPowerTotal;
+        const costs = economy.costTotal - this.lastCostTotal;
+        this.lastPowerTotal = economy.powerCostTotal;
+        this.lastCostTotal = economy.costTotal;
+        if (power > 0) t.power += power; // ungerundet, sonst gingen Bruchteile von Cent je Minute verloren
+        if (costs > 0) t.costs += costs;
+      } else {
+        t.power = round2(t.power + (num(economy.powerCostPerHour ?? economy.powerPerHour) * minutes) / 60);
+        t.costs = round2(t.costs + (num(economy.costPerHour) * minutes) / 60);
+      }
       for (const p of economy.printers ?? []) {
         const job = p.job;
         if (!job || typeof job !== 'object') continue;

@@ -70,6 +70,9 @@ export function createPrinterMenu(economy) {
     if (job.pauseReason === 'waste') {
       return { text: `🗑️ Mülleimer voll bei ${pct} % – leeren, dann geht es weiter`, cls: 'paused' };
     }
+    if (job.pauseReason === 'power') {
+      return { text: `⚡ Stromausfall bei ${pct} % – der Druck wartet auf Strom und läuft danach von selbst weiter`, cls: 'paused' };
+    }
     if (job.status === 'paused') return { text: `Pausiert: ${name} – ${pct} %`, cls: 'paused' };
     const remaining = economy.remainingMinutes(p);
     const realMinutes = remaining / GAME_MINUTES_PER_SECOND / 60;
@@ -100,6 +103,7 @@ export function createPrinterMenu(economy) {
     if (job.status === 'failed') return { text: `Fehldruck bei ${pct} %`, cls: 'failed' };
     if (job.pauseReason === 'filament') return { text: `Filament leer · ${pct} %`, cls: 'paused' };
     if (job.pauseReason === 'waste') return { text: `Mülleimer voll · ${pct} %`, cls: 'paused' };
+    if (job.pauseReason === 'power') return { text: `⚡ Stromausfall · ${pct} %`, cls: 'paused' };
     if (job.status === 'paused') return { text: `Pausiert · ${pct} %`, cls: 'paused' };
     return { text: `${pct} % · ${realLeft(p)}`, cls: 'printing' };
   }
@@ -162,6 +166,7 @@ export function createPrinterMenu(economy) {
       : '<button class="buy" data-action="resume">Fortsetzen</button>';
     if (job.pauseReason === 'filament') toggle = '<button class="buy" disabled>Neue Spule einlegen</button>';
     if (job.pauseReason === 'waste') toggle = '<button class="buy" data-action="empty">Mülleimer leeren</button>';
+    if (job.pauseReason === 'power') toggle = '<button class="buy" disabled>wartet auf Strom</button>';
     return `${toggle}<button class="danger" data-action="cancel">Abbrechen</button>`;
   }
 

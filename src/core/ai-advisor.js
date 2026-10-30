@@ -24,6 +24,7 @@ import { serverHardwareById } from './server-catalog.js';
 import { AI_FEE_PER_SERVER, AI_SERVER_ID, LEVEL_FACTORS, LEVEL_THRESHOLDS, MAX_LEVEL, feeFor, isAIServer, levelFor } from './ai-service.js';
 import { euro, formatMinutes, realTime } from './format.js';
 import { DESIGN_BONUS } from './website.js';
+import { averageTariff } from './power-grid.js';
 
 export { MAX_LEVEL };
 const MINUTES_PER_DAY = 24 * 60;
@@ -456,6 +457,7 @@ export class AIAdvisor {
       const fil = filamentById(waitingFilament(job));
       problem = `wartet auf Filament${fil ? ` (${filamentLabel(fil)})` : ''}`;
     } else if (job?.status === 'paused' && job.pauseReason === 'waste') problem = 'Mülleimer mit Spülabfall voll – leeren';
+    else if (job?.status === 'paused' && job.pauseReason === 'power') problem = 'Stromausfall – wartet auf Strom, druckt danach weiter';
     else if (p.clogged) problem = 'Düse verstopft – freistechen';
     else if ((p.nozzleWear ?? 0) >= 1) problem = 'Düse verschlissen – Ersatzdüse einbauen';
     else if (!laser && !job && !p.spools.some(Boolean)) problem = 'hat kein Filament';
@@ -680,7 +682,8 @@ export class AIAdvisor {
     p.numbers.push(`${plural(f.printers.length, 'Drucker steht', 'Drucker stehen')} auf den Tischen, ${printing} ${printing === 1 ? 'druckt' : 'drucken'} gerade.`);
     if (f.boxed) p.numbers.push(`${plural(f.boxed, 'Drucker wartet', 'Drucker warten')} im Abstellraum aufs Aufstellen.`);
     if (upgrades) p.numbers.push(`Freie Druckerplätze: ${Math.max(0, upgrades.printerSlots - economy.printers.length)}.`);
-    const powerPrinters = economy.powerPerHour - (economy.extraPowerPerHour?.() ?? 0);
+    // Kosten mit dem aktuellen Tarif (Tag-/Nachtstrom, bei Stromausfall 0, #57)
+    const powerPrinters = (economy.powerPerHour - (economy.extraPowerPerHour?.() ?? 0)) * (economy.powerCostFactor ?? 1);
     p.numbers.push(`Strom der Drucker: ${euro.format(powerPrinters)} pro Stunde.`);
     for (const x of f.printers) {
       if (x.problem) p.problems.push(`${this.printerName(x.p)}: ${x.problem}.`);
@@ -910,7 +913,7 @@ export class AIAdvisor {
     p.general.push(`Geld kommt über Aufträge, vermietete Server und das KI-Abo. Jede Stunde gehen Miete, Strom und Lohn ab. Unter ${euro.format(BANKRUPT_AT)} ist Schluss.`);
     if (!economy) return p;
     p.numbers.push(this.moneyLine(f));
-    p.numbers.push(`Laufende Kosten ${euro.format(f.cost)} pro Stunde (Miete ${euro.format(RENT_PER_HOUR)}, Strom ${euro.format(economy.powerPerHour)}, Lohn ${euro.format(economy.wagesPerHour)}).`);
+    p.numbers.push(`Laufende Kosten ${euro.format(f.cost)} pro Stunde (Miete ${euro.format(RENT_PER_HOUR)}, Strom ${euro.format(economy.powerCostPerHour ?? economy.powerPerHour)}, Lohn ${euro.format(economy.wagesPerHour)}).`);
     p.numbers.push(`Feste Einnahmen ${euro.format(f.income)} pro Stunde (VM-Miete und KI-Abo).`);
     if (economy.money < 0) p.problems.push(`Das Konto ist im Minus – ab ${euro.format(BANKRUPT_AT)} bist du pleite.`);
     if (f.income < f.cost) p.problems.push(`Ohne Aufträge verlierst du ${euro.format(f.cost - f.income)} pro Stunde.`);
@@ -930,9 +933,17 @@ export class AIAdvisor {
     p.general.push('Strom kosten Drucker (beim Drucken voll, im Leerlauf ein wenig), alle eingebauten Server-Geräte und die Lüfter. Abgerechnet wird zu jeder vollen Stunde.');
     if (!economy) return p;
     const extra = economy.extraPowerPerHour?.() ?? 0;
-    p.numbers.push(`Strom gesamt ${euro.format(economy.powerPerHour)} pro Stunde: Drucker ${euro.format(economy.powerPerHour - extra)}`
+    const grid = economy.powerGrid;
+    if (grid) {
+      p.general.push('Von 22 bis 6 Uhr gibt es Nachtstrom (× 0,6), tagsüber Tagstrom (× 1,1) – lange Drucke lohnen sich nachts.');
+      p.numbers.push(`Tarif gerade: ${grid.statusText()} – Strom kostet ${euro.format(economy.powerCostPerHour)} pro Stunde.`);
+    }
+    p.numbers.push(`Verbrauch zum Grundpreis ${euro.format(economy.powerPerHour)} pro Stunde: Drucker ${euro.format(economy.powerPerHour - extra)}`
       + `${servers ? `, Server ${euro.format(servers.powerPerHour)}` : ''}${climate ? `, Lüfter ${euro.format(climate.fanPowerPerHour)}` : ''}.`);
-    const offline = [...f.servers, ...f.aiServers].filter((d) => !f.reached.has(d.id));
+    const outage = !!grid?.isOutage;
+    if (outage) p.problems.push(`Stromausfall – Drucker pausieren, Server sind offline. Noch etwa ${Math.ceil(grid.outage.minutesLeft)} Spielminuten.`);
+    // Bei Stromausfall sind alle Server offline, kosten dann aber auch nichts
+    const offline = outage ? [] : [...f.servers, ...f.aiServers].filter((d) => !f.reached.has(d.id));
     if (offline.length) {
       p.problems.push(`${plural(offline.length, 'Server ist', 'Server sind')} offline, ${offline.length === 1 ? 'kostet' : 'kosten'} aber ${euro.format(offline.reduce((s, d) => s + (servers?.powerOf(d) ?? d.type.power), 0))} Strom pro Stunde.`);
     }
@@ -941,7 +952,7 @@ export class AIAdvisor {
     if (idle) p.advice.push(`${plural(idle, 'Drucker im Leerlauf', 'Drucker im Leerlauf')} – beschäftigen oder in den Abstellraum bringen.`);
     if (offline.length) p.advice.push('Bring die offline Server ans Netz oder bau sie aus – so zahlst du keinen Strom umsonst.');
     if (!p.advice.length) p.advice.push('RISC-Server sind sparsam – sie brauchen wenig Strom für ihre Miete.');
-    p.forecast.push(`Bis Tagesende kostet der Strom noch etwa ${euro.format(economy.powerPerHour * this.hoursLeftToday())}.`);
+    p.forecast.push(`Bis Tagesende kostet der Strom noch etwa ${euro.format(this.powerCostAhead(this.hoursLeftToday() * 60))}.`);
     return p;
   }
 
@@ -1242,7 +1253,7 @@ export class AIAdvisor {
           ? `KI-Abo: ${euro.format(fee * 24)} am Tag, in ${OUTLOOK_DAYS} Tagen ${euro.format(fee * 24 * OUTLOOK_DAYS)} – solange alle KI-GPU-Server rechnen.`
           : 'KI-Abo: bringt gerade nichts – kein KI-GPU-Server rechnet.');
       } else if (key === 'power' && economy) {
-        lines.push(`Strom: bei ${euro.format(economy.powerPerHour)} pro Stunde etwa ${euro.format(economy.powerPerHour * 24)} am Tag`
+        lines.push(`Strom: bei ${euro.format(economy.powerPerHour)} Verbrauch pro Stunde (Grundpreis) etwa ${euro.format(this.powerCostAhead(MINUTES_PER_DAY))} am Tag mit Tag-/Nachttarif`
           + `${avg ? ` (Schnitt bisher ${euro.format(avg.power)})` : ''}.`);
       }
     }
@@ -1490,6 +1501,14 @@ export class AIAdvisor {
   // Miete pro Stunde aus VMs und vermietetem Speicher (#47, storageRentals fehlt ohne NAS-Verdrahtung)
   rentIncome() {
     return (this.game.rentals?.incomePerHour ?? 0) + (this.game.storageRentals?.incomePerHour ?? 0);
+  }
+
+  // Stromkosten der nächsten minutes Spielminuten beim heutigen Verbrauch, mit Tag-/Nachttarif (#57)
+  powerCostAhead(minutes) {
+    const economy = this.game.economy;
+    if (!economy || !(minutes > 0)) return 0;
+    const factor = economy.powerGrid ? averageTariff(this.game.clock?.minutes ?? economy.powerGrid.time, minutes) : 1;
+    return (economy.powerPerHour * factor * minutes) / 60;
   }
 
   hoursLeftToday() {

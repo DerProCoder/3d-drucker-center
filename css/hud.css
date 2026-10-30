@@ -92,6 +92,8 @@
 }
 .hud-label { opacity: 0.7; }
 .hud-value { font-weight: 600; }
+/* Stromausfall (#57): Strom-Zeile rot */
+.hud-power.outage .hud-value { color: var(--bad); }
 
 #interact-hint {
   position: fixed;

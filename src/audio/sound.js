@@ -106,6 +106,18 @@ export function createSound() {
       tone(820, 0, 0.5, { type: 'sawtooth', volume: 0.06, slideTo: 260 });
       tone(610, 0.05, 0.45, { type: 'square', volume: 0.025, slideTo: 200 });
     },
+    // Stromausfall (#57): Klacken des Sicherungsautomaten, dann fällt das Netzbrummen ab
+    outage: () => {
+      noise(0.08, { volume: 0.3, lowpass: 2500 });
+      tone(100, 0.05, 1.2, { type: 'sawtooth', volume: 0.08, slideTo: 30 });
+      tone(50, 0.05, 1.2, { type: 'sine', volume: 0.15, slideTo: 20 });
+    },
+    // Strom wieder da: Netzbrummen fährt hoch, kurzer Bestätigungston
+    'power-back': () => {
+      tone(40, 0, 0.8, { type: 'sawtooth', volume: 0.06, slideTo: 100 });
+      tone(660, 0.7, 0.15, { type: 'triangle', volume: 0.12 });
+      tone(990, 0.85, 0.2, { type: 'triangle', volume: 0.12 });
+    },
   };
 
   function play(name) {

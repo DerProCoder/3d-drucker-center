@@ -93,7 +93,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //   waste: Gramm Spülabfall im Mülleimer (nur eine Düse mit AMS), bei WASTE_BIN_GRAMS ist er voll
 //   sheet: eingelegte Holzplatte { woodId } (nur Laser, siehe core/laser.js) oder null
 //   job: { templateId, count (Teile auf der Platte), filamentId, slot, progress 0…1, gramsUsed,
-//          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament' | 'waste', failure?: Schlüssel aus FAILURES,
+//          status: 'printing' | 'paused' | 'done' | 'failed', pauseReason?: 'filament' | 'waste' | 'power' (Stromausfall, #57), failure?: Schlüssel aus FAILURES,
 //          zweifarbig zusätzlich filamentId2, slot2 und missingFilament (auf welche Spule der Drucker wartet),
 //          mehrfarbig filamentIds und slots (alle Farben, [0] = filamentId/slot) und missingFilament }
 //        oder null
@@ -123,6 +123,10 @@ export class Economy {
     this.overflow = null;
     this.wagesPerHour = 0;           // Lohn fürs Personal (setzt core/staff.js)
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
+    // Zähler seit Spielstart bzw. Laden (nicht gespeichert): tatsächlich angefallene Stromkosten (mit Tarif) und alle
+    // laufenden Kosten – der KI-Tagesverlauf (core/ai-day-log.js) zählt daraus die Differenzen
+    this.powerCostTotal = 0;
+    this.costTotal = 0;
     this.printers = [];
     this.shelf = [];                 // Spulen im Regal
     this.woodStock = {};             // Holzplatten im Abstellraum: Holz-ID → Anzahl
@@ -136,6 +140,7 @@ export class Economy {
     this.listeners = new Set();
     this.onEvent = null;             // (type, data) => void – für Sound, Meldungen und Erfolge
     this.extraPowerPerHour = null;   // () => Strom weiterer Geräte pro Stunde (Server, core/servers.js)
+    this.powerGrid = null;           // Stromnetz (core/power-grid.js, #57): Tarif, Stromausfall – ohne: Faktor 1
     this.random = Math.random;       // austauschbar, damit sich Pannen im Test erzwingen lassen
   }
 
@@ -149,8 +154,27 @@ export class Economy {
       + (this.extraPowerPerHour?.() ?? 0);
   }
 
+  // Faktor für die Stromkosten gerade jetzt: Tag-/Nachttarif, bei Stromausfall 0 (core/power-grid.js, #57)
+  get powerCostFactor() {
+    return this.powerGrid ? this.powerGrid.costFactor : 1;
+  }
+
+  // Was der Strom gerade wirklich kostet (Verbrauch × Tarif) – powerPerHour ist der Verbrauch zum Grundpreis
+  get powerCostPerHour() {
+    return this.powerPerHour * this.powerCostFactor;
+  }
+
   get costPerHour() {
-    return RENT_PER_HOUR + this.powerPerHour + this.wagesPerHour;
+    return RENT_PER_HOUR + this.powerCostPerHour + this.wagesPerHour;
+  }
+
+  // Strom-Zustand für Anzeigen (Leitstand #58): Tarif, Ausfall, Notstrom, Verbrauch und Kosten pro Stunde
+  get powerStatus() {
+    return {
+      ...(this.powerGrid?.status() ?? { factor: 1, outage: null, backup: false }),
+      powerPerHour: this.powerPerHour,
+      powerCostPerHour: this.powerCostPerHour,
+    };
   }
 
   get bankrupt() {
@@ -161,10 +185,36 @@ export class Economy {
     return this.accessories.has('dryer');
   }
 
-  // Lässt die Spielzeit laufen: Spulen ziehen Feuchte, Miete und Strom laufen auf
-  advanceTime(gameMinutes) {
-    this.pendingCosts += (this.costPerHour * gameMinutes) / 60;
+  // Lässt die Spielzeit laufen: Spulen ziehen Feuchte, Miete und Strom laufen auf. from: Spielzeit zu Beginn des
+  // Schritts (GameClock.minutes) – damit gilt über 6 bzw. 22 Uhr hinweg genau der Tarif der jeweiligen Minuten
+  advanceTime(gameMinutes, from) {
+    const factor = this.powerGrid ? this.powerGrid.costFactorOver(from ?? this.powerGrid.time, gameMinutes) : 1;
+    const power = (this.powerPerHour * factor * gameMinutes) / 60;
+    const costs = ((RENT_PER_HOUR + this.wagesPerHour) * gameMinutes) / 60 + power;
+    this.pendingCosts += costs;
+    this.powerCostTotal += power;
+    this.costTotal += costs;
     this.updateMoisture(gameMinutes);
+  }
+
+  // Stromausfall (#57): laufende Drucke pausieren mit Grund 'power' (kein Fehldruck), danach laufen sie weiter.
+  // Gibt zurück, ob sich ein Status geändert hat.
+  syncPrinterPower() {
+    const powered = !this.powerGrid || this.powerGrid.isPowered('printers');
+    let changed = false;
+    for (const p of this.printers) {
+      const job = p.job;
+      if (!powered && job?.status === 'printing') {
+        job.status = 'paused';
+        job.pauseReason = 'power';
+        changed = true;
+      } else if (powered && job?.status === 'paused' && job.pauseReason === 'power') {
+        job.status = 'printing';
+        delete job.pauseReason;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // Zu jeder vollen Spielstunde (Meldung der Spieluhr): aufgelaufene Miete und Strom abbuchen
@@ -744,7 +794,7 @@ export class Economy {
   // Lässt alle laufenden Drucke um gameMinutes weiterlaufen: Filament wird verbraucht, Pannen können passieren.
   // Benachrichtigt nur, wenn sich ein Status ändert, damit das Druckermenü nicht in jedem Frame neu aufgebaut wird.
   advancePrints(gameMinutes) {
-    let changed = false;
+    let changed = this.syncPrinterPower();
     for (const p of this.printers) {
       const job = p.job;
       if (job?.status !== 'printing') continue;

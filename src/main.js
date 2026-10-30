@@ -12,6 +12,7 @@ import { Staff } from './core/staff.js';
 import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
+import { PowerGrid, NIGHT_FACTOR, DAY_FACTOR } from './core/power-grid.js';
 import { euro, euroRound, meters } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
@@ -88,10 +89,14 @@ const orders = new Orders(economy, progress);
 const achievements = new Achievements();
 const upgrades = new Upgrades(economy);
 const gameClock = new GameClock();
+// Stromnetz (#57): Tag-/Nachttarif und Stromausfälle (die gibt es erst mit Notstrom, hasBackup kommt mit #59)
+const powerGrid = new PowerGrid({ clock: gameClock });
+economy.powerGrid = powerGrid; // Tarif in der Abrechnung, Drucker pausieren bei Stromausfall
 const staff = new Staff(economy);
 const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
+servers.powered = () => powerGrid.isPowered('servers'); // Stromausfall: Netz und Klima im Serverraum aus
 servers.attachBasement(upgrades.basementLayout); // Daten-Bunker im Keller (#52): Bunker-Plätze, Gitter, Feld-Prüfung
 // Keller-Lager (#53): Kartons, wenn der Abstellraum voll ist, und trockene Filament-Regale in den Lager-Feldern
 const basementStorage = new BasementStorage(economy, upgrades.basementLayout);
@@ -113,7 +118,7 @@ const website = new Website({ economy, servers, rentals, storage: storageRentals
 const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
 // Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage, powerGrid };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -122,7 +127,7 @@ if (saveFound) {
 } else {
   economy.giveStarterKit();
 }
-const hud = createHud(economy, orders, progress, gameClock);
+const hud = createHud(economy, orders, progress, gameClock, powerGrid);
 // Zu jeder vollen Spielstunde Miete und Strom abbuchen
 gameClock.onNewHour = () => {
   economy.payHourlyBill();
@@ -133,6 +138,18 @@ gameClock.onNewHour = () => {
 // Neuer Tag: Tagesbilanz der Besucher und Tagesplan für den neuen Tag
 gameClock.onNewDay = (day) => visitors.onNewDay(day);
 const sound = createSound();
+// Stromnetz (#57): Stromausfall und Rückkehr melden, Wechsel auf Nachtstrom leise ansagen
+powerGrid.onEvent = (type, d) => {
+  if (type === 'outage-start') {
+    hud.notify(`⚡ Stromausfall! Drucker pausieren, Server sind offline – etwa ${d.minutes} Spielminuten`, 'bad');
+    sound.play('outage');
+  } else if (type === 'outage-end') {
+    hud.notify('💡 Strom ist wieder da – Drucker und Server laufen weiter', 'good');
+    sound.play('power-back');
+  } else if (type === 'tariff-change') {
+    hud.notify(d.tariff.id === 'night' ? `🌙 Nachtstrom: Strom kostet jetzt weniger (× ${String(NIGHT_FACTOR).replace('.', ',')})` : `☀️ Tagstrom: Strom kostet wieder mehr (× ${String(DAY_FACTOR).replace('.', ',')})`, 'info');
+  }
+};
 progress.onLevelUp = (level, title) => {
   hud.showLevelUp(level, title);
   sound.play('achievement');
@@ -1166,7 +1183,8 @@ renderer.setAnimationLoop(() => {
   if (!gameOver && !paused) {
     safely('Spielzeit', () => {
       const gameMinutes = dt * GAME_MINUTES_PER_SECOND;
-      economy.advanceTime(gameMinutes);
+      economy.advanceTime(gameMinutes, gameClock.minutes); // Tarif der Minuten dieses Schritts
+      powerGrid.advance(gameMinutes, gameClock); // Stromausfall beginnt/endet – vor Druckern, Servern und Verträgen
       economy.advancePrints(gameMinutes);
       orders.advance(gameMinutes);
       climate.advance(gameMinutes);
@@ -1190,7 +1208,7 @@ renderer.setAnimationLoop(() => {
   safely('Ausstellungsregal', () => displayWall.update());
   // Unter der Erde (ab dem ersten Schritt die Treppe hinunter) zählt man nicht als „in der Halle“ – das Hallenlicht
   // dunkelt dort nichts ab
-  safely('Licht', () => hallLights.update(dt, belowHall() ? UNDERGROUND : camera.position));
+  safely('Licht', () => hallLights.update(dt, belowHall() ? UNDERGROUND : camera.position, !powerGrid.isPowered('lights')));
   safely('Kater', () => cat.update(dt));
   safely('Werfen', () => throwing.update(dt));
   safely('Azubis', () => workers.update(dt));

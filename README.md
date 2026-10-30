@@ -143,6 +143,10 @@ Für Drucker und Aufträge zählt nur das Material (PLA, PETG, ABS, TPU) – PLA
 
 Zu jeder vollen Spielstunde werden **Miete** (3 €) und **Strom** abgebucht. Drucker verbrauchen beim Drucken viel Strom, im Leerlauf nur wenig. Oben links stehen Uhrzeit und Kosten pro Stunde. Rutscht das Konto unter 0 €, warnt das HUD – ab **−500 €** macht die Bank die Halle dicht und das Spiel ist vorbei. In der Pause (`Esc`) steht die Zeit still, am PC läuft sie weiter.
 
+**Tag- und Nachtstrom:** Von 22 bis 6 Uhr gibt es **Nachtstrom** (Strom kostet × 0,6), von 6 bis 22 Uhr **Tagstrom** (× 1,1). Abgerechnet wird jede Spielminute mit ihrem Tarif. Oben links steht in der Zeile ⚡ der aktuelle Tarif (🌙 Nachtstrom bzw. ☀️ Tagstrom), die laufenden Kosten pro Stunde rechnen ihn schon mit ein. Lange Drucke lohnen sich also nachts.
+
+**Stromausfälle:** Sie gibt es erst, wenn du **Notstrom** hast (Batterieschränke oder Dieselgenerator, kommen später). Ohne Notstrom fällt der Strom nie aus. Mit Notstrom fällt er etwa alle 4–7 Spieltage für 20–90 Spielminuten aus. Das HUD meldet „⚡ Stromausfall!“ und zeigt die Restdauer. Währenddessen pausieren die Drucker (kein Fehldruck, sie machen danach an derselben Stelle weiter), alle Server sind offline (Grund „Stromausfall“, Verträge zählen ihre Offline-Zeit wie bei jedem Ausfall), Klimaanlage und Lüfter stehen, in der Halle brennt nur die Notbeleuchtung, und Strom wird keiner berechnet. Ist der Strom wieder da, läuft alles von selbst weiter.
+
 ### Pannen
 
 3D-Drucken geht nicht immer gut. Über dem Drucker erscheint dann ein Symbol, rechts oben eine Meldung:
@@ -203,7 +207,7 @@ nutzen, Antippen startet und pausiert. Der Rekord bleibt im Browser gespeichert;
 die Runde. Oben schaltest du zwischen **Survival** (selbst spielen) und **Auto** um. Im Auto-Modus spielt die Schlange von selbst: Sie holt alle Spulen, stirbt nie und hört erst auf, wenn
 das ganze Feld voll ist (zählt nicht für den Rekord).
 
-Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
+Oben links siehst du dein Level mit XP-Balken, deinen Kontostand, die Spieluhr, den Stromtarif (bzw. einen Stromausfall mit Restdauer), Miete + Strom pro Stunde und wie viele Aufträge offen sind. Spielzeit: 1 echte Sekunde entspricht 20 Sekunden im Spiel.
 
 ## Draußen
 
@@ -332,6 +336,7 @@ src/
     furniture-catalog.js Einrichtung, Zubehör und Ersatzteile
     economy.js        Geld, Kosten, Besitz, Drucke, Pannen, Feuchte, Düsenverschleiß, Holz und Laser,
                       Einrichtung und Regale, Lieferung und Abstellraum, Ersatzteile
+    power-grid.js     Stromnetz: Tag-/Nachttarif, Stromausfälle (erst mit Notstrom), welche Verbraucher Strom haben
     orders.js         Kundenaufträge: Farben, Eilaufträge, Sterne, Fristen, Stufen (am Empfang, angenommen, im Regal)
     reception.js      Empfang: annehmen, ins Abholregal packen (feste Fächer), abholen und bezahlen
     two-color.js      Zwei- und mehrfarbige Drucke: Farbfächer, Dual-Nozzle gegen Farbwechsel mit einer Düse;

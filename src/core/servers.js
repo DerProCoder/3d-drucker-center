@@ -50,6 +50,9 @@ export class Servers {
     this.wanNotice = false;
     // Warum ein Gerät nicht arbeitet (defekt, eingefroren – core/server-climate.js setzt das), oder null
     this.deviceProblem = () => null;
+    // Hat der Serverraum Strom? (main.js setzt das aus core/power-grid.js, #57: Gruppe 'servers') – ohne Strom ist
+    // das ganze Netz aus, alle Server sind offline (Grund „Stromausfall“)
+    this.powered = () => true;
     // Miete pro Spielstunde der VMs auf einem Server (core/server-rentals.js setzt das; ohne Mieter bringt er nichts)
     this.rentOf = () => 0;
     // Belegung eines Servers durch VMs { cores, ram } (core/server-rentals.js setzt das)
@@ -546,6 +549,7 @@ export class Servers {
   // WAN-Port der Firewall, aus deren LAN-Ports weiter über Switches bis zu den Servern. Gibt die Menge der erreichten
   // Geräte-IDs zurück (Patchpanels mit Internet gehören dazu).
   reachable() {
+    if (!this.powered()) return new Set(); // Stromausfall: nichts läuft
     const patches = this.internetPatches();
     const reached = new Set(patches);
     const queue = [];
@@ -585,6 +589,7 @@ export class Servers {
   // Warum ein Server offline ist (für das Schrankfenster), oder null
   offlineReason(device, reached = this.reachable()) {
     if (device.type.kind !== 'server' || reached.has(device.id)) return null;
+    if (!this.powered()) return 'Stromausfall';
     const problem = this.workProblem(device);
     if (problem) return problem;
     const ports = Array.from({ length: device.type.ports }, (_, i) => i);
