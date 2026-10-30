@@ -23,6 +23,8 @@ import { createRoom, roomColliders } from './world/room.js';
 import { createDesktopScreen } from './ui/desktop.js';
 import { createShop } from './ui/shop.js';
 import { createStorageRoom } from './world/storage-room.js';
+import { createBasementStorage } from './world/basement-storage.js';
+import { BasementStorage } from './core/basement-storage.js';
 import { createWorkshop } from './world/workshop.js';
 import { createDisplayWall } from './world/display-wall.js';
 import { createHallLights } from './world/hall-lights.js';
@@ -91,6 +93,8 @@ const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
 servers.attachBasement(upgrades.basementLayout); // Daten-Bunker im Keller (#52): Bunker-Plätze, Gitter, Feld-Prüfung
+// Keller-Lager (#53): Kartons, wenn der Abstellraum voll ist, und trockene Filament-Regale in den Lager-Feldern
+const basementStorage = new BasementStorage(economy, upgrades.basementLayout);
 const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
 const serverParts = new ServerParts(economy, servers, climate); // Server aus Bauteilen: Ausstattung, Teilelager, Defekte
 const nas = new Nas(serverParts); // NAS: Speicher, Festplatten im Schrank tauschen (#46)
@@ -109,7 +113,7 @@ const website = new Website({ economy, servers, rentals, storage: storageRentals
 const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
 // Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -149,7 +153,12 @@ economy.onEvent = (type, d) => {
   const name = d.printer?.model.name;
   switch (type) {
     case 'delivered':
-      hud.notify(`📦 Lieferung angekommen: ${d.names.join(', ')} – steht im Abstellraum`, 'good');
+      if (d.basement?.length) {
+        hud.notify(`📦 Abstellraum voll – Lieferung liegt im Keller-Lager: ${d.basement.join(', ')}`, 'good');
+        if (d.room.length) hud.notify(`📦 Lieferung angekommen: ${d.room.join(', ')} – steht im Abstellraum`, 'good');
+      } else {
+        hud.notify(`📦 Lieferung angekommen: ${d.names.join(', ')} – steht im Abstellraum`, 'good');
+      }
       sound.play('pop');
       break;
     case 'print-started':
@@ -670,6 +679,8 @@ const displayWall = createDisplayWall({ economy, carry, collision });
 scene.add(displayWall.group);
 const storage = createStorageRoom({ economy, carry, collision, upgrades });
 scene.add(storage.group);
+// Keller-Lager (#53): Stapelzonen und Filament-Regale in den Lager-Feldern (hängt in basement.fields)
+createBasementStorage({ economy, store: basementStorage, carry, collision, fields: basement.fields, layout: upgrades.basementLayout });
 
 // Kater Düsentrieb streunt durch die Halle
 const cat = createCat({

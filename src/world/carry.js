@@ -232,6 +232,10 @@ export class Carry {
       }
       const furniture = this.furniture;
       let todo = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand stellen' : 'auf einen freien Platz am Druckertisch stellen';
+      // Filament-Regale auch im Keller-Lager (#53) auf einen blau markierten Platz – dort bleiben Spulen trocken
+      if (furniture.type.id === 'filament-rack' && this.economy.overflow?.storageFields().length) {
+        todo += ' oder im Keller-Lager auf einen blauen Regalplatz (trocken)';
+      }
       if (isServerHardware(furniture.type)) {
         todo = furniture.type.kind === 'rack'
           ? 'im Serverraum (zweite Etage) oder im Daten-Bunker (Keller) an einer grünen Markierung aufstellen'

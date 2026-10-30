@@ -119,6 +119,8 @@ export class Economy {
     // Passt eine Liste Kartons ([{ model } | { type }]) in den Abstellraum? Setzt world/storage-room.js, das die
     // Kartongrößen kennt (core/storage-stack.js stapelt). Ohne Rückruf ist immer Platz.
     this.storageFits = null;
+    // Keller-Lager (core/basement-storage.js): nimmt Lieferungen auf, wenn der Abstellraum voll ist. Ohne Keller null.
+    this.overflow = null;
     this.wagesPerHour = 0;           // Lohn fürs Personal (setzt core/staff.js)
     this.pendingCosts = 0;           // aufgelaufene Kosten der laufenden Stunde (die Uhrzeit führt game-clock.js)
     this.printers = [];
@@ -184,8 +186,10 @@ export class Economy {
   updateMoisture(gameMinutes) {
     const shelfRate = this.hasDryer ? MOISTURE_PER_MINUTE.dryer : MOISTURE_PER_MINUTE.shelf;
     for (const s of this.shelf) s.moisture = clamp01(s.moisture + shelfRate * gameMinutes);
-    // Das Filament-Regal am Tisch ist offen wie das Lagerregal ohne Trockenschrank
+    // Das Filament-Regal am Tisch ist offen wie das Lagerregal ohne Trockenschrank. Im Keller-Lager ist es trocken:
+    // dort zieht eine Spule keine Feuchtigkeit (trocken wird sie dort aber auch nicht)
     for (const f of this.furniture) {
+      if (f.location === 'basement-rack') continue;
       for (const s of f.spools ?? []) if (s) s.moisture = clamp01(s.moisture + MOISTURE_PER_MINUTE.shelf * gameMinutes);
     }
     for (const p of this.printers) {
@@ -214,27 +218,40 @@ export class Economy {
     return [...this.printers, ...this.furniture].filter((x) => x.location === 'shipping');
   }
 
-  // Paket auf den Weg schicken: es landet erst nach deliverySeconds im Abstellraum
+  // Paket auf den Weg schicken: es landet erst nach deliverySeconds im Abstellraum – ist der voll, reserviert es
+  // einen Platz im Keller-Lager (item.basement, core/basement-storage.js)
   ship(item) {
     item.location = 'shipping';
     item.storageSpot = null;
     item.arriveIn = this.deliverySeconds;
+    delete item.basement;
+    if (!this.storageRoomFits(item, item)) this.overflow?.reserve(item);
   }
 
-  // Läuft in echter Zeit: angekommene Pakete kommen auf einen freien Platz im Abstellraum
+  // Läuft in echter Zeit: angekommene Pakete kommen auf einen freien Platz im Abstellraum bzw. auf ihren Platz im
+  // Keller-Lager
   advanceDeliveries(seconds) {
     const arrived = [];
+    const basement = [];   // davon im Keller-Lager
+    const room = [];       // davon im Abstellraum
     for (const item of this.shipments) {
       item.arriveIn -= seconds;
       if (item.arriveIn > 0) continue;
-      item.location = 'storage';
-      item.storageSpot = this.freeStorageSpot();
+      const name = item.model?.name ?? item.type.name;
+      if (item.basement) {
+        item.location = 'basement';
+        basement.push(name);
+      } else {
+        item.location = 'storage';
+        item.storageSpot = this.freeStorageSpot();
+        room.push(name);
+      }
       delete item.arriveIn;
-      arrived.push(item.model?.name ?? item.type.name);
+      arrived.push(name);
     }
     if (!arrived.length) return;
     this.notify();
-    this.emit('delivered', { names: arrived });
+    this.emit('delivered', { names: arrived, basement, room });
   }
 
   filamentStock(filamentId) {
@@ -383,9 +400,7 @@ export class Economy {
   returnPrinterToStorage(id) {
     const p = this.printerById(id);
     if (!p) return;
-    p.location = 'storage';
-    p.slot = null;
-    p.storageSpot = this.freeStorageSpot();
+    this.putAway(p);
     this.notify();
   }
 
@@ -929,9 +944,7 @@ export class Economy {
   returnFurnitureToStorage(id) {
     const f = this.furnitureById(id);
     if (!f) return;
-    f.location = 'storage';
-    f.slot = null;
-    f.storageSpot = this.freeStorageSpot();
+    this.putAway(f);
     this.notify();
   }
 
@@ -1168,14 +1181,36 @@ export class Economy {
     this.shelf.push({ filamentId, grams, moisture, shelfSlot });
   }
 
-  // Kartons, die im Abstellraum Platz brauchen: dort abgestellt, noch unterwegs oder gerade in der Hand
+  // Kartons, die im Abstellraum Platz brauchen: dort abgestellt, noch unterwegs (nicht ins Keller-Lager) oder gerade
+  // in der Hand
   get boxedItems() {
-    return [...this.printers, ...this.furniture].filter((x) => ['storage', 'shipping', 'carried'].includes(x.location));
+    return [...this.printers, ...this.furniture]
+      .filter((x) => x.location === 'storage' || x.location === 'carried' || (x.location === 'shipping' && !x.basement));
   }
 
-  // Passt noch ein Karton ({ model } für Drucker, { type } für Einrichtung) dazu, ohne dass der Stapel an die Decke stößt?
+  // Passt der Karton ({ model } | { type } oder ein Drucker/Möbel) noch in den Abstellraum? without: Gegenstand, der
+  // schon in boxedItems steckt und nicht doppelt zählen soll
+  storageRoomFits(box, without = null) {
+    return !this.storageFits || this.storageFits([...this.boxedItems.filter((x) => x !== without), box]);
+  }
+
+  // Passt noch ein Karton ({ model } für Drucker, { type } für Einrichtung) dazu, ohne dass der Stapel an die Decke
+  // stößt – im Abstellraum oder, wenn der voll ist, im Keller-Lager?
   roomForBox(box) {
-    return !this.storageFits || this.storageFits([...this.boxedItems, box]);
+    return this.storageRoomFits(box) || !!this.overflow?.hasRoom(box);
+  }
+
+  // Karton zurück ins Lager (Q, Gerät ausgebaut …): in den Abstellraum, ist der voll, ins Keller-Lager (wenn dort Platz ist)
+  putAway(item) {
+    item.slot = null;
+    delete item.basement;
+    if (!this.storageRoomFits(item, item) && this.overflow?.reserve(item)) {
+      item.location = 'basement';
+      item.storageSpot = null;
+      return;
+    }
+    item.location = 'storage';
+    item.storageSpot = this.freeStorageSpot();
   }
 
   // Erster freier Kartonplatz in der Lieferzone

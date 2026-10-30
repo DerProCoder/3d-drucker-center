@@ -55,9 +55,10 @@ const BOX_SPOTS_Z = [11.0, 11.9, 12.8, 13.7];
 const BOX_CEILING = HEIGHT - 0.2;
 
 // Karton für einen Drucker ({ model }) bzw. für Einrichtung ({ type }); die Höhe wird je Modell bzw. Typ gemerkt
-const makeCrate = (entry) => (entry.model ? createPrinterBox(entry.model) : createPrinterBox(entry.type, furnitureSize(entry.type), 'Einrichtung'));
+// (auch für das Keller-Lager, world/basement-storage.js)
+export const makeCrate = (entry) => (entry.model ? createPrinterBox(entry.model) : createPrinterBox(entry.type, furnitureSize(entry.type), 'Einrichtung'));
 const crateHeights = new Map();
-function crateHeight(entry) {
+export function crateHeight(entry) {
   const key = entry.model ? `printer:${entry.model.id}` : `furniture:${entry.type.id}`;
   if (!crateHeights.has(key)) crateHeights.set(key, makeCrate(entry).userData.size.h);
   return crateHeights.get(key);

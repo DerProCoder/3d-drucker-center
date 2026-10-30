@@ -18,6 +18,7 @@ import { renderPartPreview } from './printer-preview.js';
 import { isLaser, laserDesign, laserJobLabel, laserProblem } from '../core/laser.js';
 import { drawSheetPreview } from '../models/laser-art.js';
 import { formatMinutes, realTime } from '../core/format.js';
+import { DRY_RACK_LABEL } from '../core/basement-storage.js';
 
 // Eigenen Text sicher in HTML einsetzen (Gravurtext im Eingabefeld)
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -49,6 +50,7 @@ export function createPrinterMenu(economy) {
     if (p.location === 'shipping') return { text: `Unterwegs – kommt in ${Math.ceil(p.arriveIn)} s`, cls: 'idle' };
     if (p.location === 'floor') return { text: 'Liegt auf dem Boden – aufheben und auf den Tisch stellen', cls: 'idle' };
     if (p.location === 'storage') return { text: 'Noch im Karton im Abstellraum', cls: 'idle' };
+    if (p.location === 'basement') return { text: 'Noch im Karton – 📍 Keller-Lager', cls: 'idle' };
     if (p.location === 'carried') return { text: 'Wird gerade getragen', cls: 'idle' };
     const job = p.job;
     if (!job && p.clogged) return { text: `🪡 Düse verstopft – am Drucker freistechen (${p.nozzlePokes}/${NOZZLE_POKES})`, cls: 'failed' };
@@ -61,7 +63,9 @@ export function createPrinterMenu(economy) {
       return { text: `⚠️ Fehldruck bei ${pct} %: ${FAILURES[job.failure].text}. Am Drucker wegräumen!`, cls: 'failed' };
     }
     if (job.pauseReason === 'filament') {
-      return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(waitingFilament(job)))} einlegen`, cls: 'paused' };
+      const dry = economy.overflow?.dryStock(waitingFilament(job)) ?? 0; // Spulen im Keller-Lager (#53)
+      const where = dry ? ` (${DRY_RACK_LABEL}: ${dry})` : '';
+      return { text: `🧵 Filament leer bei ${pct} % – neue Spule ${filamentLabel(filamentById(waitingFilament(job)))} einlegen${where}`, cls: 'paused' };
     }
     if (job.pauseReason === 'waste') {
       return { text: `🗑️ Mülleimer voll bei ${pct} % – leeren, dann geht es weiter`, cls: 'paused' };
@@ -86,6 +90,7 @@ export function createPrinterMenu(economy) {
     if (p.location === 'shipping') return { text: `Unterwegs · ${Math.ceil(p.arriveIn)} s`, cls: 'idle' };
     if (p.location === 'floor') return { text: 'Liegt auf dem Boden', cls: 'idle' };
     if (p.location === 'storage') return { text: 'Im Abstellraum', cls: 'idle' };
+    if (p.location === 'basement') return { text: '📍 Keller-Lager', cls: 'idle' };
     if (p.location === 'carried') return { text: 'Wird getragen', cls: 'idle' };
     const job = p.job;
     if (!job && p.clogged) return { text: 'Düse verstopft', cls: 'failed' };

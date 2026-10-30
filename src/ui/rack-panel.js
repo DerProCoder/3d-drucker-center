@@ -332,10 +332,12 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     if (remove) {
       const removed = economy.furnitureById(remove);
       servers.removeDevice(remove);
+      // Abstellraum voll: der Karton geht ins Keller-Lager (#53, economy.putAway)
+      const where = removed?.location === 'basement' ? 'im Keller-Lager (Abstellraum voll)' : 'im Abstellraum';
       // Server: auf der Werkbank im Serverraum lassen sich Teile tauschen, auf- und abrüsten (world/workbench.js)
       message = removed?.type.kind === 'server'
-        ? 'Server ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat – auf der Werkbank (Südwand) Teile tauschen.'
-        : 'Gerät ausgebaut – der Karton steht im Abstellraum, die Kabel im Vorrat.';
+        ? `Server ausgebaut – der Karton steht ${where}, die Kabel im Vorrat – auf der Werkbank (Südwand) Teile tauschen.`
+        : `Gerät ausgebaut – der Karton steht ${where}, die Kabel im Vorrat.`;
     }
     const repair = e.target.closest('[data-repair]')?.dataset.repair;
     if (repair) {

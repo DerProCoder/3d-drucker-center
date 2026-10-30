@@ -37,7 +37,10 @@ const KEY = 'druckercenter-save';
 // 26: Daten-Bunker mit Reihen wie im Rechenzentrum (#60, core/server-zones.js) – 120 statt 16 Plätze je Kellerfeld, neue
 //     Platznummern (Schränke ziehen auf den nächstgelegenen freien Platz im selben Feld), Kabel im Bunker über Trassen
 //     (cables[].reroute: core/servers.js verlegt sie beim Laden neu)
-const VERSION = 26;
+// 27: Keller-Lager (#53, core/basement-storage.js) – Kartons im Keller (location 'basement') und Filament-Regale dort
+//     (location 'basement-rack') mit basement = { field, zone, order } bzw. { field, spot }; Lieferungen ins
+//     Keller-Lager tragen basement schon unterwegs. Alte Stände haben nichts im Keller-Lager – nichts umzuwandeln
+const VERSION = 27;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -69,11 +72,12 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench'].includes(f.location) ? f.location : 'storage',
+    location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench', 'basement', 'basement-rack'].includes(f.location) ? f.location : 'storage',
     slot: ['table', 'wall', 'server'].includes(f.location) ? f.slot : null,
     rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
     unit: f.location === 'rack' ? f.unit : undefined,
     storageSpot: f.location === 'storage' ? f.storageSpot : null,
+    basement: basementPlace(f), // Keller-Lager (#53): Stapelplatz bzw. Regalplatz
     arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
     parts: f.parts ? f.parts.map((p) => (p ? { templateId: p.templateId, filamentIds: [...p.filamentIds] } : null)) : null,
@@ -102,9 +106,10 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       printers: economy.printers.map((p) => ({
         id: p.id,
         modelId: p.model.id,
-        location: p.location === 'table' || p.location === 'shipping' ? p.location : 'storage',
+        location: ['table', 'shipping', 'basement'].includes(p.location) ? p.location : 'storage',
         slot: p.location === 'table' ? p.slot : null,
         storageSpot: p.location === 'storage' ? p.storageSpot : null,
+        basement: basementPlace(p),
         arriveIn: p.arriveIn,
         spools: p.spools.map((spool) => (spool ? { ...spool } : null)),
         activeSlot: p.activeSlot,
@@ -239,7 +244,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -356,6 +361,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     migrateBunkerRows(data);
     data.version = 26;
   }
+  // Version 26 kennt noch kein Keller-Lager: nichts liegt dort, nichts umzuwandeln
+  if (data?.version === 26) data.version = 27;
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -426,6 +433,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
       usedRackSlots.add(key);
     }
   }
+  // Keller-Lager: Kartons und Regale auf ungültigen Plätzen zurück in den Abstellraum (core/basement-storage.js)
+  basementStorage?.load();
 
   orders.open = data.orders.open;
   orders.nextId = data.orders.nextId;
@@ -476,6 +485,12 @@ export function startAutosave(game, onSaved, getCarried = () => []) {
   setInterval(save, AUTOSAVE_SECONDS * 1000);
   window.addEventListener('beforeunload', save);
   return { save, disable: () => { enabled = false; } };
+}
+
+// Platz im Keller-Lager zum Speichern (nur, wo er gilt: Karton im Keller, Lieferung dorthin, Regal im Keller)
+function basementPlace(item) {
+  if (!item.basement || !['basement', 'basement-rack', 'shipping'].includes(item.location)) return undefined;
+  return { ...item.basement };
 }
 
 // Holzlager zum Speichern, mit den Platten, die gerade jemand in der Hand hat

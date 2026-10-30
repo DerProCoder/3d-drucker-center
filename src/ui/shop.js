@@ -10,6 +10,7 @@ import {
 import { DISPLAY_SPOTS, freeDisplaySpots } from '../core/display-shelf.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { CARRY_ALL_MAX, WOOD_STOCK_MAX } from '../core/economy.js';
+import { DRY_RACK_LABEL } from '../core/basement-storage.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
@@ -141,6 +142,12 @@ export function createShop(economy, {
       : `<button class="buy" data-buy="${id}">Kaufen</button>`;
   }
 
+  // Spulen in den Filament-Regalen im Keller-Lager (#53)
+  const dryStock = (id) => {
+    const n = economy.overflow?.dryStock(id) ?? 0;
+    return n ? `<br>${DRY_RACK_LABEL}: ${n}` : '';
+  };
+
   function renderFilaments() {
     const shelfFree = freeShelfSpace();
     // Ein Abschnitt pro Bambu-Sorte (PLA Basic, PLA Matte, PLA Glow …)
@@ -155,7 +162,7 @@ export function createShop(economy, {
             </div>
           </div>
           <div class="card-foot">
-            <span class="stock">Im Lager: ${economy.filamentStock(f.id)}</span>
+            <span class="stock">Im Lager: ${economy.filamentStock(f.id)}${dryStock(f.id)}</span>
             <span class="price">${euro.format(f.price)}</span>
             ${buyButton(f.id, shelfFree <= 0 ? 'Regal voll' : economy.canAfford(f.price) ? null : 'Zu wenig Geld')}
           </div>
@@ -215,8 +222,14 @@ export function createShop(economy, {
   }
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
-  // Regalplätze zwischen den Druckern – Ausstellungsregale stehen an der Wand und zählen nicht mit
-  const freeRackSlots = () => upgrades.rackSlots - economy.furniture.filter((f) => !isWallFurniture(f.type)).length;
+  // Regalplätze zwischen den Druckern – Ausstellungsregale stehen an der Wand und zählen nicht mit, Filament-Regale im
+  // Keller-Lager (#53) auch nicht
+  const freeRackSlots = () => upgrades.rackSlots
+    - economy.furniture.filter((f) => !isWallFurniture(f.type) && f.location !== 'basement-rack').length;
+  // Kein Platz für einen Karton mehr: Abstellraum (und Keller-Lager, sobald es eins gibt) voll
+  const boxRoomFull = () => (economy.overflow?.storageFields().length ? 'Abstellraum und Keller-Lager voll' : 'Abstellraum voll');
+  // Wohin die Lieferung kommt (economy.ship reserviert ggf. einen Platz im Keller-Lager)
+  const destination = (item) => (item?.basement ? 'ins Keller-Lager (Abstellraum voll)' : 'in den Abstellraum');
   const openSpecs = new Set(); // aufgeklappte „Technische Daten“, bleiben beim Neuzeichnen offen
 
   // Datenblatt des echten Geräts zum Aufklappen
@@ -236,7 +249,7 @@ export function createShop(economy, {
     const cards = PRINTERS.filter((p) => !p.kind).map((p) => { // der Laser steht im Holzshop
       let blocked = null;
       if (slots <= 0) blocked = 'Kein Platz mehr';
-      else if (!economy.roomForBox({ model: p })) blocked = 'Abstellraum voll';
+      else if (!economy.roomForBox({ model: p })) blocked = boxRoomFull();
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
       return `
         <div class="card printer">
@@ -273,7 +286,7 @@ export function createShop(economy, {
       const wall = isWallFurniture(f);
       let blocked = null;
       if ((wall ? wallSpots : rackSlots) <= 0) blocked = 'Kein Platz mehr';
-      else if (!economy.roomForBox({ type: f })) blocked = 'Abstellraum voll';
+      else if (!economy.roomForBox({ type: f })) blocked = boxRoomFull();
       else if (!economy.canAfford(f.price)) blocked = 'Zu wenig Geld';
       const owned = economy.furniture.filter((x) => x.type.id === f.id).length;
       return `
@@ -306,7 +319,7 @@ export function createShop(economy, {
     const lasers = PRINTERS.filter((p) => p.kind === 'laser').map((p) => {
       let blocked = null;
       if (slots <= 0) blocked = 'Kein Platz mehr';
-      else if (!economy.roomForBox({ model: p })) blocked = 'Abstellraum voll';
+      else if (!economy.roomForBox({ model: p })) blocked = boxRoomFull();
       else if (!economy.canAfford(p.price)) blocked = 'Zu wenig Geld';
       return `
         <div class="card printer">
@@ -620,7 +633,8 @@ export function createShop(economy, {
     if (id.startsWith('furniture:')) {
       const f = FURNITURE.find((x) => `furniture:${x.id}` === id);
       const space = isWallFurniture(f) ? freeDisplaySpots(economy) : freeRackSlots();
-      if (space > 0 && economy.buyFurniture(f)) toast(`Bestellt: ${f.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
+      const item = space > 0 ? economy.buyFurniture(f) : null;
+      if (item) toast(`Bestellt: ${f.name} – kommt in ${economy.deliverySeconds} s ${destination(item)}`);
     } else if (id.startsWith('spare:')) {
       const part = SPARE_PARTS.find((x) => `spare:${x.id}` === id);
       if (economy.buySparePart(part)) toast(`Gekauft: ${part.name} – liegt im Ersatzteilregal`);
@@ -632,7 +646,8 @@ export function createShop(economy, {
       if (freeShelfSpace() > 0 && economy.buyFilament(f)) toast(`Gekauft: ${filamentLabel(f)} – liegt im Lagerregal`);
     } else if (id.startsWith('laser:') || app === 'printers') {
       const p = PRINTERS.find((x) => x.id === id.replace('laser:', ''));
-      if (freePrinterSlots() > 0 && economy.buyPrinter(p)) toast(`Bestellt: ${p.name} – kommt in ${economy.deliverySeconds} s in den Abstellraum`);
+      const printer = freePrinterSlots() > 0 ? economy.buyPrinter(p) : null;
+      if (printer) toast(`Bestellt: ${p.name} – kommt in ${economy.deliverySeconds} s ${destination(printer)}`);
     } else if (id.startsWith('wood:')) {
       const w = WOODS.find((x) => `wood:${x.id}` === id);
       if (economy.buyWood(w)) toast(`Gekauft: ${w.name} – liegt auf der Palette im Abstellraum`);

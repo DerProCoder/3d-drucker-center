@@ -154,7 +154,10 @@ export class Servers {
   // type: Karton, der in den Abstellraum muss (ohne type, z. B. Kabelrollen, zählt nur das Geld)
   buyProblem(price, upperFloor, type = null) {
     if (!upperFloor) return 'Erst die zweite Etage bauen (Ausbau)';
-    if (type && !this.economy.roomForBox({ type })) return 'Abstellraum voll';
+    if (type && !this.economy.roomForBox({ type })) {
+      // Mit Keller-Lager (#53) ist auch das voll
+      return this.economy.overflow?.storageFields().length ? 'Abstellraum und Keller-Lager voll' : 'Abstellraum voll';
+    }
     if (!this.economy.canAfford(price)) return 'Zu wenig Geld';
     return null;
   }

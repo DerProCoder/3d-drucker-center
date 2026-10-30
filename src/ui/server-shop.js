@@ -147,8 +147,11 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
   function handleClick(e) {
     const id = e.target.closest('[data-server-buy]')?.dataset.serverBuy;
     const type = [...SERVER_RACKS, ...SERVER_DEVICES].find((t) => t.id === id);
-    if (type && !servers.buyProblem(type.price, upgrades.upperFloor, type) && servers.buyHardware(type)) {
-      return `${type.name} bestellt – kommt in ${economy.deliverySeconds} s in den Abstellraum`;
+    const item = type && !servers.buyProblem(type.price, upgrades.upperFloor, type) ? servers.buyHardware(type) : null;
+    if (item) {
+      // Ist der Abstellraum voll, reserviert die Lieferung einen Platz im Keller-Lager (#53)
+      const where = item.basement ? 'ins Keller-Lager (Abstellraum voll)' : 'in den Abstellraum';
+      return `${type.name} bestellt – kommt in ${economy.deliverySeconds} s ${where}`;
     }
     if (e.target.closest('[data-server-cables]') && !servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor) && servers.buyCables()) {
       return `${CABLE_ROLL.name} bestellt – in ${economy.deliverySeconds} s im Vorrat`;
