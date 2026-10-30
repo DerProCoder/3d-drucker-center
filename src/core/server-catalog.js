@@ -12,7 +12,9 @@
 //   power: Strom pro Spielstunde in Euro, solange das Gerät im Schrank steckt
 //   drives: 'small' – Server mit 2,5-Zoll-Laufwerken hochkant (Frontblende), sonst je nach Größe
 //   gpu: Frontblende mit großem Lüftergitter und GPU-Leuchten (models/server-textures.js)
-//   rentable: false – nicht an Kunden vermietbar (KI-GPU-Server rechnen für die eigene KI, core/ai-service.js); hat
+//   web: Website-Server (#54) – Frontblende mit WWW-Schild (models/server-textures.js), betreibt die eigene Website
+//   rentable: false – nicht an Kunden vermietbar (KI-GPU-Server rechnen für die eigene KI, core/ai-service.js,
+//             Website-Server betreiben die Website, core/website.js); hat
 //             dann keinen rentFactor
 // Firewall: Port 1 ist WAN (ins Internet: zu einem Patchpanel mit Leitung zum Internet-Anschluss an der Wand oder direkt dorthin), die übrigen sind LAN (zu Switches und Servern).
 //   ports zählt alle Buchsen (WAN + LAN), portsLabel ist die Portzahl aus dem Namen, die vorn aufgedruckt ist:
@@ -41,6 +43,8 @@ export const SERVER_SERIES = [
   { id: 'ai', name: 'KI', color: 0x23a455 }, // nicht vermietbar: rechnen für die eigene KI (KI-Abo, core/ai-service.js)
   // Netzwerkspeicher (#46): helles Orange, heller als die orange Reihe „Private Server“ (#ff8a1f) im Serverraum
   { id: 'nas', name: 'NAS', color: 0xffb366 },
+  // Website-Server (#54): himmelblau, nicht vermietbar – betreiben die eigene Website (core/website.js)
+  { id: 'web', name: 'Web', color: 0x5ec4f2 },
 ];
 
 export const SERVER_DEVICES = [
@@ -56,6 +60,8 @@ export const SERVER_DEVICES = [
   // NAS (#46): immer 32 Cores, beim Kauf 256 GB RAM und eine 512-GB-Platte; Strom + 0,05 € je Platte (core/server-parts.js)
   { id: 'nas-s', kind: 'server', series: 'nas', name: 'NAS S', units: 2, ports: 2, rentFactor: 1.2, power: 1.5, price: 3000, slotSet: 'nas-s', nas: true, bays: 4, cores: 32, ram: 256, storage: 512, maxRam: 512 },
   { id: 'nas-l', kind: 'server', series: 'nas', name: 'NAS L', units: 4, ports: 2, rentFactor: 1.2, power: 3, price: 7500, slotSet: 'nas-l', nas: true, bays: 12, cores: 32, ram: 256, storage: 512, maxRam: 1024 },
+  // Website-Server (#54, id wie WEBSITE_SERVER_ID in core/website.js): nicht aufrüstbar wie GPU-Server (slotSet 'gpu')
+  { id: 'server-web', kind: 'server', series: 'web', name: 'Website-Server', units: 1, ports: 2, rentable: false, power: 0.8, price: 1500, web: true, slotSet: 'gpu' },
   { id: 'switch-8', kind: 'switch', name: 'Switch 8 Ports', units: 1, ports: 8, power: 0.2, price: 150 },
   { id: 'switch-24', kind: 'switch', name: 'Switch 24 Ports', units: 1, ports: 24, power: 0.4, price: 450 },
   { id: 'firewall', kind: 'firewall', name: 'Firewall 4 Ports', units: 1, ports: 4, portsLabel: 4, power: 0.3, price: 500 }, // id bleibt (alte Spielstände)
@@ -76,7 +82,7 @@ export const UNIT_METERS = 0.0445; // eine Höheneinheit in Metern (für die Kab
 export const SERVER_HARDWARE = [...SERVER_RACKS, ...SERVER_DEVICES];
 export const serverHardwareById = (id) => SERVER_HARDWARE.find((h) => h.id === id);
 export const isServerHardware = (type) => !!type?.kind && SERVER_HARDWARE.includes(type);
-// Ob Kunden VMs auf diesem Gerätetyp mieten können (alle Server außer den KI-GPU-Servern)
+// Ob Kunden VMs auf diesem Gerätetyp mieten können (alle Server außer den KI-GPU- und Website-Servern)
 export const isRentableType = (type) => type?.kind === 'server' && type.rentable !== false;
 
 export const KIND_NAMES = { rack: 'Serverschrank', server: 'Server', switch: 'Switch', firewall: 'Firewall', patch: 'Patchpanel' };

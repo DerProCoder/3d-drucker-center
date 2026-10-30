@@ -22,6 +22,9 @@ import { isRentableType } from './server-catalog.js';
 export const ASSIGN_DELAY = 1;  // Spielminuten zwischen Ankunft am Empfang und Vergabe (echt 3 s)
 export const RETRY_EVERY = 1;   // Spielminuten zwischen zwei Versuchen, wenn nichts passt
 const CHECK_EVERY = 1;          // Spielminuten zwischen zwei Prüfungen, ob noch ein Vergabe-Server online ist
+// Vergeben wird erst, wenn der Kunde am Empfang steht – Online-Anfragen über die Website (#54, source: 'website')
+// sind sofort da, ohne Figur
+const ready = (request) => request.atCounter || request.source === 'website';
 
 export class RentalAutomation {
   // storage: core/storage-rentals.js (Speicher-Anfragen, optional)
@@ -111,7 +114,7 @@ export class RentalAutomation {
     // Wartezeit der Anfragen am Empfang; verschwundene (angenommen, abgelehnt, verfallen) vergessen
     let due = false;
     for (const request of requests) {
-      if (!request.atCounter) continue;
+      if (!ready(request)) continue;
       const left = (this.countdown.get(request.id) ?? ASSIGN_DELAY) - minutes;
       this.countdown.set(request.id, left);
       if (left <= 0) due = true;
@@ -131,7 +134,7 @@ export class RentalAutomation {
     this.report(via);
     if (!due) return;
     for (const request of [...requests]) {
-      if (!request.atCounter || this.countdown.get(request.id) > 0) continue;
+      if (!ready(request) || this.countdown.get(request.id) > 0) continue;
       // Aus oder kein Vergabe-Server: in der nächsten Spielminute wieder nachsehen (nicht jedes Bild das Netz ablaufen)
       if (via) this.tryAssign(request, via, reached);
       else this.countdown.set(request.id, CHECK_EVERY);

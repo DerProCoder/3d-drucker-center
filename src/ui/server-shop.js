@@ -8,6 +8,7 @@ import { euro, meters } from '../core/format.js';
 import { AI_FEE_PER_SERVER, isAIServer } from '../core/ai-service.js';
 import { SLOT_SETS, isUpgradable, partsOfKind, standardCapacity } from '../core/server-parts.js';
 import { isNas, storageText } from '../core/nas.js';
+import { DESIGN_BONUS, MAX_COUNTED_SERVERS, REQUESTS_PER_DAY, isWebsiteServer } from '../core/website.js';
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
 const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
@@ -15,6 +16,7 @@ const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '�
 const SERIES_HINTS = {
   ai: 'nicht vermietbar – betreiben die eigene KI, Geld über das KI-Abo (App „KI“)',
   nas: 'Netzwerkspeicher: Festplatten-Schächte vorn, Platten aus dem Teile-Shop direkt im Schrank einsetzen – VMs laufen auch darauf',
+  web: 'nicht vermietbar – betreibt deine eigene Website: online bringen, in der App „Website“ einrichten, dann mieten Kunden VMs und Speicher auch online (🌐)',
 };
 
 // ai: KI-Dienst (core/ai-service.js) für die Kopfzeile (Stufe, rechnende KI-GPU-Server, KI-Abo) – ohne ihn kein KI-Teil
@@ -61,7 +63,8 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       type.ports ? `<dt>Ports</dt><dd>${type.kind === 'firewall' ? `1 × WAN + ${type.ports - 1} × LAN` : type.ports}</dd>` : '',
       type.kind === 'server' ? `<dt>Ausstattung</dt><dd>${standardText(type)}</dd>` : '',
       type.rentFactor ? `<dt>Mietfaktor</dt><dd>×${type.rentFactor.toLocaleString('de-DE', { minimumFractionDigits: 1 })}</dd>` : '',
-      type.rentable === false ? `<dt>Einnahmen</dt><dd>KI-Abo statt Miete: ${euro.format(AI_FEE_PER_SERVER)} / h je Server × Stufenfaktor</dd>` : '',
+      type.web ? `<dt>Website</dt><dd>bis ${REQUESTS_PER_DAY} Online-Anfragen je Spieltag (+${Math.round(DESIGN_BONUS * 100)} % bei guter Gestaltung), höchstens ${MAX_COUNTED_SERVERS} Website-Server zählen</dd>`
+        : type.rentable === false ? `<dt>Einnahmen</dt><dd>KI-Abo statt Miete: ${euro.format(AI_FEE_PER_SERVER)} / h je Server × Stufenfaktor</dd>` : '',
       type.power ? `<dt>Strom</dt><dd>${euro.format(type.power)} / h${type.kind === 'server' ? ` bei ${standardCapacity(type).cores} Cores` : ''}</dd>` : '',
     ].join('');
     return `
@@ -91,7 +94,9 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       { id: CABLE_ROLL.id, name: CABLE_ROLL.name, make: createCableRoll },
     ]);
     // Vermietbare Server und KI-GPU-Server getrennt zählen – wie die Server-Vermietung, die nur vermietbare kennt
-    const serverList = servers.hardware.filter((f) => f.type.kind === 'server' && !isAIServer(f));
+    // Website-Server (#54) zählen extra – sie betreiben nur die Website
+    const serverList = servers.hardware.filter((f) => f.type.kind === 'server' && !isAIServer(f) && !isWebsiteServer(f));
+    const webList = servers.hardware.filter(isWebsiteServer);
     const aiList = servers.hardware.filter(isAIServer);
     const onlineList = servers.onlineServers;
     // KI-Teil nur mit KI-Dienst (ohne ihn wüsste der Shop weder Stufe noch, welche Server wirklich rechnen)
@@ -99,11 +104,12 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       ? ` · 🧠 KI: <strong>${ai.level ? `Stufe ${ai.level}` : 'offline'} (${ai.onlineCount} / ${aiList.length} KI-GPU-Server)</strong>`
         + ` · KI-Abo <strong>${euro.format(ai.incomePerHour)} / h</strong>`
       : '';
+    const webText = webList.length ? ` · 🌐 Website-Server: <strong>${onlineList.filter(isWebsiteServer).length} / ${webList.length} online</strong>` : '';
     const eta = servers.nextCableArrival;
     const cableProblem = servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor);
     const kinds = (list) => list.map(card).join('');
     return `
-      <p class="slots">🖥️ Online: <strong>${onlineList.filter((d) => !isAIServer(d)).length} / ${serverList.length} Server</strong>${aiText}
+      <p class="slots">🖥️ Online: <strong>${onlineList.filter((d) => !isAIServer(d) && !isWebsiteServer(d)).length} / ${serverList.length} Server</strong>${aiText}${webText}
         · ☁️ VMs: <strong>${rentals.vms.length}</strong>
         · Miete <strong>${euro.format(rentals.incomePerHour)} / h</strong> · Strom ${euro.format(servers.powerPerHour)} / h
         · 🔌 Kabel: ${meters(servers.cableMeters)}${eta !== null ? ` (+${meters(CABLE_ROLL.meters)} in ${Math.ceil(eta)} s)` : ''}</p>

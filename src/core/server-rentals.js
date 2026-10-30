@@ -17,6 +17,8 @@
 // VM (laufender Vertrag): { id, customer, note, ram, cores, serverId, duration, minutesLeft (Restlaufzeit),
 //            offlineFor (Spielminuten, die der Server gerade am Stück offline ist), auto (true: von den privaten
 //            Servern automatisch vergeben, core/rental-automation.js) }
+// Online-Anfragen über die eigene Website (#54, core/website.js) tragen source: 'website' (bleibt am Vertrag): Sie
+// kommen ohne Figur am Empfang, zählen nicht bei maxWaiting (counterRequests) und warten in der App auf Antwort.
 import { SERVER_CORES, SERVER_RAM, isRentableType } from './server-catalog.js';
 
 export const NEW_REQUEST_EVERY = 60;      // Spielminuten zwischen zwei Anfragen (echt ca. 3 min) …
@@ -68,6 +70,7 @@ export class ServerRentals {
     this.untilNext = NEW_REQUEST_EVERY;
     this.maxWaiting = MAX_WAITING;
     this.random = Math.random; // austauschbar für Tests
+    this.website = null;      // core/website.js setzt sich hier ein (Statistik: angenommene Online-Anfragen, Miete)
     this.listeners = new Set();
     // (type, data) => void – 'new-request' { request }, 'request-expired' { request }, 'request-declined' { request },
     // 'accepted' { request, vm, server }, 'rental-ended' { vm, server }, 'rental-cancelled' { vm, server },
@@ -89,6 +92,11 @@ export class ServerRentals {
 
   vmById(id) {
     return this.vms.find((v) => v.id === id) ?? null;
+  }
+
+  // Anfragen von Kunden, die am Empfang stehen bzw. dorthin kommen (ohne Online-Anfragen über die Website)
+  get counterRequests() {
+    return this.requests.filter((r) => r.source !== 'website');
   }
 
   // Alle eingebauten Server (für die Serverwahl), ob online oder nicht – auch private; die sperrt fitsOn mit Grund.
@@ -213,6 +221,7 @@ export class ServerRentals {
     this.requests = this.requests.filter((r) => r !== request);
     this.vms.push(vm);
     this.onEvent?.('accepted', { request, vm, server });
+    this.website?.recordAccepted(request);
     this.notify();
     return { ok: true, vm };
   }
@@ -233,6 +242,14 @@ export class ServerRentals {
   // eingebaut ist
   get requestsPossible() {
     return !!this.upgrades?.upperFloor && this.rentableServers.some((s) => !this.servers.isPrivateDevice(s));
+  }
+
+  // Fertige Anfrage einreihen (core/website.js für Online-Anfragen – ohne Prüfung der Empfangsplätze)
+  addRequest(request) {
+    this.requests.push(request);
+    this.onEvent?.('new-request', { request });
+    this.notify();
+    return request;
   }
 
   // Neue Anfrage (ohne sie einzureihen): meist kleine VMs, selten riesige
@@ -294,7 +311,7 @@ export class ServerRentals {
       this.untilNext -= gameMinutes;
       if (this.untilNext <= 0) {
         this.untilNext = NEW_REQUEST_EVERY * (1 - REQUEST_JITTER + this.random() * 2 * REQUEST_JITTER);
-        if (this.requests.length < this.maxWaiting) {
+        if (this.counterRequests.length < this.maxWaiting) { // Online-Anfragen belegen keinen Platz am Empfang
           const request = this.createRequest();
           this.requests.push(request);
           this.onEvent?.('new-request', { request });
@@ -310,13 +327,17 @@ export class ServerRentals {
     const reached = this.servers.reachable();
     let amount = 0;
     let paying = 0;
+    let online = 0; // davon Verträge über die Website (Statistik in core/website.js)
     for (const vm of this.vms) {
       const server = this.serverOf(vm);
       if (!this.serves(server, reached)) continue;
-      amount += this.rentPerHour(vm, server);
+      const rent = this.rentPerHour(vm, server);
+      amount += rent;
+      if (vm.source === 'website') online += rent;
       paying++;
     }
     amount = cents(amount);
+    if (online > 0) this.website?.recordIncome(cents(online));
     if (amount <= 0) return 0;
     this.economy.earn(amount);
     this.onEvent?.('income', { amount, vms: paying });

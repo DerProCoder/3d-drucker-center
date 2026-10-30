@@ -75,7 +75,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
   // Belegung eines Servers durch VMs: „3 VMs · RAM 96/512 GB · Cores 12/64 · +4,80 € / h“ bzw. „frei, keine VM“
   function vmText(server, online) {
     const t = server.type;
-    if (t.rentable === false) return online ? '🧠 rechnet für die KI (KI-Abo)' : ''; // KI-GPU-Server: keine VMs
+    if (t.rentable === false) return online ? (t.web ? '🌐 betreibt die Website' : '🧠 rechnet für die KI (KI-Abo)') : ''; // KI-GPU- und Website-Server: keine VMs
     const rent = `+${euro.format(servers.rentOf(server))} / h`;
     if (!rentals) return online ? `${rent} Miete` : '';
     const vms = rentals.vmsOn(server).length;
@@ -97,7 +97,7 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
       // Server mit VMs in einem privaten Schrank: läuft, aber die Kunden zahlen nicht und kündigen (core/server-rentals.js)
       const privateVms = !why && servers.isPrivateDevice(device) ? rentals?.vmsOn(device).length : 0;
       // KI-GPU-Server online, aber überhitzt: die GPUs drosseln, er zählt nicht für die KI (core/ai-service.js)
-      const aiProblem = !why && t.rentable === false ? ai?.problemOf(device, reached) : null;
+      const aiProblem = !why && t.rentable === false && !t.web ? ai?.problemOf(device, reached) : null;
       if (aiProblem) status = `<span class="rack-status off">online · ⚠️ ${aiProblem} – rechnet nicht für die KI</span>`;
       else if (why) status = `<span class="rack-status off">offline – ${why}${vmText(device, false)}</span>`;
       else if (privateVms) {

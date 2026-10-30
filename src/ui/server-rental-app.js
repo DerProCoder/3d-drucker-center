@@ -8,6 +8,8 @@
 // VM-Anfragen und passen nur auf NAS. Jede NAS zeigt zusätzlich einen Balken „Speicher: 1,2 / 4,5 TB belegt“ und ihre
 // Speicher-Verträge (scrollbar wie die VMs). Nach einem Plattendefekt (#49) läuft die NAS weiter; Verträge, die nicht
 // mehr auf die heilen Platten passen, sind mit 💽 als offline gekennzeichnet.
+// Online-Anfragen über die eigene Website (#54, core/website.js, source: 'website') tragen das Kennzeichen „🌐 Website“ –
+// der Kunde steht nicht am Empfang, sondern wartet online auf Antwort. Verträge daraus zeigen 🌐 vor dem Namen.
 import { CANCEL_AFTER_OFFLINE, RENT_PER_CORE, RENT_PER_GB } from '../core/server-rentals.js';
 import { RENT_PER_GB_STORAGE, StorageRentals } from '../core/storage-rentals.js';
 import { isNas, storageText } from '../core/nas.js';
@@ -26,7 +28,8 @@ const idOf = (text) => (StorageRentals.isStorageId(text) ? text : Number(text));
 // economy: core/economy.js · servers: core/servers.js · rentals: core/server-rentals.js
 // automation: core/rental-automation.js (fehlt es, gibt es keinen Schalter für die automatische Vergabe)
 // storage: core/storage-rentals.js (fehlt es, gibt es keine Speicher-Anfragen und keinen Speicher-Balken)
-export function createServerRentalApp({ economy, servers, rentals, automation = null, storage = null }) {
+// website: core/website.js (optional) – Statuszeile „🌐 Website: Live · … Online-Anfragen heute“
+export function createServerRentalApp({ economy, servers, rentals, automation = null, storage = null, website = null }) {
   const chosen = new Map(); // Anfrage-ID → gewählte Server-ID (bleibt beim Neuzeichnen erhalten)
   // Anfrage bzw. Vertrag gehört zur Speicher-Vermietung?
   const isStorage = (id) => !!storage && StorageRentals.isStorageId(id);
@@ -40,7 +43,13 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     return rack ? `${spotLabel(rack.slot)} · HE ${server.unit + 1}` : 'nicht eingebaut';
   }
 
-  const waitText = (request) => `Wartet noch ca. ${realTime(request.waitLeft)} am Empfang`;
+  const viaWeb = (x) => x.source === 'website';
+  const waitText = (request) => (viaWeb(request)
+    ? `Wartet noch ca. ${realTime(request.waitLeft)} online auf Antwort`
+    : `Wartet noch ca. ${realTime(request.waitLeft)} am Empfang`);
+  // Kennzeichen „🌐 Website“ an Anfragen und Verträgen, die über die Website kamen
+  const webBadge = (x) => (viaWeb(x) ? '<span class="rental-web" title="über die Website gebucht">🌐 Website</span>' : '');
+  const webMark = (x) => (viaWeb(x) ? '<span title="über die Website gebucht">🌐</span> ' : '');
   const leftText = (vm) => `noch ${realTime(vm.minutesLeft)}`;
   // Server privat (läuft, bedient die VM aber nicht) oder offline – Speicher-Verträge auch wegen einer defekten Platte
   // der NAS (#49)
@@ -96,11 +105,11 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
       ? list.map((s) => nasOption(request, s, reached)).join('')
       : '<p class="empty">Noch keine NAS eingebaut – Speicher gibt es nur auf NAS.</p>';
     return `
-      <div class="card rental-request storage-request" data-request="${request.id}">
+      <div class="card rental-request storage-request${viaWeb(request) ? ' web-request' : ''}" data-request="${request.id}">
         <div class="card-head">
           <span class="accessory-icon">💾</span>
           <div>
-            <div class="card-title">${request.customer}</div>
+            <div class="card-title">${request.customer} ${webBadge(request)}</div>
             <div class="card-sub">${request.note}</div>
           </div>
         </div>
@@ -136,11 +145,11 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
       ? list.map((s) => serverOption(request, s, reached)).join('')
       : '<p class="empty">Noch kein Server eingebaut.</p>';
     return `
-      <div class="card rental-request" data-request="${request.id}">
+      <div class="card rental-request${viaWeb(request) ? ' web-request' : ''}" data-request="${request.id}">
         <div class="card-head">
-          <span class="accessory-icon">💬</span>
+          <span class="accessory-icon">${viaWeb(request) ? '🌐' : '💬'}</span>
           <div>
-            <div class="card-title">${request.customer}</div>
+            <div class="card-title">${request.customer} ${webBadge(request)}</div>
             <div class="card-sub">${request.note}</div>
           </div>
         </div>
@@ -172,7 +181,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const danger = !online && vm.offlineFor >= CANCEL_AFTER_OFFLINE * DANGER_SHARE;
     return `
       <li class="rental-vm" data-vm="${vm.id}">
-        <span>${vm.auto ? '<span title="automatisch vergeben">🤖</span> ' : ''}<b>${vm.customer}</b></span>
+        <span>${vm.auto ? '<span title="automatisch vergeben">🤖</span> ' : ''}${webMark(vm)}<b>${vm.customer}</b></span>
         <span>${vm.ram} GB · ${vm.cores} Cores</span>
         <span>${euro.format(rentals.rentPerHour(vm, server))} / h</span>
         <span data-left>${leftText(vm)}</span>
@@ -185,7 +194,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const danger = !online && contract.offlineFor >= CANCEL_AFTER_OFFLINE * DANGER_SHARE;
     return `
       <li class="rental-vm" data-contract="${contract.id}">
-        <span>${contract.auto ? '<span title="automatisch vergeben">🤖</span> ' : ''}💾 <b>${contract.customer}</b></span>
+        <span>${contract.auto ? '<span title="automatisch vergeben">🤖</span> ' : ''}${webMark(contract)}💾 <b>${contract.customer}</b></span>
         <span>${storageText(contract.storage)}</span>
         <span>${euro.format(storage.rentPerHour(contract, server))} / h</span>
         <span data-left>${leftText(contract)}</span>
@@ -258,6 +267,15 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
       </div>`;
   }
 
+  // Statuszeile der Website (#54): Status und Online-Anfragen heute
+  function webLine() {
+    if (!website) return '';
+    const t = website.stats().today;
+    const why = website.state === 'live' ? '' : website.state === 'off' ? ` – ${website.offlineReason() ?? 'kein Website-Server online'}` : website.state === 'setup' ? ' – in der App „Website“ einrichten und veröffentlichen' : '';
+    return `<p class="slots rental-web-line">🌐 Website: <strong>${website.stateText}</strong>${why}
+      · Online-Anfragen heute: <strong>${t.requests}</strong>, davon angenommen ${t.accepted} · Einnahmen heute ${euro.format(t.income)}</p>`;
+  }
+
   function render() {
     const reached = servers.reachable();
     const list = rentals.rentableServers;
@@ -277,7 +295,8 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
         ${storage ? `💾 Speicher-Anfragen passen nur auf eine <strong>NAS</strong> mit genug freiem Speicher und bringen
         ${euro.format(RENT_PER_GB_STORAGE * 1000)} je 1.000 GB × Mietfaktor pro Spielstunde. Vermieteter Speicher sperrt das Herausnehmen der Platten.` : ''}
         Ist ein Server zu lange am Stück offline (${realTime(CANCEL_AFTER_OFFLINE)}), kündigt der Kunde.
-        ${automation ? 'Läuft ein Server in der orangen Reihe „Private Server“, vergibt er die Anfragen automatisch (🤖) – solange er noch nicht zugegriffen hat, kannst du trotzdem selbst vergeben.' : ''}</p>`;
+        ${automation ? 'Läuft ein Server in der orangen Reihe „Private Server“, vergibt er die Anfragen automatisch (🤖) – solange er noch nicht zugegriffen hat, kannst du trotzdem selbst vergeben.' : ''}
+        🌐 Ist deine <strong>Website</strong> live (Website-Server online, in der App „Website“ eingerichtet), kommen zusätzlich Online-Anfragen direkt hierher – ohne Kunden am Empfang.</p>${webLine()}`;
     const requests = all.length
       ? `<div class="grid rental-requests">${all.map((r) => (r.kind === 'storage' && storage ? storageRequestCard(r, reached) : requestCard(r, list, reached))).join('')}</div>`
       : `<p class="empty">${possible ? 'Gerade keine Anfragen. Neue Kunden melden sich bald.'

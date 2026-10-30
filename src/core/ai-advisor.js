@@ -10,7 +10,7 @@
 // outlook, path, alerts, ranking); compose() nimmt so viele Fächer, wie die Stufe erlaubt. Den Tagesverlauf für
 // Stufe 6 und 7 zeichnet core/ai-day-log.js im KI-Dienst auf.
 // game: Spielsysteme wie in main.js – { economy, orders, progress, upgrades, clock, staff, servers, climate, rentals,
-// rentalAutomation, visitors, ai, climateAutomation } – alles optional, fehlende Teile werden übersprungen.
+// rentalAutomation, visitors, ai, climateAutomation, website } – alles optional, fehlende Teile werden übersprungen.
 // Ohne Three.js und DOM.
 import { BANKRUPT_AT, IDLE_POWER_SHARE, NOZZLE_WORN, RENT_PER_HOUR, WET } from './economy.js';
 import { FAILURES, SPOOL_GRAMS, filamentById, filamentLabel, templateById } from './catalog.js';
@@ -87,7 +87,7 @@ const TOPICS = [
   { id: 'filament', title: '🧵 Filament', words: [/filament/, /spule/, /\bpla\b/, /\bpetg\b/, /\babs\b/, /\btpu\b/, /material/, /feucht/, /trock/, /nachkauf/, /einkauf/, /\bholz/, /platte/] },
   { id: 'printers', title: '🖨️ Drucker', words: [/drucker/, /duese/, /fehldruck/, /\bams\b/, /\bdruckt/, /\bdrucke\b/, /laser/, /spaghetti/, /muelleimer/] },
   { id: 'orders', title: '📋 Aufträge', words: [/auftrag/, /auftraege/, /kunde/, /bestellung/, /\bfrist/, /abhol/, /empfang/] },
-  { id: 'servers', title: '🖥️ Server', words: [/server/, /\bvms?\b/, /vermiet/, /mietanfrage/, /anfrage/, /\brack/, /\bnetz/, /internet/, /kabel/, /firewall/, /switch/, /patch/, /offline/, /online/] },
+  { id: 'servers', title: '🖥️ Server', words: [/server/, /website/, /webseite/, /homepage/, /\bvms?\b/, /vermiet/, /mietanfrage/, /anfrage/, /\brack/, /\bnetz/, /internet/, /kabel/, /firewall/, /switch/, /patch/, /offline/, /online/] },
   { id: 'climate', title: '🌡️ Klima', words: [/temperatur/, /heiss/, /\bkalt/, /kuehl/, /luefter/, /klima/, /warm/, /\bgrad\b/, /°/, /ueberhitz/, /eingefror/, /friert/, /\bschrank/, /\bschraenke/] },
   { id: 'money', title: '💶 Geld', words: [/geld/, /konto/, /\beuro/, /€/, /gewinn/, /verlust/, /pleite/, /kosten/, /einnahm/, /verdien/, /umsatz/, /finanz/, /kasse/, /\bbank/, /\breich\b/] },
   { id: 'power', title: '⚡ Strom', words: [/strom/, /energie/, /verbrauch/, /\bkw\b/, /watt/] },
@@ -761,7 +761,14 @@ export class AIAdvisor {
       for (const vm of rentals.vms.filter((v) => v.offlineFor > 0)) p.problems.push(`VM von ${vm.customer} läuft nicht – Kunde kündigt bald.`);
     }
     p.problems.push(...this.diskProblems().map((x) => x.text));
+    const web = this.websiteProblems(); // eigene Website (#54)
+    p.problems.push(...web.map((x) => x.text));
+    if (this.game.website?.isLive) {
+      const t = this.game.website.stats().today;
+      p.numbers.push(`Website live: ${plural(t.requests, 'Online-Anfrage', 'Online-Anfragen')} heute, ${t.accepted} angenommen · ${euro.format(t.income)} über die Website.`);
+    }
     if (!p.problems.length) p.problems.push(f.servers.length ? 'Alle Server sind online.' : 'Noch keine Server eingebaut.');
+    for (const x of web) p.advice.push(`${x.step} – ${x.why}.`);
     if (rentals) {
       for (const request of rentals.requests.slice(0, 3)) {
         const server = this.bestServer(request, f);
@@ -774,6 +781,27 @@ export class AIAdvisor {
     if (!p.advice.length) p.advice.push(f.servers.length ? 'Keine Anfragen offen – Server mit hohem Mietfaktor (RISC, GPU) bringen am meisten.' : 'Fang mit einem Schrank, einer Firewall und einem Mini-Server an.');
     if (rentals) p.forecast.push(`Bis Tagesende bringen die VMs${this.game.storageRentals?.contracts.length ? ' und der vermietete Speicher' : ''} noch etwa ${euro.format(this.rentIncome() * Math.floor(this.hoursLeftToday()))}.`);
     return p;
+  }
+
+  // Eigene Website (#54, core/website.js): offline, noch nicht eingerichtet oder schlecht lesbar. Nur, wenn ein
+  // Website-Server eingebaut ist oder die Website schon veröffentlicht war. [{ key, state, text, step, why }]
+  websiteProblems() {
+    const website = this.game.website;
+    if (!website || (!website.websiteServers.length && !website.published)) return [];
+    const state = website.state;
+    if (state === 'off') {
+      return [{ key: 'website-off', state, text: `Website ist offline – ${website.offlineReason() ?? 'kein Website-Server online'}. Es kommen keine Online-Anfragen.`, step: 'Website-Server online bringen', why: 'ohne Website keine Online-Anfragen' }];
+    }
+    if (state === 'setup') {
+      return [{ key: 'website-setup', state, text: 'Website noch nicht eingerichtet – in der App „Website“ einrichten und veröffentlichen, dann kommen Online-Anfragen.', step: 'Website in der App „Website“ einrichten', why: `bis ${Math.round(website.requestsPerDayFor(website.activeCount, 0))} Online-Anfragen pro Tag` }];
+    }
+    if (state === 'live') {
+      const design = website.design();
+      if (!design.readable) {
+        return [{ key: 'website-contrast', state, text: `Text der Website schlecht lesbar (Kontrast ${design.contrast.toLocaleString('de-DE')} : 1) – weniger Kunden. Text- oder Hintergrundfarbe ändern.`, step: 'Farben der Website lesbarer machen', why: 'gut lesbarer Text bringt mehr Online-Anfragen' }];
+      }
+    }
+    return [];
   }
 
   // NAS mit defekter Festplatte (#49): Die NAS läuft weiter, nur Speicher-Verträge, die nicht mehr auf die heilen
@@ -981,6 +1009,7 @@ export class AIAdvisor {
     if (this.game.servers) list.push(...this.offlineServers([...f.servers, ...f.aiServers], f));
     for (const d of f.climate.down) list.push(`${this.serverName(d.device)} ${d.status === 'broken' ? 'ist überhitzt und defekt' : 'ist eingefroren'}`);
     list.push(...this.diskProblems().map((x) => x.text.replace(/\.$/, ''))); // defekte Festplatten in NAS (#49)
+    list.push(...this.websiteProblems().map((x) => x.text.replace(/\.$/, ''))); // eigene Website (#54)
     const hot = hottestPerRack(f.climate.hot);
     for (const h of hot.values()) list.push(`${h.label} ist zu heiß (${degrees(h.temp)})`);
     for (const [customer, orders] of byCustomer(f.orders.filter((o) => o.order.stage === 'counter'))) {
@@ -1233,6 +1262,12 @@ export class AIAdvisor {
     }
     // Defekte Festplatte (#49) meldet main.js schon – die KI erinnert, solange Speicher-Verträge deshalb offline sind
     for (const x of this.diskProblems().filter((y) => y.stranded)) add(`disk-${x.device.id}`, 'servers', 88, x.text, { remindOnly: true });
+    // Eigene Website (#54): offline nach Veröffentlichung warnt wiederholt, „nicht eingerichtet“ und „schlecht lesbar“ einmal
+    for (const x of this.websiteProblems()) {
+      const off = x.state === 'off' && this.game.website.published;
+      if (x.state === 'off' && !off) continue; // noch nie live: kein Alarm, nur Hinweis im Thema Server
+      add(x.key, 'servers', off ? 72 : 55, x.text, { repeat: off });
+    }
     // Je Schrank eine Warnung, überhitzte KI-GPU-Server stehen mit drin. Zu warm (über idealMax) ohne Schaden meldet
     // die KI einmal; ab TEMP_LIMITS.hot (Schaden, GPUs drosseln) steigt die Gefahr – dann gleich und alle WARN_REPEAT
     for (const h of hottestPerRack(f.climate.hot).values()) {
@@ -1340,6 +1375,7 @@ export class AIAdvisor {
     }
     for (const d of f.climate.down) add(88, 'climate', `${this.serverName(d.device)} ${d.status === 'broken' ? 'reparieren' : 'neu starten'}`, d.status === 'broken' ? 'überhitzt und defekt' : 'eingefroren');
     for (const x of this.diskProblems()) add(x.stranded ? 86 : 60, 'servers', `Festplatte in ${this.serverName(x.device)} tauschen`, x.stranded ? `${plural(x.stranded, 'Speicher-Vertrag', 'Speicher-Verträge')} offline, keine Miete` : 'die NAS läuft weiter, hat aber weniger Speicher');
+    for (const x of this.websiteProblems()) add(x.state === 'off' ? 64 : x.state === 'setup' ? 58 : 42, 'servers', x.step, x.why); // eigene Website (#54)
     if (f.aiHot.length && this.ai) {
       const gain = feeFor(f.aiWorking.length + f.aiHot.length) - this.ai.incomePerHour;
       add(85, 'ai', `${plural(f.aiHot.length, 'KI-GPU-Server', 'KI-GPU-Server')} kühlen`, `+${euro.format(gain)} KI-Abo pro Stunde`, gain * 10);

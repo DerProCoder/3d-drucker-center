@@ -441,11 +441,54 @@ function iconParts(ctx, x, y, s) {
   ctx.fill();
 }
 
+// Website: Browserfenster mit Adressleiste, darin ein blau-grüner Globus mit Längen- und Breitengraden
+function iconWeb(ctx, x, y, s) {
+  ctx.fillStyle = '#e8eef6';
+  roundRect(ctx, x + s * 0.04, y + s * 0.1, s * 0.92, s * 0.8, s * 0.1);
+  ctx.fill();
+  ctx.fillStyle = '#3a4250';
+  roundRect(ctx, x + s * 0.04, y + s * 0.1, s * 0.92, s * 0.18, [s * 0.1, s * 0.1, 0, 0]);
+  ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = ['#ff5f57', '#febc2e', '#28c840'][i];
+    ctx.beginPath();
+    ctx.arc(x + s * (0.13 + i * 0.08), y + s * 0.19, s * 0.03, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#5b6577';
+  roundRect(ctx, x + s * 0.4, y + s * 0.15, s * 0.48, s * 0.08, s * 0.04);
+  ctx.fill();
+  const cx = x + s * 0.5;
+  const cy = y + s * 0.6;
+  const r = s * 0.24;
+  ctx.fillStyle = '#1f8fd6';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#4fd18b';
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.35, cy - r * 0.25, r * 0.32, r * 0.22, -0.5, 0, Math.PI * 2);
+  ctx.ellipse(cx + r * 0.35, cy + r * 0.3, r * 0.26, r * 0.2, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = s * 0.025;
+  ctx.beginPath();
+  ctx.moveTo(cx + r, cy);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.moveTo(cx - r, cy);
+  ctx.lineTo(cx + r, cy);
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx, cy + r);
+  ctx.moveTo(cx + r * 0.45, cy);
+  ctx.ellipse(cx, cy, r * 0.45, r, 0, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
 const ICONS = {
   trophy: iconTrophy, server: iconServer, cloud: iconCloud, ai: iconAI, parts: iconParts,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,
-  wood: iconWood, snake: iconSnake,
+  wood: iconWood, snake: iconSnake, web: iconWeb,
 };
 
 // Symbol als Bild-URL für das HTML-Desktop-Fenster (doppelte Auflösung für scharfe Kanten)

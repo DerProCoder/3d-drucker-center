@@ -9,3 +9,10 @@
 .rental-meter.storage-meter .progress { display: flex; }
 .rental-meter.storage-meter .bar.over { background: #e74c3c; }
 .rental-meter.storage-meter .bad { color: #ff8a7a; }
+/* Online-Anfragen über die eigene Website (#54): Kennzeichen „🌐 Website“ und himmelblauer Rand wie die Serie „Web“ */
+.rental-web {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; vertical-align: middle;
+  font-size: 0.75em; font-weight: 700; white-space: nowrap; color: #0b2433; background: #5ec4f2;
+}
+.rental-request.web-request { border-color: #5ec4f2; box-shadow: inset 3px 0 0 #5ec4f2; }
+.rental-web-line strong { color: #5ec4f2; }

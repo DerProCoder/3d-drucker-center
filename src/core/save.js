@@ -1,7 +1,7 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
 // game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench,
-// nas, storageRentals }
+// nas, storageRentals, website }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -30,7 +30,9 @@ const KEY = 'druckercenter-save';
 //     passen, tragen stranded: true (storageRentals.contracts[].stranded)
 // 24: Kellerausbau in Stufen (#50) – upgrades.basementStage/basementStageOrdered (0 = kein Keller, 1 = 20 × 20 m … 6)
 //     und Feldtypen upgrades.basementFields (36 Einträge, core/basement-layout.js: 'storage' | 'bunker' | null)
-const VERSION = 24;
+// 25: Eigene Website (#54, core/website.js) – Einstellungen, Status (veröffentlicht, läuft, Hochfahren) und Statistik je
+//     Tag (website); Online-Anfragen und Verträge daraus tragen source: 'website' (rentals/storageRentals, kein eigenes Feld)
+const VERSION = 25;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -53,7 +55,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -152,6 +154,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     aiService: aiService?.toJSON(), // Gesamteinnahmen aus dem KI-Abo (core/ai-service.js)
     serverParts: serverParts?.toJSON(), // Bauteile je Server, Teilelager und Lieferungen (core/server-parts.js)
     storageRentals: storageRentals?.toJSON(), // Speicher-Anfragen und -Verträge auf den NAS (core/storage-rentals.js)
+    website: website?.toJSON(), // eigene Website: Einstellungen, Status, Statistik (core/website.js)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -187,7 +190,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -294,6 +297,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     }
     data.version = 24;
   }
+  // Version 24 kennt noch keine eigene Website: nicht eingerichtet, keine Statistik (website.load ohne Daten)
+  if (data?.version === 24) {
+    data.website ??= null;
+    data.version = 25;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -384,6 +392,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   rentals?.load(data.rentals); // nach servers/economy: Verträge auf fehlenden Servern fallen weg
   storageRentals?.load(data.storageRentals); // nach serverParts und rentals: Verträge auf fehlenden NAS fallen weg
   rentalAutomation?.load(data.rentalAutomation);
+  website?.load(data.website); // nach rentals und storageRentals (Online-Anfragen stehen dort)
   aiService?.load(data.aiService);
   economy.notify();
   orders.notify();

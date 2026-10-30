@@ -53,6 +53,7 @@ import { StorageRentals } from './core/storage-rentals.js';
 import { ClimateAutomation } from './core/climate-automation.js';
 import { ServerRentals } from './core/server-rentals.js';
 import { RentalAutomation } from './core/rental-automation.js';
+import { Website } from './core/website.js';
 import { AIService } from './core/ai-service.js';
 import { createAdvisor } from './core/ai-advisor.js';
 import { Visitors, partyText, starsText } from './core/visitors.js';
@@ -100,12 +101,14 @@ rentals.maxWaiting = 1 + RECEPTION_SPOTS.chairs.length; // höchstens so viele W
 // Speicherplatz auf den NAS vermieten (#47) – setzt nas.rentedStorageOf, Speicher-Kunden zählen bei maxWaiting mit
 const storageRentals = new StorageRentals(economy, servers, upgrades, rentals, nas);
 const rentalAutomation = new RentalAutomation(rentals, storageRentals); // Server in der orangen Reihe vergeben VM- und Speicher-Anfragen selbst
+// Eigene Website (#54): Website-Server tragen sie, Online-Anfragen kommen ohne Figur direkt in die App „Server-Vermietung“
+const website = new Website({ economy, servers, rentals, storage: storageRentals, clock: gameClock });
 // Eigene KI auf den KI-GPU-Servern: Stufe 1–10 je nach Anzahl online, Einnahmen über das KI-Abo.
 // Aufträge, Uhr und XP braucht sie für den Tagesverlauf (Vergleich mit gestern, Prognose über Tage)
 const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
 // Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -505,6 +508,20 @@ rentals.onEvent = (type, d) => {
   }
 };
 // Speicher-Vermietung auf den NAS (#47): Vertragsende und Kündigung melden
+// Eigene Website (#54): live, hochgefahren, offline und neue Online-Anfragen melden
+website.onEvent = (type, d) => {
+  if (type === 'state-changed') {
+    if (d.state === 'live') hud.notify('🌐 Deine Website ist live – Online-Anfragen kommen direkt in die App „Server-Vermietung“', 'good');
+    else if (d.state === 'booting') hud.notify('🌐 Website-Server online – die Website fährt hoch …', 'info');
+    else if (d.state === 'setup') hud.notify('🌐 Website ist hochgefahren – jetzt in der App „Website“ einrichten', 'info');
+    else if (d.state === 'off' && d.previous === 'live') {
+      hud.notify('⚠️ Website ist offline – kein Website-Server online, keine Online-Anfragen', 'bad');
+      sound.play('warn');
+    }
+  } else if (type === 'online-request') {
+    hud.notify(`🌐 Online-Anfrage von ${d.request.customer} – in der App „Server-Vermietung“`, 'info');
+  }
+};
 storageRentals.onEvent = (type, d) => {
   if (type === 'rental-ended') {
     hud.notify(`📄 Speicher-Vertrag mit ${d.contract.customer} ist ausgelaufen – ${storageText(d.contract.storage)} auf ${d.server?.type.name ?? 'der NAS'} wieder frei`, 'info');
@@ -843,6 +860,7 @@ const shop = createShop(economy, {
   rentals, // Server-Vermietung (VM-Anfragen, Verträge)
   rentalAutomation, // automatische Vergabe durch die privaten Server: Schalter und Status in der App
   storageRentals, // Speicher-Vermietung auf den NAS (#47): Anfragen und Verträge in der App „Server-Vermietung“
+  website, // eigene Website (#54): Statuszeile in der Server-Vermietung, App „Website“ (#55)
   ai: aiService, // App „KI“: Stufe, KI-GPU-Server online, KI-Abo
   serverParts, // App „Teile-Shop“: Bauteile kaufen, Teilelager, defekte Server
   advisor, // Antworten im KI-Chat (core/ai-advisor.js)
@@ -1133,6 +1151,7 @@ renderer.setAnimationLoop(() => {
       automation.advance(gameMinutes); // nach dem Klima: regelt mit den neuen Temperaturen
       rentals.advance(gameMinutes);
       storageRentals.advance(gameMinutes); // Speicher-Anfragen und -Verträge (#47)
+      website.advance(gameMinutes); // eigene Website (#54): Hochfahren, Online-Anfragen, Tagesstatistik
       rentalAutomation.advance(gameMinutes); // vergibt Anfragen, deren Kunde am Empfang steht
       aiService.advance(gameMinutes); // Stufenwechsel der KI erkennen (prüft höchstens einmal je Spielminute)
       advisor.advance(gameMinutes); // KI ab Stufe 9: prüft alle 2 Spielminuten auf Warnungen

@@ -1,7 +1,7 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör), „Drucker-Shop“ und „Holzshop“ (Laser R1 und Holzplatten) zum Einkaufen,
 // „Aufträge“ und „Druckermenü“ zum Steuern, „Server-Shop“, „Teile-Shop“ (Server-Bauteile) und „Server-Vermietung“
-// (VM-Anfragen der Kunden), „KI“ (Chat), „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+// (VM-Anfragen der Kunden), „Website“ (eigene Firmen-Website mit Vorschau), „KI“ (Chat), „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
@@ -21,6 +21,7 @@ import { createServerShop } from './server-shop.js';
 import { createPartsShop } from './parts-shop.js';
 import { createServerRentalApp } from './server-rental-app.js';
 import { createAIApp } from './ai-app.js';
+import { createWebsiteApp } from './website-app.js';
 import { createAdvisor } from '../core/ai-advisor.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 import { euro } from '../core/format.js';
@@ -41,6 +42,7 @@ const APPS = [
   { id: 'parts', name: 'Teile-Shop', icon: 'parts', live: true },
   { id: 'rentals', name: 'Server-Vermietung', icon: 'cloud', live: true },
   { id: 'ai', name: 'KI', icon: 'ai', live: false }, // nicht live: Chat-Verlauf und Eingabe bleiben stehen, Kopf per liveUpdate
+  { id: 'website', name: 'Website', icon: 'web', live: false }, // nicht live: Eingaben bleiben stehen, Vorschau und Status per liveUpdate (#55)
   { id: 'orders', name: 'Aufträge', icon: 'orders', live: true },
   { id: 'upgrades', name: 'Ausbau', icon: 'build', live: true },
   { id: 'control', name: 'Druckermenü', icon: 'pc', live: true },
@@ -72,6 +74,7 @@ const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="tru
 
 export function createShop(economy, {
   orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, rentalAutomation = null, storageRentals = null, ai = null, advisor = null, serverParts = null,
+  website = null, // eigene Website (#54, core/website.js): Statuszeile in der Server-Vermietung und App „Website“ (#55)
   freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
@@ -125,11 +128,12 @@ export function createShop(economy, {
   const snake = createSnakeApp();
   const serverShop = createServerShop({ economy, servers, upgrades, rentals, ai });
   const partsShop = createPartsShop({ economy, servers, serverParts, upgrades });
-  const rentalApp = createServerRentalApp({ economy, servers, rentals, automation: rentalAutomation, storage: storageRentals });
+  const rentalApp = createServerRentalApp({ economy, servers, rentals, automation: rentalAutomation, storage: storageRentals, website });
   const aiApp = createAIApp({
     ai,
     advisor: advisor ?? createAdvisor({ economy, orders, upgrades, staff, servers, rentals, rentalAutomation, ai }),
   });
+  const websiteApp = createWebsiteApp({ website });
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -393,7 +397,7 @@ export function createShop(economy, {
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
-      cam: cam.render, dev: renderDev, servers: serverShop.render, parts: partsShop.render, rentals: rentalApp.render, ai: aiApp.render,
+      cam: cam.render, dev: renderDev, servers: serverShop.render, parts: partsShop.render, rentals: rentalApp.render, ai: aiApp.render, website: websiteApp.render,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
     const typing = document.activeElement?.closest?.('[data-keep-focus]');
@@ -410,6 +414,7 @@ export function createShop(economy, {
     }
     if (app === 'cam') cam.attach(contentEl.querySelector('[data-cam]'));
     if (app === 'snake') snake.attach(contentEl.querySelector('[data-snake]'));
+    if (app === 'website') websiteApp.attach(contentEl); // Feldwerte und Vorschau per DOM (nie als HTML)
     for (const el of contentEl.querySelectorAll('[data-keep-scroll]')) {
       if (inner.has(el.dataset.keepScroll)) el.scrollTop = inner.get(el.dataset.keepScroll);
     }
@@ -521,10 +526,12 @@ export function createShop(economy, {
     if (app === 'notes') notes.handleInput(e);
     if (app === 'control') printerMenu.handleInput(e);
     if (app === 'ai') aiApp.handleInput(e);
+    if (app === 'website') websiteApp.handleInput(e);
   });
   // Enter im Chat der KI sendet; Tasten im Eingabefeld erreichen die Spielsteuerung nicht
   contentEl.addEventListener('keydown', (e) => {
     if (app === 'ai') aiApp.handleKey(e, contentEl);
+    if (app === 'website') websiteApp.handleKey(e);
   });
 
   let liveTicks = 0;
@@ -537,6 +544,7 @@ export function createShop(economy, {
     if (app === 'staff') staffMenu.liveUpdate(contentEl);
     if (app === 'rentals') rentalApp.liveUpdate(contentEl);
     if (app === 'ai') aiApp.liveUpdate(contentEl); // Stufe, Server online, Einnahmen, Sperre
+    if (app === 'website' && websiteApp.liveUpdate(contentEl)) render(); // Hochfahren, Statistik; Zustandswechsel zeichnet neu
     // Lieferungen unterwegs: Restzeit im Ausbau und im Druckermenü mitzählen (etwa einmal pro Sekunde)
     if ((app === 'upgrades' && upgrades.deliveries.length) || (app === 'control' && economy.shipments.length)
       || (app === 'servers' && servers.deliveries.length) || (app === 'parts' && serverParts?.deliveries.length)) {
@@ -601,6 +609,12 @@ export function createShop(economy, {
       aiApp.handleClick(e, contentEl);
       return;
     }
+    if (app === 'website') {
+      const { message, render: redraw } = websiteApp.handleClick(e);
+      if (redraw) render();
+      if (message) toast(message);
+      return;
+    }
     const id = e.target.closest('[data-buy]')?.dataset.buy;
     if (!id) return;
     if (id.startsWith('furniture:')) {
@@ -650,6 +664,7 @@ export function createShop(economy, {
   staff.subscribe(refresh);
   rentals.subscribe(refresh);
   storageRentals?.subscribe(refresh); // Speicher-Anfragen und -Verträge (#47)
+  website?.subscribe(refresh); // eigene Website (#54): Status und Online-Anfragen
   ai?.subscribe(refresh); // KI-Stufe im Server-Shop
 
   return { open, close, isOpen };

@@ -8,6 +8,8 @@
 // Empfang warten VM- und Speicher-Kunden zusammen höchstens maxWaiting (rentals.maxWaiting zählt die Speicher-Anfragen
 // mit, siehe Konstruktor). Eine Anfrage passt nur auf eine NAS, die online ist, nicht privat steht und genug freien
 // Speicher hat (Summe der Platten minus vermieteter Speicher).
+// Online-Anfragen über die eigene Website (#54, core/website.js, source: 'website') kommen ohne Figur am Empfang,
+// zählen nicht bei maxWaiting mit (counterRequests) und fehlen in der Sicht des Empfangs (desk.requests).
 // Miete pro Spielstunde = RENT_PER_GB_STORAGE × GB × Mietfaktor der NAS, nur solange die NAS die Daten bereitstellt
 // (rentals.serves: online, nicht privat). Ist sie zu lange am Stück offline (CANCEL_AFTER_OFFLINE, auch ausgebaut,
 // defekt oder „zu klein“), kündigt der Kunde – wie bei VMs.
@@ -71,6 +73,7 @@ export class StorageRentals {
     this.nextId = 1;
     this.untilNext = STORAGE_REQUEST_EVERY;
     this.random = Math.random; // austauschbar für Tests
+    this.website = null;      // core/website.js setzt sich hier ein (Statistik: angenommene Online-Anfragen, Miete)
     this.listeners = new Set();
     // (type, data) => void – 'new-request' { request }, 'request-expired' { request }, 'request-declined' { request },
     // 'accepted' { request, contract, server }, 'rental-ended' { contract, server },
@@ -90,7 +93,7 @@ export class StorageRentals {
     let maxWaiting = rentals.maxWaiting;
     Object.defineProperty(rentals, 'maxWaiting', {
       configurable: true,
-      get: () => Math.max(0, maxWaiting - this.requests.length),
+      get: () => Math.max(0, maxWaiting - this.counterRequests.length),
       set: (value) => { maxWaiting = value; },
     });
     this.totalWaiting = () => maxWaiting;
@@ -111,6 +114,11 @@ export class StorageRentals {
 
   contractById(id) {
     return this.contracts.find((c) => c.id === id) ?? null;
+  }
+
+  // Speicher-Anfragen von Kunden am Empfang (ohne Online-Anfragen über die Website)
+  get counterRequests() {
+    return this.requests.filter((r) => r.source !== 'website');
   }
 
   // Alle eingebauten NAS (für die Auswahl), ob online oder nicht – private sperrt fitsOn mit Grund
@@ -250,6 +258,7 @@ export class StorageRentals {
     this.requests = this.requests.filter((r) => r !== request);
     this.contracts.push(contract);
     this.onEvent?.('accepted', { request, contract, server });
+    this.website?.recordAccepted(request);
     this.notify();
     return { ok: true, contract };
   }
@@ -269,6 +278,14 @@ export class StorageRentals {
   // Speicher-Anfragen gibt es erst, wenn die zweite Etage steht und eine NAS außerhalb des privaten Bereichs eingebaut ist
   get requestsPossible() {
     return !!this.upgrades?.upperFloor && this.nasDevices.some((d) => !this.servers.isPrivateDevice(d));
+  }
+
+  // Fertige Anfrage einreihen (core/website.js für Online-Anfragen – ohne Prüfung der Empfangsplätze)
+  addRequest(request) {
+    this.requests.push(request);
+    this.onEvent?.('new-request', { request });
+    this.notify();
+    return request;
   }
 
   // Neue Anfrage (ohne sie einzureihen): meist kleine Größen, selten 4 TB
@@ -327,7 +344,7 @@ export class StorageRentals {
       this.untilNext -= gameMinutes;
       if (this.untilNext <= 0) {
         this.untilNext = STORAGE_REQUEST_EVERY * (1 - REQUEST_JITTER + this.random() * 2 * REQUEST_JITTER);
-        if (this.rentals.requests.length + this.requests.length < this.totalWaiting()) {
+        if (this.rentals.counterRequests.length + this.counterRequests.length < this.totalWaiting()) {
           const request = this.createRequest();
           this.requests.push(request);
           this.onEvent?.('new-request', { request });
@@ -345,12 +362,16 @@ export class StorageRentals {
     const stranded = this.strandedSet();
     let amount = 0;
     let paying = 0;
+    let online = 0; // davon Verträge über die Website (Statistik in core/website.js)
     for (const contract of this.contracts) {
       if (!this.servesContract(contract, reached, stranded)) continue;
-      amount += this.rentPerHour(contract, this.serverOf(contract));
+      const rent = this.rentPerHour(contract, this.serverOf(contract));
+      amount += rent;
+      if (contract.source === 'website') online += rent;
       paying++;
     }
     amount = cents(amount);
+    if (online > 0) this.website?.recordIncome(cents(online));
     if (amount <= 0) return 0;
     this.economy.earn(amount);
     this.onEvent?.('income', { amount, contracts: paying });
@@ -360,11 +381,12 @@ export class StorageRentals {
   // ---------- Empfang ----------
 
   // Sicht für world/customers.js und world/reception.js (statt rentals übergeben): VM- und Speicher-Anfragen zusammen,
-  // Annahme (vmById) und Ankunft (markArrived) für beide Arten
+  // Annahme (vmById) und Ankunft (markArrived) für beide Arten. Online-Anfragen (Website) fehlen in requests – für sie
+  // läuft keine Figur zum Empfang
   createDesk() {
     const rentals = this.rentals;
     const desk = {
-      get requests() { return [...rentals.requests, ...this.storage.requests]; },
+      get requests() { return [...rentals.counterRequests, ...this.storage.counterRequests]; },
       storage: this,
       requestById: (id) => rentals.requestById(id) ?? this.requestById(id),
       vmById: (id) => rentals.vmById(id) ?? this.contractById(id),

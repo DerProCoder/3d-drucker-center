@@ -419,7 +419,24 @@ function serverFront(s, type, unitH) {
     });
     return;
   }
-  if (type.drives === 'small' || (type.units === 1 && !type.color)) {
+  if (type.web) {
+    // Website-Server (#54): zwei 3,5-Zoll-Laufwerke, daneben ein dunkles Schild „WWW“ mit Leuchten für HTTP, SSL, DNS
+    const rh = s.h - 0.006;
+    for (let c = 0; c < 2; c++) driveBay(s, x0 + c * 0.085, 0.003, 0.0842, rh - 0.0008, false, colors, c === 0);
+    const px = x0 + 2 * 0.085 + 0.006;
+    const pw = 0.1;
+    const py = 0.004;
+    const ph = s.h - 0.008;
+    fill(s, px, py, pw, ph, '#0d1620', 140, 0.0015);
+    edge(s, px, py, pw, ph, false);
+    text(s, 'WWW', px + 0.006, py + ph / 2, Math.min(ph * 0.55, 0.011), '#7fd3ff', { glow: true, weight: 800 });
+    for (const [i, [name, color]] of [['HTTP', GREEN], ['SSL', GREEN], ['DNS', BLUE]].entries()) {
+      const lx = px + 0.052 + i * 0.016;
+      led(s, lx, py + ph * 0.36, 0.0011, color);
+      text(s, name, lx, py + ph * 0.74, Math.min(ph * 0.22, 0.0028), '#8d939b', { align: 'center' });
+    }
+    bayEnd = px + pw;
+  } else if (type.drives === 'small' || (type.units === 1 && !type.color)) {
     // 8 × 2,5 Zoll hochkant, eine Reihe je Höheneinheit
     const rows = type.units;
     const rh = (s.h - 0.006) / rows;
