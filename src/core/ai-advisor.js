@@ -23,6 +23,7 @@ import { TITLES } from './progress.js';
 import { serverHardwareById } from './server-catalog.js';
 import { AI_FEE_PER_SERVER, AI_SERVER_ID, LEVEL_FACTORS, LEVEL_THRESHOLDS, MAX_LEVEL, feeFor, isAIServer, levelFor } from './ai-service.js';
 import { euro, formatMinutes, realTime } from './format.js';
+import { DESIGN_BONUS } from './website.js';
 
 export { MAX_LEVEL };
 const MINUTES_PER_DAY = 24 * 60;
@@ -793,7 +794,7 @@ export class AIAdvisor {
       return [{ key: 'website-off', state, text: `Website ist offline – ${website.offlineReason() ?? 'kein Website-Server online'}. Es kommen keine Online-Anfragen.`, step: 'Website-Server online bringen', why: 'ohne Website keine Online-Anfragen' }];
     }
     if (state === 'setup') {
-      return [{ key: 'website-setup', state, text: 'Website noch nicht eingerichtet – in der App „Website“ einrichten und veröffentlichen, dann kommen Online-Anfragen.', step: 'Website in der App „Website“ einrichten', why: `bis ${Math.round(website.requestsPerDayFor(website.activeCount, 0))} Online-Anfragen pro Tag` }];
+      return [{ key: 'website-setup', state, text: 'Website noch nicht eingerichtet – in der App „Website“ einrichten und veröffentlichen, dann kommen Online-Anfragen.', step: 'Website in der App „Website“ einrichten', why: `bis ${Math.round(website.requestsPerDayFor(website.activeCount, DESIGN_BONUS))} Online-Anfragen pro Tag (gut gestaltet)` }];
     }
     if (state === 'live') {
       const design = website.design();

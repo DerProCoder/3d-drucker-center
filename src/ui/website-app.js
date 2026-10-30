@@ -17,12 +17,12 @@ import {
 import { euro } from '../core/format.js';
 
 const STEPS = [
-  { id: 'identity', name: 'Name & Logo' },
-  { id: 'colors', name: 'Farben' },
-  { id: 'font', name: 'Schrift' },
-  { id: 'texts', name: 'Texte' },
-  { id: 'offers', name: 'Angebote' },
-  { id: 'done', name: 'Fertig' },
+  { id: 'identity', name: 'Name & Logo', short: 'Name' },
+  { id: 'colors', name: 'Farben', short: 'Farben' },
+  { id: 'font', name: 'Schrift', short: 'Schrift' },
+  { id: 'texts', name: 'Texte', short: 'Texte' },
+  { id: 'offers', name: 'Angebote', short: 'Angebote' },
+  { id: 'done', name: 'Fertig', short: 'Fertig' },
 ];
 // Platzhalter in der Vorschau für leere Felder (blass dargestellt)
 const PLACEHOLDER = {
@@ -85,8 +85,8 @@ export function createWebsiteApp({ website = null }) {
       <div class="web-label">Fertige Farbschemata</div>
       <div class="web-schemes">
         ${COLOR_SCHEMES.map((c) => `
-          <button class="web-scheme" data-web-scheme="${c.id}" style="--s-bg:${normalizeColor(c.background)};--s-text:${normalizeColor(c.text)};--s-primary:${normalizeColor(c.primary)}">
-            <span class="web-scheme-swatch"><i></i><b>Aa</b></span>${c.name}
+          <button class="web-scheme" data-web-scheme="${c.id}" title="${c.name}" style="--s-bg:${normalizeColor(c.background)};--s-text:${normalizeColor(c.text)};--s-primary:${normalizeColor(c.primary)}">
+            <span class="web-scheme-swatch"><i></i><b>Aa</b></span><span class="web-scheme-name">${c.name}</span>
           </button>`).join('')}
       </div>
       <div class="web-colors">
@@ -161,7 +161,7 @@ export function createWebsiteApp({ website = null }) {
       : bodies[step]();
     return `
       <div class="web-steps">
-        ${STEPS.map((x, i) => `<button class="web-step${i === step ? ' active' : ''}${i < step ? ' done' : ''}" data-web-step="${i}"><b>${i < step ? '✓' : i + 1}</b><span>${x.name}</span></button>`).join('')}
+        ${STEPS.map((x, i) => `<button title="${x.name}" class="web-step${i === step ? ' active' : ''}${i < step ? ' done' : ''}" data-web-step="${i}"><b>${i < step ? '✓' : i + 1}</b><span>${x.short}</span></button>`).join('')}
       </div>
       <h3 class="web-step-title">Schritt ${step + 1} von ${STEPS.length}: ${s.name}</h3>
       ${body}
@@ -197,7 +197,7 @@ export function createWebsiteApp({ website = null }) {
           <div class="web-status-text">
             <b>Kein Website-Server online</b>
             <span data-web-reason></span>
-            <span>Website-Server (Serie „Web“) einbauen, verkabeln, einschalten – dann fährt die Website hoch.</span>
+            <span>Website-Server (Serie „Web“) in einen Serverschrank einbauen und per Netzwerkkabel über Switch bzw. Firewall ans Internet anschließen – dann fährt die Website hoch.</span>
           </div>
           <button class="buy" data-open="servers">Zum Server-Shop</button>
         </div>`;
@@ -455,7 +455,7 @@ export function createWebsiteApp({ website = null }) {
     const boot = root.querySelector('[data-web-boot]');
     if (boot) boot.style.width = `${Math.round(website.bootProgress * 100)}%`;
     const reason = root.querySelector('[data-web-reason]');
-    if (reason) reason.textContent = website.offlineReason() ?? '';
+    if (reason) reason.textContent = (website.offlineReason() ?? '').replace(/^Kein Website-Server online( – )?/, ''); // Überschrift sagt das schon
     const meta = root.querySelector('[data-web-meta]');
     if (meta) {
       const st = website.stats();

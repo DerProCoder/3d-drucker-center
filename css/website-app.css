@@ -42,20 +42,23 @@
 
 /* ---------- Assistent ---------- */
 
-.web-steps { display: flex; gap: 4px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
+/* Alle 6 Schritte immer sichtbar: gleich breite Spalten, Nummer über kurzem Namen */
+.web-steps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; margin-bottom: 12px; }
 .web-step {
-  flex: 1 0 auto;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 2px;
   border: 0;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
   color: inherit;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   white-space: nowrap;
 }
+.web-step span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .web-step b {
   display: inline-grid;
   place-items: center;
@@ -106,11 +109,12 @@
 }
 .web-logo.active, .web-choice.active, .web-font.active, .web-offer.active { border-color: var(--accent); background: rgba(58, 160, 255, 0.22); }
 
-.web-schemes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.web-schemes { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
 .web-scheme {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 5px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
@@ -119,6 +123,8 @@
   font-size: 0.78rem;
   text-align: left;
 }
+/* Lange Namen („Sonnenuntergang“) brechen mit Trennstrich um statt in die Nachbar-Kachel zu ragen */
+.web-scheme-name { min-width: 0; line-height: 1.15; hyphens: auto; overflow-wrap: anywhere; }
 .web-scheme-swatch {
   position: relative;
   display: grid;
