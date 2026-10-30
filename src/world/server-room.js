@@ -18,12 +18,13 @@
 // geht es nicht, meldet onNotice den Grund. Die Platten einer NAS werden nur neu gebaut, wenn sie sich ändern.
 // Daten-Bunker im Keller (#52): Schränke auf Bunker-Plätzen (core/server-zones.js) laufen durch denselben Ablauf.
 // Jeder Bereich hat eigene „Bodenkoordinaten“ (Fußboden y = 0, x/z wie core/): oben die Gruppe group, unten
-// bunker.frame bzw. je Feld bunker.holder(Feld) aus world/bunker.js (Gitter, Markierungen, Glasfaser-Anschluss).
+// bunker.frame bzw. je Feld bunker.holder(Feld) aus world/bunker.js (Trassen, Markierungen, Internet-Kästen).
 // Markierungen beim Verlegen und Vorschauen hängen jeweils im Bereich des gewählten Ports bzw. Schranks.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SERVER_SPOTS } from '../core/servers.js';
 import {
-  basementWan, endField, fieldLabel, isBasementWanPort, isWanRef, toggleWaypoint, trayArea, trayPath, wanEnd, wanPortName,
+  basementWanBoxOf, basementWanPortInfo, endField, fieldLabel, isBasementWanPort, isWanRef, toggleWaypoint, trayArea, trayPath, wanEnd, wanPortName,
 } from '../core/cable-tray.js';
 import { bunkerFieldOf, spotArea, spotFacing, spotPosition, spotUsable, spotsInZone } from '../core/server-zones.js';
 import { BASEMENT_FLOOR_Y } from '../core/basement-layout.js';
@@ -443,13 +444,10 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   const wanPortInteraction = (port) => portInteraction({ id: 'wan', port });
   const trayRoom = createCableTrayRoom({ fieldInteraction, wanPortInteraction });
   group.add(trayRoom.group);
-  // Daten-Bunker: Gitter je Feld, Bodenmarkierungen, Glasfaser-Anschluss im Keller (world/bunker.js)
+  // Daten-Bunker: Trassen je Feld, Bodenmarkierungen, Internet-Kästen je Feld (world/bunker.js)
   bunker = basement?.fields ? createBunker({
     layout: basement.layout, fields: basement.fields, collision, fieldInteraction, wanPortInteraction, spotInteraction,
   }) : null;
-  const bunkerCables = new THREE.Group();
-  bunkerCables.name = 'bunker-cables';
-  bunker?.frame.add(bunkerCables);
   const addWanPorts = () => {
     for (let port = 0; port < trayRoom.box.userData.ports.length; port++) portPos.set(`wan:${port}`, trayRoom.wanPortPos(port));
     for (const [port, pos] of bunker?.wanPorts ?? []) portPos.set(`wan:${port}`, pos);
@@ -481,12 +479,14 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   function showPicked() {
     pickedMarker.visible = !!picked && portPos.has(portKey(picked));
     if (pickedMarker.visible) {
-      // Buchsen am Wandkasten zeigen nach +x (im Keller nach +z), hinten an den Geräten nach −z
+      // Buchsen am Wandkasten zeigen nach +x (an den Internet-Kästen im Keller ins Feld: nach +z bzw. −z), hinten an
+      // den Geräten nach −z
       const wan = isWanRef(picked) && !isBasementWanPort(picked.port);
+      const cellar = isWanRef(picked) && !wan ? basementWanBoxOf(picked.port)?.facing ?? 1 : 0;
       const turned = !isWanRef(picked) && rackAngle(pickedRack()) !== 0; // Schrank mit Front nach Norden
-      const dz = isWanRef(picked) ? (wan ? 0 : 0.002) : (turned ? 0.002 : -0.002);
+      const dz = isWanRef(picked) ? (wan ? 0 : 0.002 * cellar) : (turned ? 0.002 : -0.002);
       place(pickedMarker, areaOfRef(picked));
-      pickedMarker.rotation.y = wan ? Math.PI / 2 : turned ? Math.PI : 0;
+      pickedMarker.rotation.y = wan ? Math.PI / 2 : turned || cellar < 0 ? Math.PI : 0;
       pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(wan ? 0.002 : 0, 0, dz));
     }
     clipMarkers.clear();
@@ -833,15 +833,20 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       const tray = isTrayCable(cable);
       const id = cableId(cable);
       const lane = laneFor(tray ? lanes.tray : lanes.rack, id);
-      // Alles, wovon die Form abhängt: Enden, Clips bzw. Wegpunkte, Versatz, Lage der Ports und Schranktypen – am
-      // Keller-Anschluss auch, in welchem Feld er steht (zieht er um, liegt das Kabel anders)
-      const at = (ref) => (isWanRef(ref) ? [ref.port, isBasementWanPort(ref.port) ? bunkerWan : 0] : portPos.get(portKey(ref))?.toArray().map((v) => Math.round(v * 1e4)));
+      // Alles, wovon die Form abhängt: Enden, Clips bzw. Wegpunkte, Versatz, Lage der Ports und Schranktypen – die
+      // Internet-Kästen im Keller hängen fest (die Port-Nummer enthält Feld und Kasten)
+      const at = (ref) => (isWanRef(ref) ? [ref.port] : portPos.get(portKey(ref))?.toArray().map((v) => Math.round(v * 1e4)));
       const key = JSON.stringify([id, tray, lane, cable.clips, cable.tray, at(cable.a), at(cable.b), rackOfRef(cable.a)?.type.id, rackOfRef(cable.b)?.type.id]);
       if (wanted.has(key)) continue;
       wanted.set(key, { cable, lane, tray });
     }
+    const changed = new Set(); // `${Feld}:${Teil}` – zusammengefasste Bunker-Kabel, die neu gebaut werden müssen
     for (const [key, g] of cableCache) {
       if (wanted.has(key)) continue;
+      if (g.userData.baked) {
+        changed.add(`${g.userData.field}:${g.userData.chunk}`);
+        g.userData.baked.forEach((p) => p.geo.dispose());
+      }
       g.removeFromParent();
       disposeGroup(g);
       cableCache.delete(key);
@@ -849,10 +854,90 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     for (const [key, { cable, lane, tray }] of wanted) {
       if (cableCache.has(key)) continue;
       const g = buildCable(cable, lane, tray) ?? new THREE.Group(); // leer merken, damit es nicht jedes Mal neu versucht
-      // Kabel im Bunker liegen in dessen Bodenkoordinaten (Kabel zwischen den Bereichen gibt es nicht)
-      (areaOfRef(cable.a) === 'bunker' && bunker ? bunkerCables : cablesGroup).add(g);
+      // Kabel im Bunker liegen in dessen Bodenkoordinaten (Kabel zwischen den Bereichen gibt es nicht). Sie kommen
+      // nicht einzeln in die Szene, sondern je Feld zusammengefasst (mergeBunkerCables).
+      const field = areaOfRef(cable.a) === 'bunker' && bunker ? cableField(cable) : null;
+      if (field !== null) {
+        Object.assign(g.userData, { field, chunk: chunkOf(cableId(cable)), baked: bakeCable(g) });
+        changed.add(`${field}:${g.userData.chunk}`);
+      } else {
+        cablesGroup.add(g);
+      }
       cableCache.set(key, g);
     }
+    for (const key of changed) {
+      const [field, chunk] = key.split(':').map(Number);
+      mergeBunkerCables(field, chunk);
+    }
+  }
+
+  // Kellerfeld, zu dem ein Bunker-Kabel gezählt wird: das Feld des Internet-Kastens bzw. des Schranks am Ende a
+  function cableField(cable) {
+    for (const ref of [cable.a, cable.b]) {
+      if (isWanRef(ref)) {
+        const info = basementWanPortInfo(ref.port);
+        if (info) return info.field;
+      }
+    }
+    const rack = rackOfRef(cable.a) ?? rackOfRef(cable.b);
+    return rack ? bunkerFieldOf(rack.slot) : null;
+  }
+
+  // Daten-Bunker (#61): Bis zu 120 Schränke je Feld mit je einer Leitung zum Internet-Kasten und Kabeln im Schrank –
+  // einzeln wären das je Kabel 5 Draw Calls (Röhre, 2 Stecker, 2 Knickschutz). Deshalb die Kabel eines Feldes zu
+  // wenigen Meshes zusammenfassen: aufgeteilt in CABLE_CHUNKS feste Teile (nach der Kennung des Kabels), je Teil ein
+  // Mesh je Material – höchstens 16 Draw Calls je Feld, und Stecken oder Ziehen eines Kabels baut nur seinen Teil neu.
+  // Sie hängen im Inhalt des Feldes (mit ihm ausgeblendet). Jedes Kabel wird beim Bau einmal in Bodenkoordinaten
+  // „gebacken“ (bakeCable) und bleibt so im Zwischenspeicher.
+  const CABLE_CHUNKS = 8;
+  const chunkOf = (id) => {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return Math.abs(h) % CABLE_CHUNKS;
+  };
+  // Teile eines Kabels als [{ material, geo }] in Bodenkoordinaten; die Einzel-Meshes werden freigegeben
+  function bakeCable(g) {
+    g.updateMatrixWorld(true);
+    const parts = [];
+    g.traverse((o) => {
+      if (o.isMesh) parts.push({ material: o.material, geo: o.geometry.clone().applyMatrix4(o.matrixWorld) });
+    });
+    disposeGroup(g);
+    g.clear();
+    return parts;
+  }
+  const mergedCables = new Map(); // Feld → Gruppe „bunker-cables-Feld“, darin je Teil eine Gruppe mit den Meshes
+  function mergeBunkerCables(field, chunk) {
+    let holderGroup = mergedCables.get(field);
+    if (!holderGroup) {
+      holderGroup = new THREE.Group();
+      holderGroup.name = `bunker-cables-${field}`;
+      bunker.holder(field).add(holderGroup);
+      mergedCables.set(field, holderGroup);
+    }
+    const old = holderGroup.getObjectByName(`chunk-${chunk}`);
+    if (old) {
+      old.removeFromParent();
+      old.traverse((o) => o.geometry?.dispose());
+    }
+    const byMaterial = new Map();
+    for (const g of cableCache.values()) {
+      if (g.userData.field !== field || g.userData.chunk !== chunk) continue;
+      for (const { material, geo } of g.userData.baked) {
+        if (!byMaterial.has(material)) byMaterial.set(material, []);
+        byMaterial.get(material).push(geo);
+      }
+    }
+    if (!byMaterial.size) return;
+    const merged = new THREE.Group();
+    merged.name = `chunk-${chunk}`;
+    for (const [material, geos] of byMaterial) {
+      const mesh = new THREE.Mesh(mergeGeometries(geos), material);
+      mesh.raycast = () => {};
+      mesh.matrixAutoUpdate = false;
+      merged.add(mesh);
+    }
+    holderGroup.add(merged);
   }
 
   function buildRoom() {
@@ -869,7 +954,6 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   let dirty = true;
   let lastKey = '';
   let lastCarrying = null;
-  let bunkerWan = null;     // Kellerfeld mit dem Glasfaser-Anschluss (zieht er um, Kabel dorthin neu bauen)
   economy.subscribe(() => { dirty = true; });
 
   // Glastüren zur Zielstellung schwenken lassen
@@ -890,22 +974,48 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
 
   // Daten-Bunker (#60): Bis zu 120 Schränke je Feld. Volle Schränke mit Geräten, Türen und Lüftern nur im Umkreis von
   // LOD_NEAR um die Spielfigur (und nur, wenn sie im Keller ist) – alle anderen zeichnet world/bunker.js als einfache
-  // Kästen (ein Draw Call je Feld). Leere Plätze kosten nichts.
+  // Kästen mit undurchsichtiger Front und den Geräten als Frontplatten (ein paar Draw Calls je Feld). Leere Plätze
+  // kosten nichts. Zoom (#62, world/zoom.js verengt das Blickfeld): Die Schwelle wächst mit dem Zoom-Faktor
+  // (LOD_NEAR × Zoom) für Schränke im Blickfeld – bei 5× erscheint ein Schrank in 10 m voll –, höchstens
+  // LOD_ZOOM_MAX zusätzliche Schränke (die der Bildmitte am nächsten, also die angezielten), damit die Leistung im
+  // Rahmen bleibt (ein voller Schrank kostet etwa 40 Draw Calls).
+  const LOD_ZOOM_MAX = 6;
+  let baseFovTan = null; // Blickfeld ohne Zoom (tan des halben Winkels)
+  const _toRack = new THREE.Vector3();
+  const _view = new THREE.Vector3();
   let lodKey = '';
   let lodBuild = 0; // zählt Neuaufbauten der Schränke (dann ändern sich auch die Geräte in den einfachen Kästen)
   const KIND_COLORS = { switch: 0x4a5566, firewall: 0x9a3b3b, patch: 0x30353c };
   function updateLod(camera) {
     const p = camera.position;
     const below = p.y < BASEMENT_FLOOR_Y + 10;
+    const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    // Grundwert aus world/zoom.js (camera.userData.baseFov), sonst das Blickfeld beim ersten Aufruf
+    if (camera.userData?.baseFov) baseFovTan = Math.tan(THREE.MathUtils.degToRad(camera.userData.baseFov / 2));
+    baseFovTan ??= tan;
+    const zoom = Math.max(1, baseFovTan / tan);
+    const reach = LOD_NEAR * zoom;
+    camera.getWorldDirection(_view);
+    // Blickkegel (waagerecht und senkrecht großzügig): Schränke außerhalb brauchen beim Zoomen kein volles Modell
+    const cone = Math.cos(Math.min(Math.PI / 2, Math.atan(tan * Math.max(1, camera.aspect ?? 1)) + 0.05));
     const nearOf = new Map();
-    let key = `${lodBuild}|`;
+    const zoomed = [];
     for (const cached of rackCache.values()) {
       // abgebaut, aber noch nicht aus dem Zwischenspeicher (das passiert beim nächsten Neuaufbau)
       if (!cached.bunker || cached.rack.location !== 'server' || spotArea(cached.rack.slot) !== 'bunker') continue;
       const { x, z } = spotPosition(cached.rack.slot);
-      const near = below && Math.abs(p.x - x) < LOD_NEAR && Math.abs(p.z - z) < LOD_NEAR && Math.hypot(p.x - x, p.z - z) < LOD_NEAR;
+      const d = Math.hypot(p.x - x, p.z - z);
+      nearOf.set(cached, below && d < LOD_NEAR);
+      if (below && zoom > 1 && d >= LOD_NEAR && d < reach) {
+        _toRack.set(x - p.x, BASEMENT_FLOOR_Y + 1 - p.y, z - p.z).normalize();
+        const dot = _toRack.dot(_view);
+        if (dot > cone) zoomed.push({ cached, dot });
+      }
+    }
+    zoomed.sort((a, b) => b.dot - a.dot).slice(0, LOD_ZOOM_MAX).forEach(({ cached }) => nearOf.set(cached, true));
+    let key = `${lodBuild}|`;
+    for (const [cached, near] of nearOf) {
       if (cached.group.visible !== near) cached.group.visible = near;
-      nearOf.set(cached, near);
       key += near ? '1' : '0';
     }
     if (key === lodKey && !bunker.farStale) return;
@@ -915,7 +1025,9 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       if (near) continue;
       const rack = cached.rack;
       const devices = servers.devicesIn(rack.id).map((d) => {
-        const at = toFrame(rack, devicePlacement(rack.type, d.unit, d.type.units).add(new THREE.Vector3(0, 0, 0.004)));
+        // Frontplatte knapp vor der (undurchsichtigen) Front des einfachen Kastens (#62)
+        const front = devicePlacement(rack.type, d.unit, d.type.units).setZ(RACK_FOOTPRINT.d / 2 + 0.004);
+        const at = toFrame(rack, front);
         return { x: at.x, y: at.y, z: at.z, h: d.type.units * UNIT - 0.004, color: d.type.color ?? KIND_COLORS[d.type.kind] ?? 0x5a6068 };
       });
       far.push({ slot: rack.slot, units: rack.type.units, devices });
@@ -927,9 +1039,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   function update(dt = 0, camera = null) {
     group.visible = upgrades.upperFloor;
     if (!group.visible) return;
-    // Daten-Bunker: Gitter, Markierungen und Keller-Anschluss den Kellerfeldern anpassen (billig ohne Änderung)
+    // Daten-Bunker: Trassen, Markierungen und Internet-Kästen den Kellerfeldern anpassen (billig ohne Änderung)
     if (bunker?.sync()) {
-      bunkerWan = basementWan()?.field ?? null;
       addWanPorts();
       dirty = true;
       lastCarrying = null;
@@ -950,7 +1061,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     const key = JSON.stringify([
       servers.racks.map((r) => [r.id, r.slot, r.type.id]),
       servers.installed.map((d) => [d.id, d.rackId, d.unit, d.type.id, reached.has(d.id)]),
-      servers.cables, bunkerWan,
+      servers.cables,
     ]);
     if (key !== lastKey) {
       lastKey = key;

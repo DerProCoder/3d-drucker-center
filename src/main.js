@@ -12,7 +12,7 @@ import { Staff } from './core/staff.js';
 import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
-import { euro, euroRound } from './core/format.js';
+import { euro, euroRound, meters } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
@@ -508,6 +508,8 @@ const workbenchStation = createWorkbenchStation({ economy, bench: workbench, par
 scene.add(workbenchStation.group);
 servers.onEvent = (type, d) => {
   if (type === 'cables-delivered') hud.notify(`🔌 ${d.meters} m Kabel geliefert – im Vorrat`, 'good');
+  // Bunker-Feld umgestellt (#61): Kabel an seinen Internet-Kästen bzw. über seine Trassen kommen in den Vorrat
+  if (type === 'cables-returned') hud.notify(`🔌 ${d.count === 1 ? '1 Kabel' : `${d.count} Kabel`} aus dem umgestellten Bunker-Feld abgezogen – ${meters(d.meters)} zurück im Vorrat`, 'info');
 };
 // Server-Vermietung: Vertragsende und Kündigung melden (die Ankunft am Empfang meldet createCustomers)
 rentals.onEvent = (type, d) => {

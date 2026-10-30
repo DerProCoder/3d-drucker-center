@@ -2,7 +2,7 @@
 // verdienen. Schränke und Geräte sind Einrichtung aus economy.furniture (Karton, Lieferung, Abstellraum, Tragen wie
 // bei Regalen) mit eigenen Orten:
 //   Schrank: location 'server', slot = Stellplatz (core/server-zones.js: 0–15 Kunden, 16–23 privat, 24–27 Automatik,
-//            ab 28 Daten-Bunker im Keller – Miete dort ×1,5, eigenes Kabelgitter und eigener Glasfaser-Anschluss)
+//            ab 28 Daten-Bunker im Keller – Miete dort ×1,5, eigene Kabeltrassen und eigene Internet-Kästen je Feld)
 //   Gerät:   location 'rack', rackId, unit = oberste belegte Höheneinheit (0 = ganz oben im Schrank). Die Höhe
 //            wählt man beim Einbauen durch Zielen und kann sie im Schrankfenster ändern.
 // Ein Server ist online, wenn er über Kabel am LAN der Firewall hängt (direkt oder über Switches) und der WAN-Port
@@ -18,16 +18,14 @@
 import { CABLE_ROLL, SERVER_CORES, SERVER_RAM, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
 import { meters } from './format.js';
 import {
-  ALL_SPOTS, BUNKER_RENT_FACTOR, bunkerFieldOf, bunkerWanField, isAutomationRack, isBunkerRack, isPrivateRack,
-  setBunkerLayout, setBunkerWanField, spotUsable,
+  ALL_SPOTS, BUNKER_RENT_FACTOR, bunkerFieldOf, bunkerFields, isAutomationRack, isBunkerRack, isPrivateRack,
+  setBunkerLayout, spotUsable,
 } from './server-zones.js';
 import {
-  BASEMENT_TRAY_NX, BASEMENT_TRAY_NZ, BASEMENT_WALL_PORTS, BASEMENT_WAN_PORT0, CABLE_SLACK, WALL_PORTS, WAN_ID, basementAutoRoute,
-  basementCellOf, basementWan, endField,
-  isBasementWanPort, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath, trayProblem, trayToJSON,
-  validWanRef, wanEnd, wanPortName,
+  CABLE_SLACK, WALL_PORTS, WAN_ID, basementAutoRoute, basementWanBoxName, basementWanFieldPorts, basementWanPortInfo,
+  endField, isBasementWanPort, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath,
+  trayProblem, trayToJSON, validWanRef, wanEnd, wanPortName,
 } from './cable-tray.js';
-import { GRID } from './basement-layout.js';
 
 // Stellplätze und Zonen (Kunden, privat, Automatik, Daten-Bunker) stehen in core/server-zones.js
 export {
@@ -115,37 +113,40 @@ export class Servers {
   // ---------- Daten-Bunker im Keller (#52) ----------
 
   // Kellerfelder anbinden (core/basement-layout.js, upgrades.basementLayout): Bunker-Plätze und Keller-Gitter kennen
-  // dann die Feldarten, und ein Bunker-Feld lässt sich nur umstellen, wenn dort nichts mehr steht oder läuft
+  // dann die Feldarten. Ein Bunker-Feld lässt sich nur umstellen, wenn dort kein Schrank mehr steht; Kabel an seinen
+  // Internet-Kästen bzw. über seine Trassen kommen beim Umstellen in den Vorrat (releaseBrokenCables, #61).
   attachBasement(layout) {
     setBunkerLayout(layout);
     this.detachBasement?.();
-    this.detachBasement = layout.addFieldCheck((i, from, to) => (from === 'bunker' && to !== 'bunker' ? this.bunkerFieldProblem(i) : null));
+    const removeCheck = layout.addFieldCheck((i, from, to) => (from === 'bunker' && to !== 'bunker' ? this.bunkerFieldProblem(i) : null));
+    const unsubscribe = layout.subscribe((e) => {
+      if (e.type === 'field' && e.from === 'bunker' && e.to !== 'bunker') this.releaseBrokenCables(e.index);
+    });
+    this.detachBasement = () => { removeCheck(); unsubscribe(); };
   }
 
-  // Grund, warum Bunker-Feld i nicht umgestellt werden kann, oder null: Schränke im Feld, Kabel am Keller-Anschluss,
-  // wenn er in diesem Feld steht, oder Kabel im Gitter des Feldes (auch am Rand der Nachbarn, der mit dem Umstellen
-  // wegfiele)
+  // Grund, warum Bunker-Feld i nicht umgestellt werden kann, oder null: Schränke im Feld. Kabel halten das Umstellen
+  // nicht auf – sie kommen danach in den Vorrat (releaseBrokenCables).
   bunkerFieldProblem(i) {
     const racks = this.racks.filter((r) => bunkerFieldOf(r.slot) === i).length;
     if (racks) return racks === 1 ? 'Im Feld steht noch ein Serverschrank' : `Im Feld stehen noch ${racks} Serverschränke`;
-    const atWan = (ref) => isWanRef(ref) && isBasementWanPort(ref.port);
-    if (basementWan()?.field === i && this.cables.some((c) => atWan(c.a) || atWan(c.b))) {
-      return 'Am Glasfaser-Anschluss im Feld stecken noch Kabel';
-    }
-    const col = i % GRID;
-    const row = Math.floor(i / GRID);
-    const lastX = BASEMENT_TRAY_NX - 1; // letzte Trassenspalte bzw. -zeile eines Kellerfeldes
-    const lastZ = BASEMENT_TRAY_NZ - 1;
-    const touches = (f) => {
-      const c = basementCellOf(f);
-      if (!c) return false;
-      if (c.area === i) return true;
-      return (row > 0 && c.area === i - GRID && c.lz === lastZ) || (row < GRID - 1 && c.area === i + GRID && c.lz === 0)
-        || (col > 0 && c.area === i - 1 && c.lx === lastX) || (col < GRID - 1 && c.area === i + 1 && c.lx === 0);
-    };
-    const through = this.cables.filter((c) => this.trayRoute(c)?.fields.some(touches)).length;
-    if (through) return through === 1 ? 'Durch das Feld läuft noch ein Kabel im Kabelgitter' : `Durch das Feld laufen noch ${through} Kabel im Kabelgitter`;
     return null;
+  }
+
+  // Kabel, die nach dem Umstellen eines Bunker-Feldes nicht mehr gehen (an seinen Internet-Kästen oder über Trassen, die
+  // mit dem Feld wegfallen), abziehen und ihre Länge in den Vorrat geben. Meldet 'cables-returned' { field, count,
+  // meters }. Gibt die Zahl der Kabel zurück.
+  releaseBrokenCables(field = null) {
+    const broken = this.cables.filter((c) => this.isTrayCable(c.a, c.b)
+      && [c.a, c.b].some((ref) => (isWanRef(ref) ? isBasementWanPort(ref.port) : this.isBunkerDevice(this.economy.furnitureById(ref.id))))
+      && trayProblem(this.trayEnd(c.a), this.trayEnd(c.b), c.tray ?? []));
+    if (!broken.length) return 0;
+    const meters = round1(broken.reduce((sum, c) => sum + c.length, 0));
+    this.cables = this.cables.filter((c) => !broken.includes(c));
+    this.cableMeters = round1(this.cableMeters + meters);
+    this.onEvent?.('cables-returned', { field, count: broken.length, meters });
+    this.economy.notify();
+    return broken.length;
   }
 
   // ---------- Kaufen ----------
@@ -301,13 +302,61 @@ export class Servers {
     return Array.from({ length: WALL_PORTS }, (_, port) => ({ port, name: wanPortName(port), cable: this.cableAt({ id: WAN_ID, port }) }));
   }
 
-  // Ebenso am Glasfaser-Anschluss im Keller (leer, solange es kein Bunker-Feld gibt)
-  basementWanPorts() {
-    if (!basementWan()) return [];
-    return Array.from({ length: BASEMENT_WALL_PORTS }, (_, k) => {
-      const port = BASEMENT_WAN_PORT0 + k;
-      return { port, name: wanPortName(port), cable: this.cableAt({ id: WAN_ID, port }) };
-    });
+  // Ebenso an den Internet-Kästen im Keller (#61): alle Ports aller Bunker-Felder (leer, solange es keins gibt) –
+  // [{ port, name: 'Bunker 2 · WAN 3 · Port 17', field, box (0…3), boxName: 'WAN B2-3', cable | null }].
+  // field: nur die Ports dieses Feldes.
+  basementWanPorts(field = null) {
+    const byPort = new Map();
+    for (const c of this.cables) {
+      for (const ref of [c.a, c.b]) if (isWanRef(ref) && isBasementWanPort(ref.port)) byPort.set(ref.port, c);
+    }
+    const fields = field === null ? bunkerFields() : bunkerFields().filter((f) => f === field);
+    return fields.flatMap((f) => basementWanFieldPorts(f).map((port) => {
+      const info = basementWanPortInfo(port);
+      return { port, name: wanPortName(port), field: f, box: info.box, boxName: basementWanBoxName(f, info.box), cable: byPort.get(port) ?? null };
+    }));
+  }
+
+  // Internet-Anschluss, über den ein Gerät ins Netz kommt (für die Anzeige, z. B. „Bunker 2 · WAN 3 · Port 17“): Port
+  // am Wandanschluss bzw. an einem Internet-Kasten, an dem die Firewall seines Netzes hängt (direkt oder über
+  // Patchpanels) – oder null. Sucht wie reachable() durch Switches zur Firewall (LAN) und von deren WAN-Port weiter.
+  uplinkOf(device) {
+    if (!device) return null;
+    const wanOfPatch = (panel, seen) => {
+      for (let port = 0; port < panel.type.ports; port++) {
+        const p = this.peer({ id: panel.id, port });
+        if (p?.wan) return p.port;
+        if (p?.device?.type.kind === 'patch' && !seen.has(p.device.id)) {
+          seen.add(p.device.id);
+          const found = wanOfPatch(p.device, seen);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    };
+    const wanOfFirewall = (fw) => {
+      const p = this.peer({ id: fw.id, port: 0 });
+      if (p?.wan) return p.port;
+      return p?.device?.type.kind === 'patch' ? wanOfPatch(p.device, new Set([p.device.id])) : null;
+    };
+    if (device.type.kind === 'firewall') return wanOfFirewall(device);
+    const seen = new Set([device.id]);
+    const queue = [device];
+    while (queue.length) {
+      const d = queue.shift();
+      for (let port = 0; port < d.type.ports; port++) {
+        const p = this.peer({ id: d.id, port });
+        if (!p?.device || seen.has(p.device.id)) continue;
+        seen.add(p.device.id);
+        if (p.device.type.kind === 'firewall' && p.port !== 0) {
+          const wan = wanOfFirewall(p.device);
+          if (wan !== null) return wan;
+        } else if (p.device.type.kind === 'switch') {
+          queue.push(p.device);
+        }
+      }
+    }
+    return null;
   }
 
   // Ob ein Kabel zwischen a und b über das Kabelgitter läuft: ein Ende am Wandanschluss oder Geräte in verschiedenen
@@ -600,16 +649,16 @@ export class Servers {
       deliveries: this.deliveries.map((d) => ({ ...d })),
       // Einmalige Nachricht zum Wandanschluss (alte Stände, core/save.js Version 14) noch nicht gezeigt
       wanNotice: this.wanNotice || undefined,
-      // Kellerfeld mit dem Glasfaser-Anschluss des Bunkers (#52; fehlt → erstes Bunker-Feld)
-      basementWanField: bunkerWanField() ?? undefined,
     };
   }
 
-  // Kabel im Bunker aus einem Spielstand vor den Trassen (#60, core/save.js Version 26 setzt reroute): Die alten
-  // Wegpunkte im 1-m-Gitter passen nicht mehr, das Kabel wird über den kürzesten Trassenweg neu verlegt. Die neue
-  // Länge wird mit dem Vorrat verrechnet; reicht der Vorrat dafür nicht oder gibt es keinen Weg, gibt load das Kabel
-  // ganz in den Vorrat zurück (false) – es geht also kein Meter verloren.
-  reroute(c) {
+  // Kabel im Bunker aus einem Spielstand vor den Trassen (#60, core/save.js Version 26 setzt reroute) bzw. vor den
+  // Internet-Kästen (#61, Version 28 setzt reroute und rerouteKeep): Die alten Wegpunkte passen nicht mehr, das Kabel
+  // wird über den kürzesten Trassenweg neu verlegt. Die neue Länge wird mit dem Vorrat verrechnet; reicht der Vorrat
+  // dafür nicht oder gibt es keinen Weg, gibt load das Kabel ganz in den Vorrat zurück (false) – es geht also kein Meter
+  // verloren. keep (Umzug von der alten Säule an die Kästen, #61): Das Kabel bleibt auf jeden Fall gesteckt, damit alle
+  // Server online bleiben – fehlt Vorrat für das Mehr an Länge, legt der Umbau den Rest dazu (Vorrat endet bei 0).
+  reroute(c, keep = false) {
     const ea = this.trayEnd(c.a);
     const eb = this.trayEnd(c.b);
     if (!ea || !eb) return false;
@@ -617,8 +666,8 @@ export class Servers {
     if (!tray || trayProblem(ea, eb, tray)) return false;
     const length = trayCableLength(ea, eb, tray);
     const extra = round1(length - (c.length ?? 0));
-    if (extra > this.cableMeters) return false;
-    this.cableMeters = round1(this.cableMeters - extra);
+    if (extra > this.cableMeters && !keep) return false;
+    this.cableMeters = round1(Math.max(0, this.cableMeters - extra));
     c.tray = tray;
     c.length = length;
     return true;
@@ -629,8 +678,6 @@ export class Servers {
     this.cableMeters = data?.cableMeters ?? 0;
     this.deliveries = data?.deliveries ?? [];
     this.wanNotice = !!data?.wanNotice;
-    // Vor dem Prüfen der Kabel: wo der Keller-Anschluss steht (die Kellerfelder lädt core/save.js vorher)
-    setBunkerWanField(data?.basementWanField ?? null);
     // Kabel zu Geräten, die nicht (mehr) eingebaut sind oder den Port nicht (mehr) haben, und Gitterkabel, deren Weg
     // nicht (mehr) geht, zurück in den Vorrat
     const ok = (ref) => {
@@ -640,12 +687,15 @@ export class Servers {
     };
     const routeOk = (c) => {
       if (!this.isTrayCable(c.a, c.b)) return true;
-      if (c.reroute) return this.reroute(c);
+      if (c.reroute) return this.reroute(c, !!c.rerouteKeep);
       c.tray = sanitizeTray(c.tray);
       return !trayProblem(this.trayEnd(c.a), this.trayEnd(c.b), c.tray);
     };
     const broken = this.cables.filter((c) => !ok(c.a) || !ok(c.b) || !routeOk(c));
-    for (const c of this.cables) delete c.reroute;
+    for (const c of this.cables) {
+      delete c.reroute;
+      delete c.rerouteKeep;
+    }
     this.cables = this.cables.filter((c) => !broken.includes(c));
     for (const c of this.cables) {
       if (this.isTrayCable(c.a, c.b)) {

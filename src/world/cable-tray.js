@@ -8,7 +8,8 @@
 import * as THREE from 'three';
 import {
   BLOCKED, CEILING_HEIGHT, FIELD_SIZE, TRAY_BOUNDS, TRAY_COLS, TRAY_HEIGHT, TRAY_ROWS, WALL_PORTS, WAN_BOX, WAN_FIELD,
-  WAN_TRACE, basementWan, fieldAt, fieldCenter, isBasementWanPort, wanPortPosition,
+  BASEMENT_WAN_COLS, BASEMENT_WAN_PITCH, WAN_TRACE, basementWanBoxOf, basementWanPortInfo, fieldAt, fieldCenter,
+  isBasementWanPort, wanPortPosition,
 } from '../core/cable-tray.js';
 import { createCableTray, createWallBox, createWallRiser } from '../models/cable-tray.js';
 import { clipPosition, rackDepth, rackHeight } from '../models/server-hardware.js';
@@ -200,24 +201,25 @@ export function wanRise(port, lane) {
   ];
 }
 
-// Dasselbe am Glasfaser-Anschluss im Daten-Bunker (#52): Kasten an der Südseite der Säule, Ports nach Süden (+z),
-// Trasse an der Säule hoch. Koordinaten über dem Kellerboden (Welt-x/z), oder null ohne Keller-Anschluss.
+// Dasselbe an einem Internet-Kasten im Daten-Bunker (#61): Kasten an einer Säule an der Nord- bzw. Südkante, Ports ins
+// Feld (facing +1: nach Süden, −1: nach Norden), Trasse an der Säule hoch. Je Port-Reihe (3) stehen die Kabel vor dem
+// Kasten etwas weiter vorn, in der Trasse liegen sie in derselben Reihenfolge – so kreuzen sie sich nicht.
+// Koordinaten über dem Kellerboden (Welt-x/z), oder null, wenn es den Kasten nicht (mehr) gibt.
 function basementWanRise(port, lane) {
-  const wan = basementWan();
+  const wan = basementWanBoxOf(port);
   const p = wanPortPosition(port);
   if (!wan || !p) return null;
   const { y } = laneOf(lane);
-  const { box, trace } = wan;
-  const front = box.z + box.depth / 2;
+  const { box, trace, facing: f } = wan;
+  const row = Math.floor(basementWanPortInfo(port).n / BASEMENT_WAN_COLS);
   const top = box.y + box.height / 2;
-  const lower = p.y < box.y;
-  const fz = front + (lower ? 0.046 : 0.034);
-  const xc = p.x + WAN_GAP;
+  const fz = box.frontZ + f * (0.03 + row * 0.009);
+  const xc = p.x + f * BASEMENT_WAN_PITCH / 2;
   const x = trace.x + (xc - box.x) * 0.6;
-  const tz = trace.z - 0.012 + (lower ? 0.01 : 0);
+  const tz = trace.z + f * (row - 1) * 0.009;
   const v = (px, py, pz) => new THREE.Vector3(px, py, pz);
   return [
-    v(p.x, p.y, front + 0.006),
+    v(p.x, p.y, box.frontZ + f * 0.006),
     v(p.x, p.y, fz),
     v(xc, p.y + 0.012, fz),
     v(xc, top + 0.05, fz),

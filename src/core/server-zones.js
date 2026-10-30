@@ -19,7 +19,7 @@
 // Feldseiten. Zwei Reihen eines Paares stehen Rücken an Rücken (1,0 m warmer Gang, darüber die Kabeltrasse), zwischen
 // den Paaren liegt ein 1,2 m kalter Gang; die Fronten zeigen in den kalten Gang bzw. nach außen (spotFacing: Reihen
 // 1, 3, 5 nach Norden, 2, 4, 6 nach Süden). Der Block sitzt mittig im Feld (x 3,25–16,75, z 4,9–15,1), rundherum
-// bleiben gut 3 m Laufweg zu Wänden, Türen und der Glasfaser-Säule in der Nordwest-Ecke.
+// bleiben gut 3 m Laufweg zu Wänden, Türen und den Internet-Kästen an Nord- und Südkante (#61, core/cable-tray.js).
 import { GRID, FIELD_SIZE as BASEMENT_FIELD_SIZE, fieldBounds } from './basement-layout.js';
 
 export const CUSTOMER_SPOTS = 16;
@@ -95,18 +95,6 @@ export function bunkerFields() {
   const list = [];
   for (let i = 0; i < GRID * GRID; i++) if (isBunkerField(i)) list.push(i);
   return list;
-}
-
-// Kellerfeld mit dem Glasfaser-Anschluss des Kellers (core/cable-tray.js basementWan) oder null (kein Bunker-Feld):
-// das erste Bunker-Feld – und dann bleibt er dort, solange das Feld Bunker ist (sonst wanderten gesteckte Kabel mit,
-// wenn später ein Feld mit kleinerer Nummer Bunker wird). Gespeichert über core/servers.js (basementWanField).
-let wanField = null;
-export function bunkerWanField() {
-  if (wanField === null || !isBunkerField(wanField)) wanField = bunkerFields()[0] ?? null;
-  return wanField;
-}
-export function setBunkerWanField(field) {
-  wanField = Number.isInteger(field) ? field : null;
 }
 
 // Nummer des Bunkers für die Anzeige („Bunker 2“) – fortlaufend nach Feldnummer wie die Schilder im Keller

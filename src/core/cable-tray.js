@@ -11,8 +11,8 @@
 // Koordinaten wie in core/server-zones.js: Meter, Welt-x/z der zweiten Etage (Raum x/z −10…10), y = Höhe über dem
 // Fußboden der Etage (world/ addiert FLOOR_Y).
 // Daten-Bunker im Keller (#52): zweites Gitter (Indizes ab BASEMENT_TRAY_BASE, Welt-x/z des Kellers, y über dem
-// Kellerboden) und eigener Glasfaser-Anschluss (Ports ab BASEMENT_WAN_PORT0). Kabel verbinden nur Enden im selben
-// Bereich (trayArea/AREA_PROBLEM).
+// Kellerboden) und eigene Internet-Kästen in jedem Bunker-Feld (#61, Ports ab BASEMENT_WAN_PORT0). Kabel verbinden
+// nur Enden im selben Bereich (trayArea/AREA_PROBLEM).
 //
 // Raster: durchgehend über den ganzen Raum, Felder FIELD_SIZE × FIELD_SIZE (1 m). Die Feldmitten liegen genau über den
 // Stellplatzmitten (spotPosition, Abstand 1,0 m), über jedem Stellplatz liegt also genau ein eigenes Feld. Feld-Index
@@ -29,7 +29,7 @@
 // frei durch den Raum (Fertig-Kriterium in #28: „ohne Gitterfelder → abgelehnt“).
 import {
   BASEMENT_FIELD_SIZE, BUNKER_COLD_Z, BUNKER_CROSS_X, BUNKER_ROW_X, BUNKER_WARM_Z, SERVER_SPOTS, bunkerNumber,
-  bunkerRowOf, bunkerWanField, isBunkerField, spotArea, spotFacing, spotPosition,
+  bunkerRowOf, isBunkerField, spotArea, spotFacing, spotPosition,
 } from './server-zones.js';
 import { GRID, fieldBounds } from './basement-layout.js';
 import { SERVER_RACKS, UNIT_METERS } from './server-catalog.js';
@@ -108,7 +108,9 @@ const BLOCKED_SET = new Set(BLOCKED);
 //   - über jedem warmen Gang (Rücken an Rücken, BUNKER_WARM_Z) eine Längstrasse von der West- bis zur Ostspinne, mit
 //     je einem Feld über jeder Schrankspalte (0,6 m) und dem Quergang – dort kommen die Kabel aus den Schränken an,
 //   - drei Quertrassen („Spinnen“) in Nord-Süd-Richtung: West (x 2,5), Mitte über dem Quergang (x 10) und Ost (x 17,5),
-//     von der Nordtrasse (z 3,5, dort mündet die Trasse vom Glasfaser-Anschluss) bis zur Südtrasse (z 16,5),
+//     von der Nordtrasse bis zur Südtrasse,
+//   - Nordtrasse (z 3,5) und Südtrasse (z 16,5) quer über das Feld von der West- bis zur Ostspinne, mit einem Feld über
+//     jeder Schrankspalte – dort münden die Trassen der Internet-Kästen an Nord- und Südkante (#61),
 //   - zu einem Nachbarfeld, das auch Bunker ist, laufen die Längstrassen bzw. die Spinnen bis an den Feldrand weiter
 //     (Felder x/z 0,5 bzw. 19,5) und treffen dort die Trassen des Nachbarn.
 // Feld-Index = BASEMENT_TRAY_BASE + gi + gj · BASEMENT_TRAY_COLS mit gi = Kellerspalte · NX + Spalte im Feld, gj
@@ -137,14 +139,12 @@ export const BASEMENT_TRAY_COLS = GRID * BASEMENT_TRAY_NX; // 150
 const B_ROWS = GRID * BASEMENT_TRAY_NZ;
 const SPINE_I = new Set(BASEMENT_SPINE_X.map((x) => BASEMENT_TRAY_XS.indexOf(x)));
 const WARM_J = new Set(BUNKER_WARM_Z.map((z) => BASEMENT_TRAY_ZS.indexOf(z)));
+// Nord- und Südtrasse (Zeilen 1 und NZ − 2) laufen von der West- (Spalte 1) bis zur Ostspinne (Spalte NX − 2)
+const EDGE_J = new Set([1, BASEMENT_TRAY_ZS.length - 2]);
 const bIndex = (gi, gj) => BASEMENT_TRAY_BASE + gi + gj * BASEMENT_TRAY_COLS;
 function inBasementRaster(field) {
   return Number.isInteger(field) && field >= BASEMENT_TRAY_BASE && field < BASEMENT_TRAY_BASE + BASEMENT_TRAY_COLS * B_ROWS;
 }
-// Glasfaser-Säule (Feldkoordinaten in m ab der Nordwest-Ecke des Kellerfeldes): steht in der Nordwest-Ecke des
-// Feldes vor der Westspinne, weit weg von den Türen (Mitte der Feldseiten) und den Schrankreihen; der Wandkasten
-// hängt an ihrer Südseite (Ports nach Süden), seine Trasse mündet in die Nordtrasse (x 2,5, z 3,5)
-export const BASEMENT_WAN_COLUMN = Object.freeze({ x: 2.5, z: 2.3, w: 0.6, d: 0.4 });
 
 // Bereich eines Feld-Index: 'upper' | 'basement' | null
 export function trayArea(field) {
@@ -182,6 +182,7 @@ function trayAt(area, lx, lz) {
     if (lx === lastX) return col < GRID - 1 && isBunkerField(area + 1);
     return true;
   }
+  if (EDGE_J.has(lz) && lx >= 1 && lx <= lastX - 1) return true;
   if (!SPINE_I.has(lx)) return false;
   if (lz === 0) return row > 0 && isBunkerField(area - GRID);
   if (lz === lastZ) return row < GRID - 1 && isBunkerField(area + GRID);
@@ -339,7 +340,11 @@ export function fieldLabel(field) {
     const warm = BUNKER_WARM_Z.indexOf(BASEMENT_TRAY_ZS[lz]);
     const spine = BASEMENT_SPINE_X.indexOf(BASEMENT_TRAY_XS[lx]);
     const spineName = ['West', 'Mitte', 'Ost'][spine] ?? null;
-    const where = warm >= 0
+    const slot = BUNKER_ROW_X.indexOf(BASEMENT_TRAY_XS[lx]);
+    const edgeName = lz === 1 ? 'Nordtrasse' : 'Südtrasse';
+    const where = EDGE_J.has(lz) && !spineName
+      ? `${edgeName} · über Platz ${slot + 1}`
+      : warm >= 0
       ? `Trasse über Reihe ${2 * warm + 1}/${2 * warm + 2}${spineName ? ` · Kreuzung ${spineName}` : BUNKER_ROW_X.includes(BASEMENT_TRAY_XS[lx]) ? ` · über Platz ${BUNKER_ROW_X.indexOf(BASEMENT_TRAY_XS[lx]) + 1}` : ' · Übergang'}`
       : `Quertrasse ${spineName ?? ''}${lz === 1 ? ' · Nord' : lz === BASEMENT_TRAY_NZ - 2 ? ' · Süd' : lz === 0 || lz === BASEMENT_TRAY_NZ - 1 ? ' · Übergang' : ''}`;
     return `${where} (Bunker ${bunkerNumber(area)})`;
@@ -368,62 +373,117 @@ export const WAN_TRACE = Object.freeze({ x: -ROOM_HALF + 0.03, z: WAN_BOX.z, y0:
 // Feld, an dem die Leitung vom Wandanschluss ins Gitter geht (das wandnächste Feld auf Höhe des Kastens)
 export const WAN_FIELD = fieldAt(TRAY_BOUNDS.minX + FIELD_SIZE / 2, WAN_BOX.z);
 
-// ---------- Internet-Anschluss im Keller (Daten-Bunker, #52) ----------
-// Kabel kommen nicht 70 m von der Halle herunter: Der Keller hat einen eigenen Glasfaser-Anschluss. Er ist gratis und
-// steht, sobald es ein fertiges Bunker-Feld gibt, im ersten Bunker-Feld (core/server-zones.js bunkerWanField – bleibt
-// in seinem Feld, solange das Bunker ist) an einer Glasfaser-Säule (BASEMENT_WAN_COLUMN, Boden bis Decke). Der
-// Wandkasten hängt an ihrer Südseite, Ports nach Süden (+z). Seine Ports haben im Spielstand dieselbe id 'wan' wie
-// oben, aber eigene Nummern ab BASEMENT_WAN_PORT0 (Anzeige „Keller-WAN 1…32“). Kabel zwischen zweiter Etage und Keller
-// gibt es nicht – jeder Bereich braucht seine eigene Firewall und seinen eigenen Anschluss.
-export const BASEMENT_WAN_PORT0 = 1000;
-export const BASEMENT_WALL_PORTS = 32;
-const B_PORTS_PER_ROW = BASEMENT_WALL_PORTS / WAN_PORT_ROWS; // 16
-const B_BOX = { y: 1.4, width: 0.56, height: 0.3, depth: 0.1 };
+// ---------- Internet-Kästen im Keller (Daten-Bunker, #52, #61) ----------
+// Kabel kommen nicht 70 m von der Halle herunter: Jedes Bunker-Feld hat eigene Internet-Kästen (gratis, kommen und gehen
+// mit dem Feld). Je Feld BASEMENT_WAN_BOXES = 4 Kästen mit je 33 Ports (3 Reihen à 11) = 132 Ports – einer je
+// Schrankplatz (120) und 12 Reserve. Die Kästen hängen alle 10 m an Nord- und Südkante des Feldes (x 4,75 und 15,25,
+// über einer Schrankspalte, weit weg von den Stahltüren in der Mitte der Feldseiten und den Spinnen) an einer
+// schmalen Glasfaser-Säule (BASEMENT_WAN_COLUMN, Boden bis Decke, 0,3 m tief an der Kante – vor einer Wand wirkt sie
+// wie ein Kabelkanal, an einer offenen Kante zum Nachbar-Bunker steht sie Rücken an Rücken mit dessen Säule). Die Ports
+// zeigen ins Feld; von jedem Kasten läuft eine Trasse an der Säule hoch und oben waagerecht in die Nord- bzw. Südtrasse.
+// Kasten k: 0 = Nordwest, 1 = Nordost, 2 = Südwest, 3 = Südost („WAN B2-3“ = Bunker 2, Kasten 3).
+// Ports haben im Spielstand dieselbe id 'wan' wie oben, aber eigene Nummern:
+//   BASEMENT_WAN_PORT0 + Feld × 132 + Kasten × 33 + n (n 0…32, Anzeige „Bunker 2 · WAN 3 · Port 17“).
+// Weit weg von den Ports oben (0…27) und dem alten einzelnen Keller-Anschluss (1000…1031 bis Spielstand 27, siehe
+// LEGACY_BASEMENT_WAN_PORT0 – core/save.js wandelt ihn um). Kabel zwischen zweiter Etage und Keller gibt es nicht.
+export const BASEMENT_WAN_PORT0 = 10000;
+export const BASEMENT_WAN_BOXES = 4;
+export const BASEMENT_WAN_ROWS = 3;
+export const BASEMENT_WAN_COLS = 11;
+export const BASEMENT_WAN_BOX_PORTS = BASEMENT_WAN_ROWS * BASEMENT_WAN_COLS;               // 33
+export const BASEMENT_WAN_FIELD_PORTS = BASEMENT_WAN_BOXES * BASEMENT_WAN_BOX_PORTS;       // 132
+export const BASEMENT_WAN_PITCH = 0.032;     // m zwischen zwei Ports in einer Reihe
+export const BASEMENT_WAN_ROW_PITCH = 0.06;  // m zwischen zwei Reihen
+// Alter einzelner Keller-Anschluss (Spielstand bis Version 27): Ports 1000…1031 an einer Säule im ersten Bunker-Feld
+export const LEGACY_BASEMENT_WAN_PORT0 = 1000;
+export const LEGACY_BASEMENT_WALL_PORTS = 32;
+// Säule: Breite (x) und Tiefe (von der Feldkante ins Feld); Kasten: Mitte auf Griffhöhe, Außenmaße
+export const BASEMENT_WAN_COLUMN = Object.freeze({ w: 0.56, d: 0.3 });
+const B_BOX = { y: 1.35, width: 0.46, height: 0.34, depth: 0.1 };
+const B_TOP_ROW = 0.115;                     // oberste Port-Reihe so weit über der Kastenmitte (Schild unten)
+// Lage der Kästen im Feld (m ab der Westkante): die Schrankspalten der Nord-/Südtrasse, die x 5 und 15 am nächsten sind
+const nearestTrayX = (x) => BASEMENT_TRAY_XS.reduce((best, v) => (Math.abs(v - x) < Math.abs(best - x) ? v : best));
+export const BASEMENT_WAN_BOX_X = Object.freeze([nearestTrayX(5), nearestTrayX(15)]);   // 4,75 und 15,25
+const BASEMENT_ALL_PORTS = GRID * GRID * BASEMENT_WAN_FIELD_PORTS;
 
 export const isBasementWanPort = (port) => Number.isInteger(port) && port >= BASEMENT_WAN_PORT0
-  && port < BASEMENT_WAN_PORT0 + BASEMENT_WALL_PORTS;
+  && port < BASEMENT_WAN_PORT0 + BASEMENT_ALL_PORTS;
 
-// Lage des Keller-Anschlusses oder null (noch kein Bunker-Feld): field (Kellerfeld), column (Säule als Rechteck),
-// box wie WAN_BOX (wallZ: Südseite der Säule, x/z: Kastenmitte, y Mitte auf Griffhöhe), trace (Trasse an der Säule:
-// x/z, y0 Oberkante Kasten, y1 Gitterhöhe), entryField (Gitterfeld, in das die Trasse mündet: südlich der Säule)
-export function basementWan() {
-  const field = bunkerWanField();
-  if (field === null) return null;
+// Port-Nummer zu Feld, Kasten (0…3) und Port im Kasten (0…32)
+export const basementWanPort = (field, box, n) => BASEMENT_WAN_PORT0 + field * BASEMENT_WAN_FIELD_PORTS + box * BASEMENT_WAN_BOX_PORTS + n;
+// Umgekehrt: { field, box, n } eines Keller-Ports oder null (prüft nicht, ob das Feld gerade Bunker ist)
+export function basementWanPortInfo(port) {
+  if (!isBasementWanPort(port)) return null;
+  const k = port - BASEMENT_WAN_PORT0;
+  const field = Math.floor(k / BASEMENT_WAN_FIELD_PORTS);
+  const inField = k % BASEMENT_WAN_FIELD_PORTS;
+  return { field, box: Math.floor(inField / BASEMENT_WAN_BOX_PORTS), n: inField % BASEMENT_WAN_BOX_PORTS };
+}
+// Alle Ports eines Kastens bzw. eines Feldes
+export const basementWanBoxPorts = (field, box) => Array.from({ length: BASEMENT_WAN_BOX_PORTS }, (_, n) => basementWanPort(field, box, n));
+export const basementWanFieldPorts = (field) => Array.from({ length: BASEMENT_WAN_FIELD_PORTS }, (_, k) => BASEMENT_WAN_PORT0 + field * BASEMENT_WAN_FIELD_PORTS + k);
+
+// Name eines Kastens für Schild und Anzeige: „WAN B2-3“ (Bunker-Nummer wie auf den Schildern der Felder, Kasten ab 1)
+export const basementWanBoxName = (field, box) => `WAN B${bunkerNumber(field)}-${box + 1}`;
+
+// Lage von Kasten box (0…3) im Bunker-Feld field oder null (Feld ist kein Bunker): Welt-x/z des Kellers, y über dem
+// Kellerboden.
+//   facing   +1 = Ports zeigen nach Süden (Kasten an der Nordkante), −1 = nach Norden (Südkante)
+//   column   Säule als Rechteck { minX, maxX, minZ, maxZ } (auch für die Kollision)
+//   box      { x, y (Mitte), z (Mitte), backZ (Rückseite an der Säule), frontZ (Vorderseite), width, height, depth }
+//   trace    Trasse an der Säule: x/z der Kabel darin, y0 Oberkante Kasten, y1 Gitterhöhe – oben waagerecht bis
+//   entryField  Trassenfeld, in das sie mündet (Nord- bzw. Südtrasse über derselben Schrankspalte)
+export function basementWanBox(field, box) {
+  if (!isBunkerField(field) || !Number.isInteger(box) || box < 0 || box >= BASEMENT_WAN_BOXES) return null;
   const b = fieldBounds(field);
+  const north = box < 2;
+  const facing = north ? 1 : -1;
+  const x = round3(b.minX + BASEMENT_WAN_BOX_X[box % 2]);
+  const edge = north ? b.minZ : b.maxZ;
   const c = BASEMENT_WAN_COLUMN;
-  const cx = b.minX + c.x;
-  const wallZ = b.minZ + c.z + c.d / 2;
-  const box = { wallZ, x: cx, y: B_BOX.y, z: round3(wallZ + B_BOX.depth / 2), width: B_BOX.width, height: B_BOX.height, depth: B_BOX.depth };
+  const backZ = round3(edge + facing * c.d);
+  const frontZ = round3(backZ + facing * B_BOX.depth);
   return {
-    field,
-    column: { minX: cx - c.w / 2, maxX: cx + c.w / 2, minZ: b.minZ + c.z - c.d / 2, maxZ: wallZ },
-    box,
-    trace: { x: cx, z: round3(wallZ + 0.03), y0: round3(B_BOX.y + B_BOX.height / 2), y1: TRAY_HEIGHT },
-    entryField: basementFieldAt(cx, wallZ + 1),
+    field, index: box, facing, name: basementWanBoxName(field, box),
+    column: { minX: x - c.w / 2, maxX: x + c.w / 2, minZ: Math.min(edge, backZ), maxZ: Math.max(edge, backZ) },
+    box: { x, y: B_BOX.y, z: round3((backZ + frontZ) / 2), backZ, frontZ, width: B_BOX.width, height: B_BOX.height, depth: B_BOX.depth },
+    trace: { x, z: round3(backZ + facing * 0.03), y0: round3(B_BOX.y + B_BOX.height / 2), y1: TRAY_HEIGHT },
+    entryField: basementFieldAt(x, b.minZ + (north ? NORTH_Z : SOUTH_Z)),
   };
+}
+// Alle 4 Kästen eines Bunker-Feldes (leer, wenn es keins ist)
+export const basementWanBoxes = (field) => (isBunkerField(field) ? Array.from({ length: BASEMENT_WAN_BOXES }, (_, k) => basementWanBox(field, k)) : []);
+// Kasten, an dem ein Keller-Port sitzt, oder null
+export function basementWanBoxOf(port) {
+  const info = basementWanPortInfo(port);
+  return info ? basementWanBox(info.field, info.box) : null;
 }
 
 export const isWanPort = (port) => (Number.isInteger(port) && port >= 0 && port < WALL_PORTS)
-  || (isBasementWanPort(port) && basementWan() !== null);
+  || (isBasementWanPort(port) && isBunkerField(basementWanPortInfo(port).field));
 export const isWanRef = (ref) => ref?.id === WAN_ID;
-export const wanPortName = (port) => (isBasementWanPort(port) ? `Keller-WAN ${port - BASEMENT_WAN_PORT0 + 1}` : `WAN ${port + 1}`);
+export function wanPortName(port) {
+  const info = basementWanPortInfo(port);
+  return info ? `Bunker ${bunkerNumber(info.field)} · WAN ${info.box + 1} · Port ${info.n + 1}` : `WAN ${port + 1}`;
+}
 // Bereich eines Wandanschluss-Ports: 'upper' | 'basement'
 export const wanArea = (port) => (isBasementWanPort(port) ? 'basement' : 'upper');
 
 // Lage eines Ports (Mitte der Buchse) { x, y, z } oder null. Mit Blick auf den Kasten (nach Westen) von links nach
 // rechts gezählt, also von Süd (+z) nach Nord: WAN 1–14 obere Reihe, WAN 15–28 untere Reihe.
-// Im Keller (Blick nach Norden) von West nach Ost: Keller-WAN 1–16 oben, 17–32 unten; y über dem Kellerboden.
+// Im Keller mit Blick auf den Kasten von links nach rechts: Port 1–11 oben, 12–22 Mitte, 23–33 unten; y über dem
+// Kellerboden, z an der Vorderseite des Kastens.
 export function wanPortPosition(port) {
   if (isBasementWanPort(port)) {
-    const wan = basementWan();
+    const wan = basementWanBoxOf(port);
     if (!wan) return null;
-    const k = port - BASEMENT_WAN_PORT0;
-    const row = Math.floor(k / B_PORTS_PER_ROW);
-    const col = k % B_PORTS_PER_ROW;
+    const { n } = basementWanPortInfo(port);
+    const row = Math.floor(n / BASEMENT_WAN_COLS);
+    const col = n % BASEMENT_WAN_COLS;
     return {
-      x: round3(wan.box.x + (col - (B_PORTS_PER_ROW - 1) / 2) * WAN_PORT_PITCH),
-      y: round3(wan.box.y + ((WAN_PORT_ROWS - 1) / 2 - row) * WAN_ROW_PITCH),
-      z: round3(wan.box.z + wan.box.depth / 2),
+      x: round3(wan.box.x + wan.facing * (col - (BASEMENT_WAN_COLS - 1) / 2) * BASEMENT_WAN_PITCH),
+      y: round3(wan.box.y + B_TOP_ROW - row * BASEMENT_WAN_ROW_PITCH),
+      z: wan.box.frontZ,
     };
   }
   if (!isWanPort(port)) return null;
@@ -447,7 +507,7 @@ export const wanEnd = (port) => ({ id: WAN_ID, port });
 export function endField(end) {
   if (isWanRef(end)) {
     if (!isWanPort(end.port)) return null;
-    return isBasementWanPort(end.port) ? basementWan()?.entryField ?? null : WAN_FIELD;
+    return isBasementWanPort(end.port) ? basementWanBoxOf(end.port)?.entryField ?? null : WAN_FIELD;
   }
   return fieldAbove(end?.spot);
 }
@@ -460,7 +520,7 @@ export function endRise(end) {
     const p = wanPortPosition(end.port);
     if (!p) return null;
     if (isBasementWanPort(end.port)) {
-      const { trace, entryField } = basementWan();
+      const { trace, entryField } = basementWanBoxOf(end.port);
       const entry = fieldCenter(entryField);
       if (!entry) return null;
       return Math.abs(p.x - trace.x) + (TRAY_HEIGHT - p.y) + Math.abs(entry.z - trace.z);

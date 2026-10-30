@@ -6,7 +6,8 @@ import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
 import { BUNKER_ROW_X, BUNKER_ROW_Z, BUNKER_SPOTS_PER_FIELD, FIRST_BUNKER_SPOT, bunkerSpot } from './server-zones.js';
-import { BASEMENT_WAN_PORT0 } from './cable-tray.js';
+import { LEGACY_BASEMENT_WAN_PORT0, LEGACY_BASEMENT_WALL_PORTS, basementWanPort } from './cable-tray.js';
+import { GRID } from './basement-layout.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
@@ -40,7 +41,10 @@ const KEY = 'druckercenter-save';
 // 27: Keller-Lager (#53, core/basement-storage.js) – Kartons im Keller (location 'basement') und Filament-Regale dort
 //     (location 'basement-rack') mit basement = { field, zone, order } bzw. { field, spot }; Lieferungen ins
 //     Keller-Lager tragen basement schon unterwegs. Alte Stände haben nichts im Keller-Lager – nichts umzuwandeln
-const VERSION = 27;
+// 28: Internet-Kästen in jedem Bunker-Feld (#61, core/cable-tray.js) – 4 Kästen à 33 Ports je Feld mit neuen
+//     Port-Nummern ab BASEMENT_WAN_PORT0; die einzelne Glasfaser-Säule (Ports 1000…1031, servers.basementWanField)
+//     entfällt. Ihre Kabel stecken danach am Kasten 1 (Nordwest) im selben Feld und werden neu verlegt.
+const VERSION = 28;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -212,12 +216,46 @@ function migrateBunkerRows(data) {
   }
   const bunkerRacks = new Set(racks.map((r) => r.id));
   const inBunker = (ref) => {
-    if (ref?.id === 'wan') return ref.port >= BASEMENT_WAN_PORT0;
+    if (ref?.id === 'wan') return ref.port >= LEGACY_BASEMENT_WAN_PORT0;
     const device = furniture.find((f) => f.id === ref?.id);
     return !!device && device.location === 'rack' && bunkerRacks.has(device.rackId);
   };
   for (const c of data.servers?.cables ?? []) {
     if (inBunker(c.a) || inBunker(c.b)) c.reroute = true;
+  }
+}
+
+// Version 27 → 28 (#61): Statt einer Glasfaser-Säule mit 32 Ports („Keller-WAN 1…32“, Ports 1000…1031) im ersten
+// Bunker-Feld hat jedes Bunker-Feld 4 Internet-Kästen à 33 Ports. Kabel an der alten Säule kommen auf den Kasten, der
+// ihr am nächsten hängt (Kasten 1 an der Nordkante im Westen, im selben Feld) – Keller-WAN k auf Port k, alle 32 passen
+// auf einen Kasten. Sie bekommen reroute und rerouteKeep: core/servers.js verlegt sie beim Laden über den kürzesten
+// Trassenweg neu, verrechnet die Länge mit dem Vorrat und lässt sie auf jeden Fall gesteckt (Server bleiben online).
+// Feld der alten Säule: servers.basementWanField, sonst wie früher das erste fertige Bunker-Feld.
+function migrateBasementWan(data) {
+  const s = data.servers;
+  if (!s) return;
+  const stage = data.upgrades?.basementStage ?? 0;
+  const types = data.upgrades?.basementFields ?? [];
+  const isBunker = (i) => Number.isInteger(i) && i > 0 && i < GRID * GRID && types[i] === 'bunker'
+    && i % GRID < stage && Math.floor(i / GRID) < stage;
+  let field = isBunker(s.basementWanField) ? s.basementWanField : null;
+  for (let i = 0; field === null && i < GRID * GRID; i++) if (isBunker(i)) field = i;
+  delete s.basementWanField;
+  const legacy = (ref) => ref?.id === 'wan' && Number.isInteger(ref.port) && ref.port >= LEGACY_BASEMENT_WAN_PORT0
+    && ref.port < LEGACY_BASEMENT_WAN_PORT0 + LEGACY_BASEMENT_WALL_PORTS;
+  for (const c of s.cables ?? []) {
+    let moved = false;
+    for (const ref of [c.a, c.b]) {
+      if (!legacy(ref)) continue;
+      // Ohne Bunker-Feld bleibt der Port ungültig – servers.load gibt das Kabel dann in den Vorrat zurück
+      if (field === null) continue;
+      ref.port = basementWanPort(field, 0, ref.port - LEGACY_BASEMENT_WAN_PORT0);
+      moved = true;
+    }
+    if (moved) {
+      c.reroute = true;
+      c.rerouteKeep = true;
+    }
   }
 }
 
@@ -363,6 +401,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
   // Version 26 kennt noch kein Keller-Lager: nichts liegt dort, nichts umzuwandeln
   if (data?.version === 26) data.version = 27;
+  // Version 27 hat eine einzelne Glasfaser-Säule im Keller: Kabel daran an die Internet-Kästen im selben Feld
+  if (data?.version === 27) {
+    migrateBasementWan(data);
+    data.version = 28;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;

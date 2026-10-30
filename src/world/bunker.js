@@ -7,29 +7,33 @@
 //   - Lochplatten (Kaltluft) in den kalten Gängen vor den Fronten,
 //   - einfache Schrank-Kästen für alle Bunker-Schränke außerhalb von LOD_NEAR um die Spielfigur (ein InstancedMesh je
 //     Feld – volle Schränke mit Geräten zeichnet world/server-room.js nur in der Nähe, setFarRacks),
-//   - Glasfaser-Säule mit Wandkasten „INTERNET / WAN“ (Keller-Anschluss, 32 Ports) und Trasse in die Nordtrasse im
-//     ersten Bunker-Feld (core/cable-tray.js basementWan).
+//   - je Feld 4 Internet-Kästen à 33 Ports an Glasfaser-Säulen an Nord- und Südkante mit Nummernschild „WAN B2-3“ und
+//     Trasse in die Nord- bzw. Südtrasse (#61, Lage aus core/cable-tray.js basementWanBoxes, Modell
+//     models/wan-cabinet.js). Ports sind keine eigenen Objekte: je Kasten eine unsichtbare Klickfläche vor der
+//     Vorderseite, der Port nahe am Treffpunkt zählt (ein gelber Rahmen zeigt ihn).
 // Schränke, Kabel und der Ablauf beim Verlegen liegen in world/server-room.js (wie oben); Klicks auf Trassen, Ports
 // am Kasten und Markierungen reicht dieses Modul dorthin weiter.
 //
 // Koordinaten: Alles hängt in Gruppen auf Höhe des Kellerbodens (y = 0 dort), x/z sind Welt-x/z des Kellers – wie
 // die Gruppe der zweiten Etage in world/server-room.js („Bodenkoordinaten“ je Bereich). Trassen, Markierungen,
 // Lochplatten und Schrank-Kästen liegen je Feld in basement.fields.contentGroup(Feld) und werden so mit dem Feld
-// ausgeblendet (weiter als 60 m weg); Säule, Kasten und Kabel in frame (in basement.fields.group, sichtbar, solange
-// man im Keller ist).
+// ausgeblendet (weiter als 60 m weg), ebenso die Internet-Kästen und die je Feld zusammengefassten Kabel
+// (world/server-room.js); der Rahmen am angezielten Port und Hilfsobjekte beim Verlegen in frame (in
+// basement.fields.group, sichtbar, solange man im Keller ist).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BASEMENT_FLOOR_Y, fieldBounds } from '../core/basement-layout.js';
 import {
-  BASEMENT_WALL_PORTS, BASEMENT_WAN_PORT0, CEILING_HEIGHT, TRAY_HEIGHT, basementCellOf, basementFieldAt,
-  basementTraySegments, basementWan, fieldCenter, wanPortPosition,
+  BASEMENT_WAN_COLS, BASEMENT_WAN_PITCH, BASEMENT_WAN_ROW_PITCH, BASEMENT_WAN_ROWS, CEILING_HEIGHT, TRAY_HEIGHT,
+  basementCellOf, basementFieldAt, basementTraySegments, basementWanBoxPorts, basementWanBoxes, basementWanPortInfo,
+  fieldCenter, wanPortPosition,
 } from '../core/cable-tray.js';
 import {
   BUNKER_COLD_AISLE, BUNKER_RACK_DEPTH, BUNKER_RACK_PITCH, BUNKER_ROW_Z, BUNKER_ROWS_BOUNDS, bunkerFields, bunkerSpotsIn,
   spotFacing, spotPosition,
 } from '../core/server-zones.js';
-import { createLadderTrays, createWallBox, createWallRiser } from '../models/cable-tray.js';
-import { box } from '../models/mesh-helpers.js';
+import { createLadderTrays } from '../models/cable-tray.js';
+import { createWanCabinets } from '../models/wan-cabinet.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 
 const LEVEL = -2;                 // Stockwerk des Kellers für die Kollision (world/basement.js LEVEL.BASEMENT)
@@ -75,12 +79,21 @@ function createPerforatedMaterial() {
   return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.6, metalness: 0.4, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 }
 
-// Schrank von weitem: dunkler Kasten, vorn eine getönte Glastür (dahinter die Geräte als einfache Platten, siehe
-// createFarDeviceMaterial), hinten offen mit Kabeln. Seiten, Dach und Rücken auch von innen sichtbar.
+// Schrank von weitem: dunkler Kasten, vorn eine getönte Glastür mit dunklem Innenraum – undurchsichtig, damit man
+// nicht auf die Rückwand blickt (#62); die Geräte liegen als Frontplatten knapp davor (createFarDeviceMaterial), ein
+// leerer Schrank sieht so leer und dunkel aus. Hinten offen mit Kabeln. Seiten, Dach und Rücken auch von innen sichtbar.
 function createFarRackMaterials() {
   const front = canvasTexture(64, 192, (ctx, w, h) => {
-    ctx.fillStyle = 'rgba(40, 52, 64, 0.35)';
+    const glass = ctx.createLinearGradient(0, 0, w, h);
+    glass.addColorStop(0, '#1d242c');
+    glass.addColorStop(0.55, '#10141a');
+    glass.addColorStop(1, '#171d24');
+    ctx.fillStyle = glass;
     ctx.fillRect(0, 0, w, h);
+    // Montageschienen links und rechts im Innenraum
+    ctx.fillStyle = '#2a3038';
+    ctx.fillRect(7, 6, 3, h - 12);
+    ctx.fillRect(w - 10, 6, 3, h - 12);
     ctx.fillStyle = '#1b1e23';
     ctx.fillRect(0, 0, w, 6);
     ctx.fillRect(0, h - 6, w, 6);
@@ -105,14 +118,22 @@ function createFarRackMaterials() {
   const top = new THREE.MeshStandardMaterial({ color: 0x24272c, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide });
   return [
     side, side, top, top,
-    new THREE.MeshStandardMaterial({ map: front, roughness: 0.2, metalness: 0.3, transparent: true, depthWrite: false }),
+    new THREE.MeshStandardMaterial({ map: front, roughness: 0.2, metalness: 0.3 }),
     new THREE.MeshStandardMaterial({ map: back, roughness: 0.8, side: THREE.DoubleSide }),
   ];
 }
 
 // Gerät von weitem: Frontplatte mit Lüftungsschlitzen, Laufwerken und LEDs, hell – die Farbe der Baureihe kommt je
-// Platte über instanceColor dazu
+// Platte über instanceColor dazu; die Status-LEDs leuchten (emissiveMap, #62)
 function createFarDeviceMaterial() {
+  const leds = canvasTexture(128, 32, (ctx, w, h) => {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#3ddc6e';
+    ctx.fillRect(108, 10, 4, 4);
+    ctx.fillStyle = '#2a8fd6';
+    ctx.fillRect(116, 10, 4, 4);
+  }, 1, 1, { wrap: false });
   const texture = canvasTexture(128, 32, (ctx, w, h) => {
     ctx.fillStyle = '#c9ced4';
     ctx.fillRect(0, 0, w, h);
@@ -127,27 +148,7 @@ function createFarDeviceMaterial() {
     ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, w - 2, h - 2);
   }, 1, 1, { wrap: false });
-  return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5, metalness: 0.3 });
-}
-
-// Schild an der Säule: „GLASFASER · Keller-Anschluss“
-
-function columnSignMaterial() {
-  const texture = canvasTexture(256, 96, (ctx, w, h) => {
-    ctx.fillStyle = '#1f6a46';
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(5, 5, w - 10, h - 10);
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 34px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('GLASFASER', w / 2, h * 0.4);
-    ctx.font = '600 18px "Segoe UI", Arial, sans-serif';
-    ctx.fillText('Internet-Anschluss Bunker', w / 2, h * 0.76);
-  }, 1, 1, { wrap: false });
-  return new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.5 });
+  return new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5, metalness: 0.3, emissiveMap: leds, emissive: 0xffffff, emissiveIntensity: 1.2 });
 }
 
 function dispose(object, keep) {
@@ -161,7 +162,7 @@ const rackHeightOf = (units) => 0.1 + units * 0.0445 + 0.08;
 
 // layout: core/basement-layout.js (Feldarten, Stufe) · fields: world/basement-fields.js (basement.fields)
 // fieldInteraction: { hint(field), hover(field), unhover(), action(field) } für angezielte Trassenfelder (Feld-Index
-// aus core/cable-tray.js) · wanPortInteraction(port) → userData.interaction je Port am Kasten
+// aus core/cable-tray.js) · wanPortInteraction(port) → Interaktion je Port an den Internet-Kästen
 // spotInteraction(spot) → { hint(), action() } je Stellplatz (Bodenmarkierung)
 export function createBunker({ layout, fields, collision, fieldInteraction, wanPortInteraction, spotInteraction }) {
   const frame = new THREE.Group();
@@ -173,9 +174,6 @@ export function createBunker({ layout, fields, collision, fieldInteraction, wanP
   const farMaterials = createFarRackMaterials();
   const deviceMaterial = createFarDeviceMaterial();
   const highlight = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false });
-  const columnMaterial = new THREE.MeshStandardMaterial({ color: 0x6d737b, roughness: 0.7, metalness: 0.3 });
-  const stripeMaterial = new THREE.MeshStandardMaterial({ color: 0x2f8f5b, roughness: 0.6 });
-  const signMaterial = columnSignMaterial();
   // Geteilte Geometrien (nicht freigeben)
   const markerGeometry = new THREE.PlaneGeometry(BUNKER_RACK_PITCH, BUNKER_RACK_DEPTH).rotateX(-Math.PI / 2);
   const highlightGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -291,87 +289,137 @@ export function createBunker({ layout, fields, collision, fieldInteraction, wanP
     far.receiveShadow = true;
     far.name = 'bunker-far-racks';
     g.add(far);
-    return { group: g, trays, hit, marks, markers, spots, far, marked: false };
+    const wan = buildWan(area, b);
+    g.add(wan.group);
+    return { group: g, trays, hit, marks, markers, spots, far, marked: false, wan };
   }
 
+  // ---------- Internet-Kästen eines Feldes (#61) ----------
 
-  // ---------- Glasfaser-Säule mit Wandkasten ----------
+  // Gelber Rahmen um den angezielten Port (beim Zielen auf einen Kasten)
+  const aim = new THREE.Mesh(new THREE.BoxGeometry(BASEMENT_WAN_PITCH * 0.95, BASEMENT_WAN_ROW_PITCH * 0.42, 0.004),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd84a).multiplyScalar(1.6), transparent: true, opacity: 0.55, depthWrite: false }));
+  aim.raycast = () => {};
+  aim.visible = false;
+  aim.renderOrder = 2;
+  frame.add(aim);
+  let wanHit = null;          // geteilte Klickfläche vor der Vorderseite eines Kastens (alle Kästen gleich groß)
 
-  let wanView = null;         // { field, group, ports: Map(port → Vector3) }
-  function buildWan(wan) {
-    const g = new THREE.Group();
-    g.name = 'bunker-wan';
-    const { column, box: wb, trace } = wan;
-    const cx = (column.minX + column.maxX) / 2;
-    const cz = (column.minZ + column.maxZ) / 2;
-    const w = column.maxX - column.minX;
-    const d = column.maxZ - column.minZ;
-    g.add(box(w, CEILING_HEIGHT, d, columnMaterial, cx, CEILING_HEIGHT / 2, cz));
-    // Grüner Streifen unten, Schild unter dem Kasten (darüber laufen die Kabel hoch) vorn und hinten
-    g.add(box(w + 0.01, 0.12, d + 0.01, stripeMaterial, cx, 0.06, cz));
-    for (const [sz, rot] of [[d / 2 + 0.003, 0], [-d / 2 - 0.003, Math.PI]]) {
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.04, 0.21), signMaterial);
-      sign.position.set(cx, 0.9, cz + sz);
-      sign.rotation.y = rot;
-      g.add(sign);
-    }
-    // Kasten: Ports genau dort, wo core/cable-tray.js sie annimmt; Vorderseite nach Süden (+z), Kasten-x = Welt-x
-    const bottom = wb.y - wb.height / 2;
-    const ports = Array.from({ length: BASEMENT_WALL_PORTS }, (_, k) => BASEMENT_WAN_PORT0 + k);
-    const boxMesh = createWallBox({
-      ports: ports.length, width: wb.width, height: wb.height, depth: wb.z + wb.depth / 2 - wb.wallZ,
-      headerBelow: true,
-      positions: ports.map((port) => {
+  // Port eines Kastens nahe am Treffpunkt (Bodenkoordinaten) oder null – nur, wenn der Strahl die Buchse ungefähr trifft
+  function portNear(box, ports, hit) {
+    if (!hit) return null;
+    const x = hit.point.x;
+    const y = hit.point.y - BASEMENT_FLOOR_Y;
+    const first = wanPortPosition(ports[0]);
+    const col = Math.round(((x - first.x) * box.facing) / BASEMENT_WAN_PITCH);
+    const row = Math.round((first.y - y) / BASEMENT_WAN_ROW_PITCH);
+    if (col < 0 || col >= BASEMENT_WAN_COLS || row < 0 || row >= BASEMENT_WAN_ROWS) return null;
+    const port = ports[row * BASEMENT_WAN_COLS + col];
+    const p = wanPortPosition(port);
+    return Math.abs(p.x - x) < BASEMENT_WAN_PITCH * 0.6 && Math.abs(p.y - y) < BASEMENT_WAN_ROW_PITCH * 0.5 ? port : null;
+  }
+
+  function showAim(port, facing) {
+    aim.visible = port !== null;
+    if (!aim.visible) return;
+    const p = wanPortPosition(port);
+    aim.position.set(p.x, p.y, p.z + facing * 0.01);
+  }
+
+  // Klick auf einen Kasten: der Port am Treffpunkt verhält sich wie eine eigene Klickfläche (wanPortInteraction)
+  function boxInteraction(box, ports) {
+    const byPort = new Map();
+    const of = (port) => {
+      if (!byPort.has(port)) byPort.set(port, wanPortInteraction(port));
+      return byPort.get(port);
+    };
+    let last = null;
+    const leave = () => {
+      if (last !== null) of(last).unhover?.();
+      last = null;
+    };
+    return {
+      hint: (hit) => {
+        const port = portNear(box, ports, hit);
+        return port === null ? `${box.name} · 33 Ports – auf eine Buchse zielen` : of(port).hint(hit);
+      },
+      hover: (hit) => {
+        const port = portNear(box, ports, hit);
+        if (port !== last) leave();
+        last = port;
+        if (port !== null) of(port).hover?.(hit);
+        showAim(port, box.facing);
+      },
+      unhover: () => {
+        leave();
+        showAim(null);
+      },
+      action: (hit) => {
+        const port = portNear(box, ports, hit);
+        if (port !== null) of(port).action(hit);
+      },
+    };
+  }
+
+  // Kästen, Säulen und Trassen eines Bunker-Feldes; ports: Lage jeder Buchse (Bodenkoordinaten, knapp davor) für
+  // Markierung und Kabel in world/server-room.js
+  function buildWan(area, b) {
+    const boxes = basementWanBoxes(area);
+    const group = createWanCabinets(boxes.map((w) => {
+      const bottom = w.box.y - w.box.height / 2;
+      const entry = fieldCenter(w.entryField);
+      return {
+        name: w.name, x: w.box.x, backZ: w.box.backZ, facing: w.facing, edgeZ: w.facing > 0 ? b.minZ : b.maxZ,
+        column: { w: w.column.maxX - w.column.minX }, box: w.box,
+        // Lage der Ports in Kastenkoordinaten (x nach rechts von vorn gesehen, y ab Unterkante)
+        ports: basementWanBoxPorts(area, w.index).map((port) => {
+          const p = wanPortPosition(port);
+          return { x: (p.x - w.box.x) * w.facing, y: p.y - bottom };
+        }),
+        riser: {
+          y0: w.trace.y0, height: w.trace.y1 - w.trace.y0,
+          reach: entry ? Math.max(0, Math.abs(entry.z - w.box.backZ) - TRAY_WIDTH / 2) : 0,
+          depth: Math.max(0.03, 2 * (Math.abs(w.trace.z - w.box.backZ) - 0.012)),
+        },
+      };
+    }), { ceiling: CEILING_HEIGHT });
+    const ports = new Map();
+    for (const w of boxes) {
+      wanHit ??= new THREE.BoxGeometry(w.box.width, w.box.height, 0.04);
+      shared.add(wanHit);
+      const list = basementWanBoxPorts(area, w.index);
+      const hit = new THREE.Mesh(wanHit, HIT_MATERIAL);
+      hit.position.set(w.box.x, w.box.y, w.box.frontZ + w.facing * 0.012);
+      hit.name = `wan-box:${area}:${w.index}`;
+      hit.userData.interaction = boxInteraction(w, list);
+      group.add(hit);
+      for (const port of list) {
         const p = wanPortPosition(port);
-        return { x: p.x - wb.x, y: p.y - bottom };
-      }),
-    });
-    boxMesh.position.set(wb.x, bottom, wb.wallZ);
-    const { w: pw, h: ph, d: pd } = boxMesh.userData.portSize;
-    const portHit = new THREE.BoxGeometry(pw, ph, pd);
-    boxMesh.userData.ports.forEach((p, k) => {
-      const hitbox = new THREE.Mesh(portHit, HIT_MATERIAL);
-      hitbox.position.set(p.x, p.y, p.z);
-      hitbox.name = `port:wan:${ports[k]}`;
-      hitbox.userData.interaction = wanPortInteraction(ports[k]);
-      boxMesh.add(hitbox);
-    });
-    g.add(boxMesh);
-    // Trasse an der Säule hoch und oben waagerecht bis an den Rand des Einstiegsfeldes
-    const back = 0.012;
-    // bis an die Kante der Nordtrasse (Einstiegsfeld, Leiter TRAY_WIDTH breit)
-    const entryEdge = fieldCenter(wan.entryField).z - TRAY_WIDTH / 2;
-    const riser = createWallRiser({
-      height: trace.y1 - trace.y0, width: 0.3, reach: Math.max(0, entryEdge - wb.wallZ),
-      depth: Math.max(0.03, 2 * (trace.z - wb.wallZ - back)),
-    });
-    riser.position.set(trace.x, trace.y0, wb.wallZ);
-    g.add(riser);
-    g.traverse((o) => {
-      if (o.isMesh) o.receiveShadow = true;
-    });
-    const portPos = new Map(ports.map((port) => {
-      const p = wanPortPosition(port);
-      return [port, new THREE.Vector3(p.x, p.y, p.z + 0.006)];
+        ports.set(port, new THREE.Vector3(p.x, p.y, p.z + w.facing * 0.006));
+      }
+    }
+    // Kollision: Säule samt Kasten davor
+    const blocks = boxes.map((w) => ({
+      minX: w.column.minX, maxX: w.column.maxX,
+      minZ: Math.min(w.column.minZ, w.box.frontZ), maxZ: Math.max(w.column.maxZ, w.box.frontZ), level: LEVEL,
     }));
-    return { field: wan.field, key: `${wan.field}`, group: g, ports: portPos };
+    return { group, ports, blocks };
   }
-
 
   // ---------- Abgleich mit den Kellerfeldern ----------
 
   let signature = null;
-  // Trassen, Markierungen und Anschluss an die Feldarten anpassen – billig, solange sich nichts geändert hat.
-  // Gibt true zurück, wenn sich etwas geändert hat (Ports am Kasten neu).
+  // Trassen, Markierungen und Internet-Kästen an die Feldarten anpassen – billig, solange sich nichts geändert hat.
+  // Gibt true zurück, wenn sich etwas geändert hat (Ports an den Kästen neu).
   function sync() {
-    const wan = basementWan();
-    const sig = `${layout.stage}:${layout.save().join(',')}:${wan?.field ?? '-'}`;
+    const sig = `${layout.stage}:${layout.save().join(',')}`;
     if (sig === signature) return false;
     signature = sig;
     const list = new Set(bunkerFields());
     for (const [area, v] of views) {
-      // Feld kein Bunker mehr oder Nachbarn geändert (Trassen laufen durch): neu bauen
+      // Feld kein Bunker mehr oder Nachbarn bzw. Nummern geändert (Trassen laufen durch, Schilder): neu bauen
       v.group.removeFromParent();
+      v.wan.group.userData.dispose?.();
       dispose(v.group, shared);
       views.delete(area);
     }
@@ -380,16 +428,8 @@ export function createBunker({ layout, fields, collision, fieldInteraction, wanP
       holder(area).add(v.group);
       views.set(area, v);
     }
-    if (wanView && wanView.field !== wan?.field) {
-      wanView.group.removeFromParent();
-      dispose(wanView.group, shared);
-      wanView = null;
-    }
-    if (wan && !wanView) {
-      wanView = buildWan(wan);
-      frame.add(wanView.group);
-    }
-    collision.setDynamic('bunker-wan', wan ? [{ ...wan.column, level: LEVEL }] : []);
+    aim.visible = false;
+    collision.setDynamic('bunker-wan', [...views.values()].flatMap((v) => v.wan.blocks));
     farKey = '';
     return true;
   }
@@ -498,10 +538,10 @@ export function createBunker({ layout, fields, collision, fieldInteraction, wanP
     frame, holder, sync, markFields, showMarkers, setFarRacks,
     // Nach einem Neubau der Felder müssen die einfachen Schrank-Kästen neu gesetzt werden
     get farStale() { return farKey === ''; },
-    // Lage einer Buchse am Keller-Anschluss in Bodenkoordinaten des Kellers (für Markierung und Vorschaukabel)
-    wanPortPos: (port) => wanView?.ports.get(port) ?? null,
-    // Alle Ports am Keller-Anschluss mit Lage (leer ohne Bunker-Feld)
-    get wanPorts() { return wanView ? [...wanView.ports.entries()] : []; },
+    // Lage einer Buchse an einem Internet-Kasten in Bodenkoordinaten des Kellers (für Markierung und Vorschaukabel)
+    wanPortPos: (port) => views.get(basementWanPortInfo(port)?.field)?.wan.ports.get(port) ?? null,
+    // Alle Ports an den Internet-Kästen mit Lage (leer ohne Bunker-Feld)
+    get wanPorts() { return [...views.values()].flatMap((v) => [...v.wan.ports.entries()]); },
   };
 }
 

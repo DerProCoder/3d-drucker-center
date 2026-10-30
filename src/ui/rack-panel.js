@@ -16,6 +16,7 @@ import { KIND_NAMES, portName } from '../core/server-catalog.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
 import { BUNKER_RENT_FACTOR, isBunkerRack, isPrivateRowRack, spotLabel } from '../core/server-zones.js';
+import { wanPortName } from '../core/cable-tray.js';
 import { CABLE_COLOR } from '../models/server-hardware.js';
 import { euro, meters } from '../core/format.js';
 import { isNas, storageText } from '../core/nas.js';
@@ -269,6 +270,9 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     const income = online.filter((d) => !rentals || rentals.serves(d, reached)).reduce((sum, d) => sum + servers.rentOf(d), 0);
     const power = devices.reduce((sum, d) => sum + servers.powerOf(d), 0);
     const vmCount = rentals ? devices.reduce((sum, d) => sum + (d.type.kind === 'server' ? rentals.vmsOn(d).length : 0), 0) : null;
+    // Internet-Anschlüsse der Geräte im Schrank („Bunker 2 · WAN 3 · Port 17“ bzw. „WAN 5“ oben, #61)
+    const uplinks = [...new Set(devices.map((d) => servers.uplinkOf?.(d) ?? null).filter((p) => p !== null))];
+    const uplinkText = uplinks.length ? ` · 🌐 Internet über ${uplinks.map(wanPortName).join(', ')}` : '';
     // Geräte und freie Lücken von oben nach unten, damit man sieht, wo noch Platz ist
     const gaps = devices.length ? servers.freeGaps(rack) : [];
     const rows = [
@@ -278,10 +282,11 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     contentEl.innerHTML = `
       <p class="slots">🔌 Kabel im Vorrat: <strong>${meters(servers.cableMeters)}</strong> · Belegt: ${usedUnits} / ${rack.type.units} HE
         · Online-Server: <strong>${online.length} / ${devices.filter((d) => d.type.kind === 'server').length}</strong>
-        ${vmCount !== null ? `· VMs: <strong>${vmCount}</strong> ` : ''}· Miete ${euro.format(income)} / h · Strom ${euro.format(power)} / h</p>
+        ${vmCount !== null ? `· VMs: <strong>${vmCount}</strong> ` : ''}· Miete ${euro.format(income)} / h · Strom ${euro.format(power)} / h${uplinkText}</p>
       <p class="rack-help">So kommt ein Server ins Internet: <b>Server → Switch → Firewall (LAN)</b> und
         <b>Firewall (WAN) → Patchpanel → Kabelgitter → Internet-Anschluss an der Wand</b> (die Firewall-WAN darf auch
-        direkt an die Wand). Verkabelt wird <b>hinten am Schrank</b>: ersten Port anklicken, dann den zweiten. Kabel zu
+        direkt an die Wand; im Daten-Bunker an einen der Internet-Kästen „WAN B…“ an der Nord- oder Südkante des
+        Feldes – auf den Kasten zielen, der Port unter dem gelben Rahmen zählt). Verkabelt wird <b>hinten am Schrank</b>: ersten Port anklicken, dann den zweiten. Kabel zu
         einem anderen Schrank oder zur Wand laufen über das <b>Kabelgitter oben</b> – dazwischen die Gitterfelder für
         den Weg anklicken. Klick auf einen belegten Port zieht das Kabel ab. Mit ▲ / ▼ ein Gerät im Schrank verschieben.
         <b>Temperatur:</b> gut sind ${TEMP_LIMITS.idealMin}–${TEMP_LIMITS.idealMax} °C. Über ${TEMP_LIMITS.hot} °C geht ein Gerät

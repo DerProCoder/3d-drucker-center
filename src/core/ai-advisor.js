@@ -747,7 +747,7 @@ export class AIAdvisor {
     const p = empty();
     const { servers, rentals } = this.game;
     p.general.push('Server bringen Geld über vermietete VMs. Jeder Server braucht Strom, eine Firewall mit Leitung zum Internet-Anschluss an der Wand und Kühlung.');
-    p.general.push(`Im Daten-Bunker im Keller bringen VMs und Speicher ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })} Miete – der Bunker braucht aber eine eigene Firewall am Glasfaser-Anschluss im Keller.`);
+    p.general.push(`Im Daten-Bunker im Keller bringen VMs und Speicher ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })} Miete – der Bunker braucht aber eine eigene Firewall an einem der Internet-Kästen „WAN B…“ im Bunker-Feld (4 Kästen à 33 Ports je Feld).`);
     if (!servers) return p;
     const online = f.servers.filter((d) => f.reached.has(d.id)).length;
     p.numbers.push(`${plural(f.servers.length, 'Server', 'Server')} eingebaut, ${online} online, in ${plural(f.racks.length, 'Schrank', 'Schränken')}.`);
@@ -823,7 +823,7 @@ export class AIAdvisor {
   }
 
   // Daten-Bunker im Keller (#52): Hinweise für Thema Server, Empfehlungen und Warnungen.
-  // { noWan: { key, text, step } | null – Bunker-Server offline, am Glasfaser-Anschluss im Keller steckt nichts;
+  // { noWan: { key, text, step } | null – Bunker-Server offline, an keinem Internet-Kasten im Keller steckt etwas;
   //   freeSpots: { field, free, text } | null – Bunker-Plätze frei (nur, wenn es schon Server gibt);
   //   bigVm: Text | null – Bunker-Server online: große VMs dorthin }
   bunkerHints(f) {
@@ -838,8 +838,8 @@ export class AIAdvisor {
       const who = offline.length === 1 ? 'Ein Server im Daten-Bunker ist' : `${offline.length} Server im Daten-Bunker sind`;
       out.noWan = {
         key: 'bunker-no-wan',
-        text: `${who} offline: Der Bunker hat sein eigenes Internet – eine Firewall im Bunker über das Kabelgitter an den Glasfaser-Anschluss im Keller hängen, Kabel von oben gehen nicht.`,
-        step: 'Firewall im Bunker an den Glasfaser-Anschluss im Keller anschließen',
+        text: `${who} offline: Der Bunker hat sein eigenes Internet – eine Firewall im Bunker über das Kabelgitter an einen der Internet-Kästen „WAN B…“ an der Nord- oder Südkante des Bunker-Feldes hängen, Kabel von oben gehen nicht.`,
+        step: 'Firewall im Bunker an einen Internet-Kasten im Bunker-Feld anschließen',
       };
     }
     const fields = bunkerFields();
@@ -1319,7 +1319,7 @@ export class AIAdvisor {
       if (x.state === 'off' && !off) continue; // noch nie live: kein Alarm, nur Hinweis im Thema Server
       add(x.key, 'servers', off ? 72 : 55, x.text, { repeat: off });
     }
-    // Daten-Bunker (#52): Server dort offline, weil am Glasfaser-Anschluss im Keller nichts steckt – einmal melden
+    // Daten-Bunker (#52): Server dort offline, weil an keinem Internet-Kasten im Keller etwas steckt – einmal melden
     const bunkerWan = this.game.servers ? this.bunkerHints(f).noWan : null;
     if (bunkerWan) add(bunkerWan.key, 'servers', 74, bunkerWan.text);
     // Je Schrank eine Warnung, überhitzte KI-GPU-Server stehen mit drin. Zu warm (über idealMax) ohne Schaden meldet

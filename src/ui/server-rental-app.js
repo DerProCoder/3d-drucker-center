@@ -14,6 +14,7 @@ import { CANCEL_AFTER_OFFLINE, RENT_PER_CORE, RENT_PER_GB } from '../core/server
 import { RENT_PER_GB_STORAGE, StorageRentals } from '../core/storage-rentals.js';
 import { isNas, storageText } from '../core/nas.js';
 import { BUNKER_RENT_FACTOR, spotLabel } from '../core/server-zones.js';
+import { wanPortName } from '../core/cable-tray.js';
 import { euro, realTime } from '../core/format.js';
 
 // Ab so viel Offline-Zeit (Anteil an CANCEL_AFTER_OFFLINE) wird die Warnung rot
@@ -42,6 +43,12 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const rack = servers.rackOf(server);
     return rack ? `${spotLabel(rack.slot)} · HE ${server.unit + 1}` : 'nicht eingebaut';
   }
+
+  // Internet-Anschluss, über den ein Server online ist: „🌐 Bunker 2 · WAN 3 · Port 17“ bzw. „🌐 WAN 5“ (oben)
+  const uplinkText = (server) => {
+    const port = servers.uplinkOf?.(server) ?? null;
+    return port === null ? '' : ` · 🌐 ${wanPortName(port)}`;
+  };
 
   // Daten-Bunker im Keller (#52): Miet-Aufschlag am Server anzeigen
   const bunkerBadge = (server) => (servers.isBunkerDevice?.(server)
@@ -257,7 +264,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
         </div>
         ${why ? `<span class="rack-status off">offline – ${why}</span>`
           : busy && !serving ? `<span class="rack-status off">online · ${rentals.vmProblem(server, reached)}</span>`
-            : '<span class="rack-status on">online</span>'}
+            : `<span class="rack-status on">online${uplinkText(server)}</span>`}
         ${meter('RAM', rentals.usedRam(server), ram, ' GB')}
         ${meter('Cores', rentals.usedCores(server), cores, '')}
         ${vms.length

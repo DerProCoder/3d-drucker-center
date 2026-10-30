@@ -318,7 +318,7 @@ function wallBoxLayout({ ports, width, height, depth = BOX_DEPTH, positions, hea
 }
 
 // Glasfaser-Symbol: drei geschwungene Fasern, die aus einem Bündel kommen, mit leuchtenden Enden
-function drawFiberIcon(ctx, x, y, s) {
+export function drawFiberIcon(ctx, x, y, s) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineCap = 'round';

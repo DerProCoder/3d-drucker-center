@@ -9,6 +9,9 @@ const SHOW_MS = 1200;    // so lange bleibt die Stufe nach dem letzten Zoomen si
 
 export function createZoom(camera, controls, el) {
   const baseFov = camera.fov;
+  // Grundwert ohne Zoom an der Kamera merken – andere Module (z. B. Detailstufe im Bunker, world/server-room.js)
+  // rechnen daraus den Zoom-Faktor, ohne zoom selbst zu kennen
+  camera.userData.baseFov = baseFov;
   const baseSpeed = controls.pointerSpeed;
   let level = ZOOM_LEVELS.indexOf(1);
   let pending = 0;
