@@ -15,7 +15,7 @@
 import { BANKRUPT_AT, IDLE_POWER_SHARE, NOZZLE_WORN, RENT_PER_HOUR, WET } from './economy.js';
 import { FAILURES, SPOOL_GRAMS, filamentById, filamentLabel, templateById } from './catalog.js';
 import { TEMP_LIMITS } from './server-climate.js';
-import { spotLabel } from './server-zones.js';
+import { BUNKER_RENT_FACTOR, bunkerFields, bunkerNumber, bunkerSpotsIn, isBunkerRack, spotLabel } from './server-zones.js';
 import { waitingFilament } from './two-color.js';
 import { isLaser } from './laser.js';
 import { MAX_WORKERS } from './staff.js';
@@ -88,7 +88,7 @@ const TOPICS = [
   { id: 'filament', title: '🧵 Filament', words: [/filament/, /spule/, /\bpla\b/, /\bpetg\b/, /\babs\b/, /\btpu\b/, /material/, /feucht/, /trock/, /nachkauf/, /einkauf/, /\bholz/, /platte/] },
   { id: 'printers', title: '🖨️ Drucker', words: [/drucker/, /duese/, /fehldruck/, /\bams\b/, /\bdruckt/, /\bdrucke\b/, /laser/, /spaghetti/, /muelleimer/] },
   { id: 'orders', title: '📋 Aufträge', words: [/auftrag/, /auftraege/, /kunde/, /bestellung/, /\bfrist/, /abhol/, /empfang/] },
-  { id: 'servers', title: '🖥️ Server', words: [/server/, /website/, /webseite/, /homepage/, /\bvms?\b/, /vermiet/, /mietanfrage/, /anfrage/, /\brack/, /\bnetz/, /internet/, /kabel/, /firewall/, /switch/, /patch/, /offline/, /online/] },
+  { id: 'servers', title: '🖥️ Server', words: [/server/, /bunker/, /keller/, /glasfaser/, /website/, /webseite/, /homepage/, /\bvms?\b/, /vermiet/, /mietanfrage/, /anfrage/, /\brack/, /\bnetz/, /internet/, /kabel/, /firewall/, /switch/, /patch/, /offline/, /online/] },
   { id: 'climate', title: '🌡️ Klima', words: [/temperatur/, /heiss/, /\bkalt/, /kuehl/, /luefter/, /klima/, /warm/, /\bgrad\b/, /°/, /ueberhitz/, /eingefror/, /friert/, /\bschrank/, /\bschraenke/] },
   { id: 'money', title: '💶 Geld', words: [/geld/, /konto/, /\beuro/, /€/, /gewinn/, /verlust/, /pleite/, /kosten/, /einnahm/, /verdien/, /umsatz/, /finanz/, /kasse/, /\bbank/, /\breich\b/] },
   { id: 'power', title: '⚡ Strom', words: [/strom/, /energie/, /verbrauch/, /\bkw\b/, /watt/] },
@@ -747,6 +747,7 @@ export class AIAdvisor {
     const p = empty();
     const { servers, rentals } = this.game;
     p.general.push('Server bringen Geld über vermietete VMs. Jeder Server braucht Strom, eine Firewall mit Leitung zum Internet-Anschluss an der Wand und Kühlung.');
+    p.general.push(`Im Daten-Bunker im Keller bringen VMs und Speicher ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })} Miete – der Bunker braucht aber eine eigene Firewall am Glasfaser-Anschluss im Keller.`);
     if (!servers) return p;
     const online = f.servers.filter((d) => f.reached.has(d.id)).length;
     p.numbers.push(`${plural(f.servers.length, 'Server', 'Server')} eingebaut, ${online} online, in ${plural(f.racks.length, 'Schrank', 'Schränken')}.`);
@@ -762,6 +763,8 @@ export class AIAdvisor {
       for (const vm of rentals.vms.filter((v) => v.offlineFor > 0)) p.problems.push(`VM von ${vm.customer} läuft nicht – Kunde kündigt bald.`);
     }
     p.problems.push(...this.diskProblems().map((x) => x.text));
+    const bunker = this.bunkerHints(f); // Daten-Bunker im Keller (#52)
+    if (bunker.noWan) p.problems.push(bunker.noWan.text);
     const web = this.websiteProblems(); // eigene Website (#54)
     p.problems.push(...web.map((x) => x.text));
     if (this.game.website?.isLive) {
@@ -770,6 +773,8 @@ export class AIAdvisor {
     }
     if (!p.problems.length) p.problems.push(f.servers.length ? 'Alle Server sind online.' : 'Noch keine Server eingebaut.');
     for (const x of web) p.advice.push(`${x.step} – ${x.why}.`);
+    if (bunker.freeSpots) p.advice.push(bunker.freeSpots.text);
+    if (bunker.bigVm) p.advice.push(bunker.bigVm);
     if (rentals) {
       for (const request of rentals.requests.slice(0, 3)) {
         const server = this.bestServer(request, f);
@@ -817,12 +822,54 @@ export class AIAdvisor {
     });
   }
 
-  // Bester Server für eine VM-Anfrage: wie die automatische Vergabe (höchster Mietfaktor, dann der vollste)
+  // Daten-Bunker im Keller (#52): Hinweise für Thema Server, Empfehlungen und Warnungen.
+  // { noWan: { key, text, step } | null – Bunker-Server offline, am Glasfaser-Anschluss im Keller steckt nichts;
+  //   freeSpots: { field, free, text } | null – Bunker-Plätze frei (nur, wenn es schon Server gibt);
+  //   bigVm: Text | null – Bunker-Server online: große VMs dorthin }
+  bunkerHints(f) {
+    const { servers, rentals } = this.game;
+    const out = { noWan: null, freeSpots: null, bigVm: null };
+    if (!servers?.isBunkerDevice) return out;
+    const factor = BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 });
+    const inBunker = f.servers.filter((d) => servers.isBunkerDevice(d));
+    const offline = inBunker.filter((d) => !f.reached.has(d.id));
+    const wanUsed = (servers.basementWanPorts?.() ?? []).some((p) => p.cable);
+    if (offline.length && !wanUsed) {
+      const who = offline.length === 1 ? 'Ein Server im Daten-Bunker ist' : `${offline.length} Server im Daten-Bunker sind`;
+      out.noWan = {
+        key: 'bunker-no-wan',
+        text: `${who} offline: Der Bunker hat sein eigenes Internet – eine Firewall im Bunker über das Kabelgitter an den Glasfaser-Anschluss im Keller hängen, Kabel von oben gehen nicht.`,
+        step: 'Firewall im Bunker an den Glasfaser-Anschluss im Keller anschließen',
+      };
+    }
+    const fields = bunkerFields();
+    if (fields.length && f.servers.length) {
+      const used = new Set(servers.racks.filter((r) => isBunkerRack(r)).map((r) => r.slot));
+      const withFree = fields
+        .map((field) => ({ field, free: bunkerSpotsIn(field).filter((s) => !used.has(s)).length }))
+        .filter((x) => x.free > 0);
+      if (withFree.length) {
+        const free = withFree.reduce((sum, x) => sum + x.free, 0);
+        const first = withFree[0].field;
+        out.freeSpots = {
+          field: first, free,
+          text: `🛡️ Im Daten-Bunker ${free === 1 ? 'ist noch ein Schrankplatz' : `sind noch ${free} Schrankplätze`} frei – Server dort bringen ×${factor} Miete (VMs und Speicher). Schrank in Bunker ${bunkerNumber(first)} tragen.`,
+        };
+      }
+    }
+    if (rentals && inBunker.some((d) => f.reached.has(d.id))) {
+      out.bigVm = `💡 Dieselbe VM bringt im Daten-Bunker ${Math.round((BUNKER_RENT_FACTOR - 1) * 100)} % mehr – große VMs lieber auf Bunker-Server legen.`;
+    }
+    return out;
+  }
+
+  // Bester Server für eine VM-Anfrage: wie die automatische Vergabe (höchster Mietfaktor samt Bunker-Aufschlag, dann der vollste)
   bestServer(request, f) {
     const { rentals, rentalAutomation } = this.game;
     if (rentalAutomation?.pick) return rentalAutomation.pick(request, f.reached);
     const fitting = rentals.rentableServers.filter((s) => rentals.fitsOn(request, s, f.reached) === null);
-    fitting.sort((a, b) => (b.type.rentFactor ?? 1) - (a.type.rentFactor ?? 1) || rentals.freeRam(a) - rentals.freeRam(b));
+    const factor = (s) => (s.type.rentFactor ?? 1) * (this.game.servers.rentBonus?.(s) ?? 1); // Daten-Bunker ×1,5 (#52)
+    fitting.sort((a, b) => factor(b) - factor(a) || rentals.freeRam(a) - rentals.freeRam(b));
     return fitting[0] ?? null;
   }
 
@@ -1039,6 +1086,9 @@ export class AIAdvisor {
     const request = rentals?.requests[0];
     const server = request && this.bestServer(request, f);
     if (server) list.push(`Vermiete die VM von ${request.customer} auf ${this.serverName(server)}.`);
+    const bunker = this.game.servers ? this.bunkerHints(f) : null; // Daten-Bunker im Keller (#52)
+    if (bunker?.noWan) list.push(`${bunker.noWan.step}.`);
+    else if (bunker?.freeSpots && economy?.money > 5000) list.push(bunker.freeSpots.text);
     const idle = f.printers.find((x) => x.idle);
     const work = f.orders.filter((o) => o.order.stage === 'open' && !o.done).sort((a, b) => b.perHour - a.perHour)[0];
     if (idle && work) list.push(`Starte auf ${this.printerName(idle.p)} ${work.template?.name ?? 'einen Druck'} für ${work.order.customer}.`);
@@ -1269,6 +1319,9 @@ export class AIAdvisor {
       if (x.state === 'off' && !off) continue; // noch nie live: kein Alarm, nur Hinweis im Thema Server
       add(x.key, 'servers', off ? 72 : 55, x.text, { repeat: off });
     }
+    // Daten-Bunker (#52): Server dort offline, weil am Glasfaser-Anschluss im Keller nichts steckt – einmal melden
+    const bunkerWan = this.game.servers ? this.bunkerHints(f).noWan : null;
+    if (bunkerWan) add(bunkerWan.key, 'servers', 74, bunkerWan.text);
     // Je Schrank eine Warnung, überhitzte KI-GPU-Server stehen mit drin. Zu warm (über idealMax) ohne Schaden meldet
     // die KI einmal; ab TEMP_LIMITS.hot (Schaden, GPUs drosseln) steigt die Gefahr – dann gleich und alle WARN_REPEAT
     for (const h of hottestPerRack(f.climate.hot).values()) {

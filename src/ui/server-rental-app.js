@@ -13,7 +13,7 @@
 import { CANCEL_AFTER_OFFLINE, RENT_PER_CORE, RENT_PER_GB } from '../core/server-rentals.js';
 import { RENT_PER_GB_STORAGE, StorageRentals } from '../core/storage-rentals.js';
 import { isNas, storageText } from '../core/nas.js';
-import { spotLabel } from '../core/server-zones.js';
+import { BUNKER_RENT_FACTOR, spotLabel } from '../core/server-zones.js';
 import { euro, realTime } from '../core/format.js';
 
 // Ab so viel Offline-Zeit (Anteil an CANCEL_AFTER_OFFLINE) wird die Warnung rot
@@ -42,6 +42,10 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const rack = servers.rackOf(server);
     return rack ? `${spotLabel(rack.slot)} · HE ${server.unit + 1}` : 'nicht eingebaut';
   }
+
+  // Daten-Bunker im Keller (#52): Miet-Aufschlag am Server anzeigen
+  const bunkerBadge = (server) => (servers.isBunkerDevice?.(server)
+    ? ` · 🛡️ Bunker ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })}` : '');
 
   const viaWeb = (x) => x.source === 'website';
   const waitText = (request) => (viaWeb(request)
@@ -91,7 +95,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const selected = !reason && chosen.get(request.id) === server.id;
     return `
       <button class="rental-server${selected ? ' selected' : ''}" data-pick="${request.id}:${server.id}" ${reason ? 'disabled' : ''}>
-        <span class="rental-server-name"><b>${server.type.name}</b> <small>${place(server)}</small></span>
+        <span class="rental-server-name"><b>${server.type.name}</b> <small>${place(server)}${bunkerBadge(server)}</small></span>
         <span class="rental-server-free">frei ${storageText(storage.freeOn(server))} von ${storageText(storage.storageOf(server))}</span>
         <span class="rental-server-rent">${reason ? reason : `+${euro.format(storage.rentPerHour(request, server))} / h`}</span>
       </button>`;
@@ -133,7 +137,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const selected = !reason && chosen.get(request.id) === server.id;
     return `
       <button class="rental-server${selected ? ' selected' : ''}" data-pick="${request.id}:${server.id}" ${reason ? 'disabled' : ''}>
-        <span class="rental-server-name"><b>${server.type.name}</b> <small>${place(server)}</small></span>
+        <span class="rental-server-name"><b>${server.type.name}</b> <small>${place(server)}${bunkerBadge(server)}</small></span>
         <span class="rental-server-free">frei ${rentals.freeRam(server)} GB · ${rentals.freeCores(server)} Cores</span>
         <span class="rental-server-rent">${reason ? reason : `+${euro.format(rentals.rentPerHour(request, server))} / h`}</span>
       </button>`;
@@ -248,7 +252,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
           <span class="server-icon">${nas ? '💾' : '🖥️'}</span>
           <div>
             <div class="card-title">${server.type.name}</div>
-            <div class="card-sub">${place(server)} · Mietfaktor ×${server.type.rentFactor.toLocaleString('de-DE', { minimumFractionDigits: 1 })}${servers.isPrivateDevice?.(server) ? ' · privat, nicht vermietbar' : ''}</div>
+            <div class="card-sub">${place(server)} · Mietfaktor ×${server.type.rentFactor.toLocaleString('de-DE', { minimumFractionDigits: 1 })}${servers.isPrivateDevice?.(server) ? ' · privat, nicht vermietbar' : ''}${bunkerBadge(server)}</div>
           </div>
         </div>
         ${why ? `<span class="rack-status off">offline – ${why}</span>`
@@ -291,7 +295,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
         · Online: ${list.filter((s) => servers.isOnline(s, reached)).length} / ${list.length} Server</p>
       <p class="slots">Kunden kommen mit ihrem Wunsch zum <strong>Empfang</strong>. Wähl für jede Anfrage einen Server mit genug
         freiem RAM und freien Cores und klick auf <strong>Vermieten</strong>. Die Miete kommt jede Spielstunde, solange der
-        Server online ist: (${euro.format(RENT_PER_GB)} × GB + ${euro.format(RENT_PER_CORE)} × Cores) × Mietfaktor des Servers.
+        Server online ist: (${euro.format(RENT_PER_GB)} × GB + ${euro.format(RENT_PER_CORE)} × Cores) × Mietfaktor des Servers – im 🛡️ <strong>Daten-Bunker</strong> im Keller ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })} (auch Speicher).
         ${storage ? `💾 Speicher-Anfragen passen nur auf eine <strong>NAS</strong> mit genug freiem Speicher und bringen
         ${euro.format(RENT_PER_GB_STORAGE * 1000)} je 1.000 GB × Mietfaktor pro Spielstunde. Vermieteter Speicher sperrt das Herausnehmen der Platten.` : ''}
         Ist ein Server zu lange am Stück offline (${realTime(CANCEL_AFTER_OFFLINE)}), kündigt der Kunde.

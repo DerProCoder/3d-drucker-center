@@ -16,10 +16,18 @@
 // ein Klick auf einen leeren Schacht die größte Platte aus dem Teilelager ein, ein Klick auf eine Platte nimmt sie
 // heraus (Hot-Swap). Ein Rahmen zeigt den angezielten Schacht (grün: einsetzen, gelb: herausnehmen, rot: geht nicht);
 // geht es nicht, meldet onNotice den Grund. Die Platten einer NAS werden nur neu gebaut, wenn sie sich ändern.
+// Daten-Bunker im Keller (#52): Schränke auf Bunker-Plätzen (core/server-zones.js) laufen durch denselben Ablauf.
+// Jeder Bereich hat eigene „Bodenkoordinaten“ (Fußboden y = 0, x/z wie core/): oben die Gruppe group, unten
+// bunker.frame bzw. je Feld bunker.holder(Feld) aus world/bunker.js (Gitter, Markierungen, Glasfaser-Anschluss).
+// Markierungen beim Verlegen und Vorschauen hängen jeweils im Bereich des gewählten Ports bzw. Schranks.
 import * as THREE from 'three';
 import { SERVER_SPOTS } from '../core/servers.js';
-import { WAN_FIELD, fieldAbove, fieldLabel, isWanRef, toggleWaypoint, trayPath, wanPortName } from '../core/cable-tray.js';
-import { spotPosition, spotsInZone } from '../core/server-zones.js';
+import {
+  basementWan, endField, fieldLabel, isBasementWanPort, isWanRef, toggleWaypoint, trayArea, trayPath, wanEnd, wanPortName,
+} from '../core/cable-tray.js';
+import { bunkerFieldOf, spotArea, spotPosition, spotUsable, spotsInZone } from '../core/server-zones.js';
+import { BASEMENT_FLOOR_Y } from '../core/basement-layout.js';
+import { createBunker } from './bunker.js';
 import { canvasTexture } from '../models/canvas-texture.js';
 import { meters } from '../core/format.js';
 import { isServerHardware, portName } from '../core/server-catalog.js';
@@ -138,7 +146,9 @@ function createSpotMarker() {
 // climate: core/server-climate.js – wie schnell sich die Lüfter drehen
 // nas: core/nas.js (Nas) – Platten in den Schächten der NAS; ohne sie sind die Schächte nicht anklickbar
 // onNotice(text, tone): Meldung, wenn eine Platte nicht hinein- oder herausgeht (tone 'bad'), z. B. an hud.notify
-export function createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack, nas = null, onNotice = null }) {
+// basement: { layout, fields } – Kellerfelder (core/basement-layout.js) und world/basement-fields.js; ohne sie gibt es
+// keinen Daten-Bunker (z. B. in Testseiten)
+export function createServerRoom({ economy, servers, climate, carry, upgrades, collision, onOpenRack, nas = null, onNotice = null, basement = null }) {
   const group = new THREE.Group();
   group.position.y = FLOOR_Y;
   const markers = new THREE.Group();
@@ -147,18 +157,32 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
 
   const carryingRack = () => carry.furniture?.type.kind === 'rack';
 
-  for (let spot = 0; spot < SERVER_SPOTS; spot++) {
-    const marker = createSpotMarker();
-    const { x, z } = spotPosition(spot);
-    marker.position.set(x, 0.006, z);
-    marker.userData.interaction = {
-      hint: () => (carryingRack() && !servers.spotUsed(spot) ? `Linksklick: ${carry.furniture.type.name} hier aufstellen` : null),
+  function spotInteraction(spot) {
+    return {
+      hint: () => (carryingRack() && spotUsable(spot) && !servers.spotUsed(spot) ? `Linksklick: ${carry.furniture.type.name} hier aufstellen` : null),
       action: () => {
         if (carryingRack() && servers.placeRack(carry.furniture.id, spot)) carry.releaseFurniture();
       },
     };
+  }
+
+  for (let spot = 0; spot < SERVER_SPOTS; spot++) {
+    const marker = createSpotMarker();
+    const { x, z } = spotPosition(spot);
+    marker.position.set(x, 0.006, z);
+    marker.userData.interaction = spotInteraction(spot);
     markers.add(marker);
   }
+
+  // Bereich eines Schranks bzw. Ports ('upper' | 'bunker') und die Gruppe mit seinen Bodenkoordinaten
+  const areaOfRack = (rack) => (spotArea(rack?.slot) === 'bunker' ? 'bunker' : 'upper');
+  let bunker = null; // world/bunker.js, unten angelegt (braucht die Abläufe beim Verlegen)
+  const frameOf = (area) => (area === 'bunker' && bunker ? bunker.frame : group);
+  // Hilfsobjekt (Vorschau, Markierung) in den Bereich hängen, in dem es gerade gebraucht wird
+  const place = (object, area) => {
+    const frame = frameOf(area);
+    if (object.parent !== frame) frame.add(object);
+  };
 
   // Vorschau beim Einbauen: grüner Rahmen vor den Höheneinheiten, in die das Gerät käme. Nicht anklickbar, damit der
   // Strahl weiter den Schrank trifft.
@@ -179,7 +203,9 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   // nächste freie Stelle
   function targetUnit(rack, item, hit) {
     if (!hit) return servers.freeUnit(rack, item.type.units);
-    const aimed = unitAtHeight(rack.type, hit.point.y - FLOOR_Y);
+    // Höhe über dem Boden des Bereichs: zweite Etage bzw. Kellerboden im Daten-Bunker
+    const floor = areaOfRack(rack) === 'bunker' ? BASEMENT_FLOOR_Y : FLOOR_Y;
+    const aimed = unitAtHeight(rack.type, hit.point.y - floor);
     return servers.freeUnit(rack, item.type.units, aimed - Math.floor((item.type.units - 1) / 2));
   }
 
@@ -218,6 +244,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         const unit = item && door.open && !servers.installProblem(item, rack) ? targetUnit(rack, item, hit) : -1;
         preview.visible = unit !== -1;
         if (!preview.visible) return;
+        place(preview, areaOfRack(rack));
         const { x, z } = spotPosition(rack.slot);
         preview.position.copy(devicePlacement(rack.type, unit, item.type.units)).add(new THREE.Vector3(x, 0, z + 0.015));
         preview.scale.y = item.type.units * UNIT;
@@ -290,6 +317,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         }
         preview.visible = false;
         const b = nasBays(device.type)[index];
+        place(bayMarker, areaOfRack(rack));
         const { x, z } = spotPosition(rack.slot);
         bayMarker.material.color.setHex(BAY_COLORS[bayAction(device, index).mode]);
         bayMarker.position.copy(at).add(new THREE.Vector3(x + b.x, b.y, z + 0.006));
@@ -358,8 +386,17 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   };
   const pickedRack = () => rackOfRef(picked);
   const sameRack = (a, b) => !!rackOfRef(a) && rackOfRef(a) === rackOfRef(b);
+  // Bereich eines Ports: Wandanschluss oben bzw. im Keller oder der Bereich seines Schranks
+  const areaOfRef = (ref) => {
+    if (isWanRef(ref)) return isBasementWanPort(ref.port) ? 'bunker' : 'upper';
+    return areaOfRack(rackOfRef(ref));
+  };
   // Gitterfeld, in dem das Kabel von diesem Port ankommt (über dem Schrank bzw. Einstieg der Wandtrasse)
-  const endFieldOf = (ref) => (isWanRef(ref) ? WAN_FIELD : (rackOfRef(ref) ? fieldAbove(rackOfRef(ref).slot) : null));
+  const endFieldOf = (ref) => {
+    if (isWanRef(ref)) return endField(wanEnd(ref.port));
+    const rack = rackOfRef(ref);
+    return rack ? endField({ spot: rack.slot }) : null;
+  };
   // Kabelstück vom Port hoch ins Gitter (Punkte in group) oder null
   const riseOf = (ref, lane) => {
     if (isWanRef(ref)) return wanRise(ref.port, lane);
@@ -378,25 +415,39 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     return route.fields ? route : null;
   };
 
-  // Gitter, Wandkasten und Trasse; Klicks auf Felder und Wandports landen hier
-  const trayRoom = createCableTrayRoom({
-    fieldInteraction: {
-      hint: (field) => fieldHint(field),
-      hover: (field) => { hoverField = field; showPreview(); },
-      unhover: () => { hoverField = null; showPreview(); },
-      action: (field) => {
-        if (!carry.isEmpty || !picked) return;
-        pickedTray = toggleWaypoint(pickedTray, field);
-        showPicked();
-      },
+  // Gitter, Wandkasten und Trasse; Klicks auf Felder und Wandports landen hier (oben und im Bunker gleich)
+  const fieldInteraction = {
+    hint: (field) => fieldHint(field),
+    hover: (field) => { hoverField = field; showPreview(); },
+    unhover: () => { hoverField = null; showPreview(); },
+    action: (field) => {
+      if (!carry.isEmpty || !picked) return;
+      pickedTray = toggleWaypoint(pickedTray, field);
+      showPicked();
     },
-    wanPortInteraction: (port) => portInteraction({ id: 'wan', port }),
-  });
+  };
+  const wanPortInteraction = (port) => portInteraction({ id: 'wan', port });
+  const trayRoom = createCableTrayRoom({ fieldInteraction, wanPortInteraction });
   group.add(trayRoom.group);
+  // Daten-Bunker: Gitter je Feld, Bodenmarkierungen, Glasfaser-Anschluss im Keller (world/bunker.js)
+  bunker = basement?.fields ? createBunker({
+    layout: basement.layout, fields: basement.fields, collision, fieldInteraction, wanPortInteraction, spotInteraction,
+  }) : null;
+  const bunkerCables = new THREE.Group();
+  bunkerCables.name = 'bunker-cables';
+  bunker?.frame.add(bunkerCables);
   const addWanPorts = () => {
     for (let port = 0; port < trayRoom.box.userData.ports.length; port++) portPos.set(`wan:${port}`, trayRoom.wanPortPos(port));
+    for (const [port, pos] of bunker?.wanPorts ?? []) portPos.set(`wan:${port}`, pos);
   };
   addWanPorts();
+  // Gitterfelder markieren – oben und im Keller je in ihrem Gitter
+  const markFields = (pickedFields, pathFields) => {
+    const upper = (list) => list.filter((f) => trayArea(f) === 'upper');
+    const lower = (list) => list.filter((f) => trayArea(f) === 'basement');
+    trayRoom.markFields(upper(pickedFields), upper(pathFields));
+    bunker?.markFields(lower(pickedFields), lower(pathFields));
+  };
 
   // Leuchtender Rahmen am gewählten Port und ein halb durchsichtiges Kabel zum angezielten zweiten Port
   const pickedMarker = new THREE.Mesh(
@@ -414,16 +465,19 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   let pendingKey = '';
 
   function showPicked() {
-    pickedMarker.visible = !!picked;
-    if (picked) {
-      // Buchsen am Wandkasten zeigen nach +x, hinten an den Geräten nach −z
-      const wan = isWanRef(picked);
+    pickedMarker.visible = !!picked && portPos.has(portKey(picked));
+    if (pickedMarker.visible) {
+      // Buchsen am Wandkasten zeigen nach +x (im Keller nach +z), hinten an den Geräten nach −z
+      const wan = isWanRef(picked) && !isBasementWanPort(picked.port);
+      const dz = isWanRef(picked) ? (wan ? 0 : 0.002) : -0.002;
+      place(pickedMarker, areaOfRef(picked));
       pickedMarker.rotation.y = wan ? Math.PI / 2 : 0;
-      pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(wan ? 0.002 : 0, 0, wan ? 0 : -0.002));
+      pickedMarker.position.copy(portPos.get(portKey(picked))).add(new THREE.Vector3(wan ? 0.002 : 0, 0, dz));
     }
     clipMarkers.clear();
     const rack = pickedRack();
     if (rack) {
+      place(clipMarkers, areaOfRack(rack));
       const { x, z } = spotPosition(rack.slot);
       for (const c of pickedClips) {
         const marker = new THREE.Mesh(CLIP_MARKER_GEOMETRY, pickedMarker.material);
@@ -464,7 +518,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       }
       if (!fields) fields = partialRoute();
     }
-    trayRoom.markFields(picked ? pickedTray : [], fields ?? []);
+    markFields(picked ? pickedTray : [], fields ?? []);
 
     const key = !picked ? '' : [
       portKey(picked), pickedClips.map(clipKey).join(','), pickedTray.join(','), inRack || ends ? portKey(to) : '',
@@ -478,7 +532,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
         if (!SHARED_GEOMETRY.has(o.geometry)) o.geometry?.dispose();
         o.material?.dispose();
       });
-      group.remove(pendingCable);
+      pendingCable.removeFromParent();
       pendingCable = null;
     }
     let points = null;
@@ -504,7 +558,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       o.material.opacity = 0.5;
       o.raycast = () => {};
     });
-    group.add(pendingCable);
+    frameOf(areaOfRef(picked)).add(pendingCable);
   }
 
   // Hinweis beim Zielen auf ein Gitterfeld (nur beim Verlegen – sonst stört er beim Blick an die Decke)
@@ -707,17 +761,19 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       const cached = rackCache.get(rack.id);
       if (cached?.key === key) continue;
       if (cached) {
-        racks.remove(cached.group);
+        cached.group.removeFromParent();
         disposeGroup(cached.group);
       }
       const built = buildRack(rack, reached);
-      racks.add(built.group);
+      // Bunker-Schränke hängen im Inhalt ihres Kellerfeldes (werden mit dem Feld ausgeblendet)
+      const parent = areaOfRack(rack) === 'bunker' && bunker ? bunker.holder(bunkerFieldOf(rack.slot)) : racks;
+      parent.add(built.group);
       rackCache.set(rack.id, { key, ...built });
       changed = true;
     }
     for (const [id, cached] of rackCache) {
       if (seen.has(id)) continue;
-      racks.remove(cached.group);
+      cached.group.removeFromParent();
       disposeGroup(cached.group);
       rackCache.delete(id);
       doors.delete(id);
@@ -728,11 +784,13 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     for (const cached of rackCache.values()) for (const [key, pos] of cached.ports) portPos.set(key, pos);
     addWanPorts();
     fans = [...rackCache.values()].flatMap((c) => c.fans);
-    // Schränke als Hindernis in der zweiten Etage
-    collision.setDynamic('server-racks', servers.racks.map((rack) => {
+    // Schränke als Hindernis in der zweiten Etage bzw. im Keller (Stockwerk −2)
+    const footprint = (rack, level) => {
       const { x, z } = spotPosition(rack.slot);
-      return { minX: x - RACK_FOOTPRINT.w / 2, maxX: x + RACK_FOOTPRINT.w / 2, minZ: z - RACK_FOOTPRINT.d / 2, maxZ: z + RACK_FOOTPRINT.d / 2, level: 1 };
-    }));
+      return { minX: x - RACK_FOOTPRINT.w / 2, maxX: x + RACK_FOOTPRINT.w / 2, minZ: z - RACK_FOOTPRINT.d / 2, maxZ: z + RACK_FOOTPRINT.d / 2, level };
+    };
+    collision.setDynamic('server-racks', servers.racks.filter((r) => areaOfRack(r) === 'upper').map((r) => footprint(r, 1)));
+    collision.setDynamic('bunker-racks', servers.racks.filter((r) => areaOfRack(r) === 'bunker').map((r) => footprint(r, -2)));
   }
 
   // Kabel im Schrank (durch die Clips) bzw. über das Gitter (vom Port hoch, durch die Felder, am Ziel runter)
@@ -762,22 +820,24 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
       const tray = isTrayCable(cable);
       const id = cableId(cable);
       const lane = laneFor(tray ? lanes.tray : lanes.rack, id);
-      // Alles, wovon die Form abhängt: Enden, Clips bzw. Wegpunkte, Versatz, Lage der Ports und Schranktypen
-      const at = (ref) => (isWanRef(ref) ? ref.port : portPos.get(portKey(ref))?.toArray().map((v) => Math.round(v * 1e4)));
+      // Alles, wovon die Form abhängt: Enden, Clips bzw. Wegpunkte, Versatz, Lage der Ports und Schranktypen – am
+      // Keller-Anschluss auch, in welchem Feld er steht (zieht er um, liegt das Kabel anders)
+      const at = (ref) => (isWanRef(ref) ? [ref.port, isBasementWanPort(ref.port) ? bunkerWan : 0] : portPos.get(portKey(ref))?.toArray().map((v) => Math.round(v * 1e4)));
       const key = JSON.stringify([id, tray, lane, cable.clips, cable.tray, at(cable.a), at(cable.b), rackOfRef(cable.a)?.type.id, rackOfRef(cable.b)?.type.id]);
       if (wanted.has(key)) continue;
       wanted.set(key, { cable, lane, tray });
     }
     for (const [key, g] of cableCache) {
       if (wanted.has(key)) continue;
-      cablesGroup.remove(g);
+      g.removeFromParent();
       disposeGroup(g);
       cableCache.delete(key);
     }
     for (const [key, { cable, lane, tray }] of wanted) {
       if (cableCache.has(key)) continue;
       const g = buildCable(cable, lane, tray) ?? new THREE.Group(); // leer merken, damit es nicht jedes Mal neu versucht
-      cablesGroup.add(g);
+      // Kabel im Bunker liegen in dessen Bodenkoordinaten (Kabel zwischen den Bereichen gibt es nicht)
+      (areaOfRef(cable.a) === 'bunker' && bunker ? bunkerCables : cablesGroup).add(g);
       cableCache.set(key, g);
     }
   }
@@ -794,6 +854,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   let dirty = true;
   let lastKey = '';
   let lastCarrying = null;
+  let bunkerWan = null;     // Kellerfeld mit dem Glasfaser-Anschluss (zieht er um, Kabel dorthin neu bauen)
   economy.subscribe(() => { dirty = true; });
 
   // Glastüren zur Zielstellung schwenken lassen
@@ -815,6 +876,13 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   function update(dt = 0) {
     group.visible = upgrades.upperFloor;
     if (!group.visible) return;
+    // Daten-Bunker: Gitter, Markierungen und Keller-Anschluss den Kellerfeldern anpassen (billig ohne Änderung)
+    if (bunker?.sync()) {
+      bunkerWan = basementWan()?.field ?? null;
+      addWanPorts();
+      dirty = true;
+      lastCarrying = null;
+    }
     animateDoors(dt);
     spinFans(dt);
     if (disksBroken) pulseNasDisks((diskTime += dt));
@@ -822,6 +890,7 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     if (carrying !== lastCarrying || dirty) {
       lastCarrying = carrying;
       for (const [spot, marker] of markers.children.entries()) marker.visible = carrying && !servers.spotUsed(spot);
+      bunker?.showMarkers((spot) => carrying && spotUsable(spot) && !servers.spotUsed(spot));
     }
     if (!dirty) return;
     dirty = false;
@@ -829,13 +898,20 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     const key = JSON.stringify([
       servers.racks.map((r) => [r.id, r.slot, r.type.id]),
       servers.installed.map((d) => [d.id, d.rackId, d.unit, d.type.id, reached.has(d.id)]),
-      servers.cables,
+      servers.cables, bunkerWan,
     ]);
     if (key !== lastKey) {
       lastKey = key;
       buildRoom();
     }
     syncDisks(); // Platten eingesetzt oder herausgenommen: nur die Platten dieser NAS neu bauen
+  }
+
+  // Wer den Bereich des gewählten Ports verlässt (zweite Etage = Stockwerk 1, Keller = −2), bricht das Verlegen ab
+  function leaveLevel(level) {
+    if (!picked) return false;
+    const wanted = areaOfRef(picked) === 'bunker' ? -2 : 1;
+    return level !== wanted && cancelCabling();
   }
 
   // Angefangenes Verlegen abbrechen (Esc, Pause, Etage verlassen) – true, wenn etwas gewählt war
@@ -848,5 +924,5 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     return true;
   }
 
-  return { group, update, cancelPick: cancelCabling };
+  return { group, bunker, update, cancelPick: cancelCabling, leaveLevel };
 }

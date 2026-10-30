@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import {
   BLOCKED, CEILING_HEIGHT, FIELD_SIZE, TRAY_BOUNDS, TRAY_COLS, TRAY_HEIGHT, TRAY_ROWS, WALL_PORTS, WAN_BOX, WAN_FIELD,
-  WAN_TRACE, fieldAt, fieldCenter, wanPortPosition,
+  WAN_TRACE, basementWan, fieldAt, fieldCenter, isBasementWanPort, wanPortPosition,
 } from '../core/cable-tray.js';
 import { createCableTray, createWallBox, createWallRiser } from '../models/cable-tray.js';
 import { clipPosition, rackDepth, rackHeight } from '../models/server-hardware.js';
@@ -71,7 +71,7 @@ const toCell = (field) => ({ x: field % TRAY_COLS, z: Math.floor(field / TRAY_CO
 
 // Versatz eines Kabels im Feld (lane: Nummer, je steckendem Gitterkabel eine eigene) und Höhe, auf der es liegt.
 // Jede Nummer ergibt eine eigene Kombination aus Versatz und Lage – Kabel mit gleichem Weg liegen nie übereinander.
-function laneOf(lane) {
+export function laneOf(lane) {
   const o = ((lane % LANES) - (LANES - 1) / 2) * LANE_STEP;
   const layer = Math.floor(lane / LANES);
   const y = TRAY_HEIGHT + TRAY_CABLE_RADIUS + 0.001 + layer * 2.2 * TRAY_CABLE_RADIUS;
@@ -179,6 +179,7 @@ export function rackRise(port, rack, lane) {
 // Die Lage in der Trasse folgt der Lage des Ports (gleiche Reihenfolge in z, die untere Reihe weiter vorn wie vor dem
 // Kasten) – so kreuzen sich die Kabel über dem Kasten nicht. Erst im Gitter gehen sie auf ihre Spur (lane).
 export function wanRise(port, lane) {
+  if (isBasementWanPort(port)) return basementWanRise(port, lane);
   const p = wanPortPosition(port);
   const { y } = laneOf(lane);
   const front = WAN_BOX.x + WAN_BOX.depth / 2;
@@ -196,6 +197,32 @@ export function wanRise(port, lane) {
     v(fx, top + 0.05, zc),
     v(tx, top + 0.2, z),
     v(tx, y, z),
+  ];
+}
+
+// Dasselbe am Glasfaser-Anschluss im Daten-Bunker (#52): Kasten an der Südseite der Säule, Ports nach Süden (+z),
+// Trasse an der Säule hoch. Koordinaten über dem Kellerboden (Welt-x/z), oder null ohne Keller-Anschluss.
+function basementWanRise(port, lane) {
+  const wan = basementWan();
+  const p = wanPortPosition(port);
+  if (!wan || !p) return null;
+  const { y } = laneOf(lane);
+  const { box, trace } = wan;
+  const front = box.z + box.depth / 2;
+  const top = box.y + box.height / 2;
+  const lower = p.y < box.y;
+  const fz = front + (lower ? 0.046 : 0.034);
+  const xc = p.x + WAN_GAP;
+  const x = trace.x + (xc - box.x) * 0.6;
+  const tz = trace.z - 0.012 + (lower ? 0.01 : 0);
+  const v = (px, py, pz) => new THREE.Vector3(px, py, pz);
+  return [
+    v(p.x, p.y, front + 0.006),
+    v(p.x, p.y, fz),
+    v(xc, p.y + 0.012, fz),
+    v(xc, top + 0.05, fz),
+    v(x, top + 0.2, tz),
+    v(x, y, tz),
   ];
 }
 

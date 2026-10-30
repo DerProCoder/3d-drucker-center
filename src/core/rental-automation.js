@@ -10,11 +10,11 @@
 // wartend (der Spieler kann sie selbst zuweisen), es gibt genau eine Meldung, und die Automatik versucht es alle
 // RETRY_EVERY Spielminuten erneut, solange der Kunde wartet.
 // Regel: unter allen Servern, auf die die VM passt (rentals.fitsOn === null – online, nicht privat, genug RAM und
-// Cores frei), zuerst der höchste Mietfaktor, bei gleichem Faktor der vollste (am wenigsten freier RAM, dann freie
+// Cores frei), zuerst der höchste Mietfaktor (Modell × Standort: Daten-Bunker ×1,5, #52), bei gleichem Faktor der vollste (am wenigsten freier RAM, dann freie
 // Cores – Best Fit, damit große Lücken für große VMs frei bleiben). Freier Platz je Server richtet sich nach seinen
 // eingebauten Teilen (rentals.freeRam/freeCores, core/server-parts.js) – aufgerüstete Server nehmen auch große VMs an.
-// Speicher-Anfragen (#47, core/storage-rentals.js) vergibt die Automatik genauso: auf die vollste NAS, auf die die
-// Anfrage noch passt (storage.fitsOn === null, am wenigsten freier Speicher).
+// Speicher-Anfragen (#47, core/storage-rentals.js) vergibt die Automatik genauso: auf die vollste NAS (Bunker-NAS zuerst), auf
+// die die Anfrage noch passt (storage.fitsOn === null, am wenigsten freier Speicher).
 // Schalter „Automatische Vergabe an/aus“ (Standard an) wird gespeichert. Läuft in Spielminuten. Ohne Three.js und DOM.
 import { isPrivateRowRack, spotLabel } from './server-zones.js';
 import { isRentableType } from './server-catalog.js';
@@ -81,7 +81,9 @@ export class RentalAutomation {
     if (request.kind === 'storage') return this.pickNas(request, reached);
     const rentals = this.rentals;
     const fitting = rentals.rentableServers.filter((s) => rentals.fitsOn(request, s, reached) === null);
-    fitting.sort((a, b) => (b.type.rentFactor ?? 1) - (a.type.rentFactor ?? 1)
+    // Mietfaktor des Modells mal Standort-Aufschlag (Daten-Bunker ×1,5, core/servers.js rentBonus, #52)
+    const factor = (s) => (s.type.rentFactor ?? 1) * (this.servers.rentBonus?.(s) ?? 1);
+    fitting.sort((a, b) => factor(b) - factor(a)
       || rentals.freeRam(a) - rentals.freeRam(b)
       || rentals.freeCores(a) - rentals.freeCores(b)
       || a.id - b.id);
@@ -93,7 +95,9 @@ export class RentalAutomation {
     const storage = this.storage;
     if (!storage) return null;
     const fitting = storage.nasDevices.filter((s) => storage.fitsOn(request, s, reached) === null);
-    fitting.sort((a, b) => storage.freeOn(a) - storage.freeOn(b) || a.id - b.id);
+    // Bunker-NAS zuerst (Miete ×1,5, #52), dann die vollste
+    const bonus = (s) => this.servers.rentBonus?.(s) ?? 1;
+    fitting.sort((a, b) => bonus(b) - bonus(a) || storage.freeOn(a) - storage.freeOn(b) || a.id - b.id);
     return fitting[0] ?? null;
   }
 

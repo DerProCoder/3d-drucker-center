@@ -4,7 +4,8 @@
 // Teilen (core/server-parts.js, servers.capacityOf – beim Kauf SERVER_RAM GB und SERVER_CORES Cores, aufgerüstet bis
 // 1024 GB / 128 Cores); die VMs darauf dürfen zusammen nicht mehr belegen. Gibt es aufgerüstete Server, kommen auch
 // größere Anfragen (bis zur Größe des größten vermietbaren Servers).
-// Miete pro Spielstunde = (RENT_PER_GB × GB + RENT_PER_CORE × Cores) × rentFactor des Servers, gezahlt zu jeder vollen
+// Miete pro Spielstunde = (RENT_PER_GB × GB + RENT_PER_CORE × Cores) × rentFactor des Servers (im Daten-Bunker im
+// Keller zusätzlich × BUNKER_RENT_FACTOR = 1,5, #52), gezahlt zu jeder vollen
 // Spielstunde für jede VM, deren Server gerade online ist. Ein Vertrag läuft eine feste Zeit; ist sein Server zu
 // lange am Stück offline (auch ausgebaut, defekt, eingefroren oder in einen privaten Schrank umgezogen), kündigt der
 // Kunde. Server in privaten Schränken (core/server-zones.js) sind nicht vermietbar und bringen keine Miete.
@@ -148,9 +149,14 @@ export class ServerRentals {
     return best ?? { cores: SERVER_CORES, ram: SERVER_RAM };
   }
 
+  // Miet-Aufschlag des Standorts: im Daten-Bunker im Keller ×1,5 (core/servers.js rentBonus, #52), sonst 1
+  bonusOf(server) {
+    return this.servers.rentBonus?.(server) ?? 1;
+  }
+
   // Miete pro Spielstunde für eine Anfrage bzw. VM auf diesem Server (abhängig vom Mietfaktor des Modells)
   rentPerHour(request, server) {
-    return cents((RENT_PER_GB * request.ram + RENT_PER_CORE * request.cores) * (server.type.rentFactor ?? 1));
+    return cents((RENT_PER_GB * request.ram + RENT_PER_CORE * request.cores) * (server.type.rentFactor ?? 1) * this.bonusOf(server));
   }
 
   // Miete pro Spielstunde aller VMs auf dem Server (ob er gerade online ist oder nicht)

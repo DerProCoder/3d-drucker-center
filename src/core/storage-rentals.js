@@ -10,7 +10,7 @@
 // Speicher hat (Summe der Platten minus vermieteter Speicher).
 // Online-Anfragen über die eigene Website (#54, core/website.js, source: 'website') kommen ohne Figur am Empfang,
 // zählen nicht bei maxWaiting mit (counterRequests) und fehlen in der Sicht des Empfangs (desk.requests).
-// Miete pro Spielstunde = RENT_PER_GB_STORAGE × GB × Mietfaktor der NAS, nur solange die NAS die Daten bereitstellt
+// Miete pro Spielstunde = RENT_PER_GB_STORAGE × GB × Mietfaktor der NAS (im Daten-Bunker zusätzlich ×1,5, #52), nur solange die NAS die Daten bereitstellt
 // (rentals.serves: online, nicht privat). Ist sie zu lange am Stück offline (CANCEL_AFTER_OFFLINE, auch ausgebaut,
 // defekt oder „zu klein“), kündigt der Kunde – wie bei VMs.
 // Vermieteter Speicher sperrt das Herausnehmen von Platten: nas.rentedStorageOf liefert ihn (Konstruktor), core/nas.js
@@ -149,9 +149,14 @@ export class StorageRentals {
     return Math.max(0, this.storageOf(server) - this.usedOn(server));
   }
 
+  // Miet-Aufschlag des Standorts: im Daten-Bunker im Keller ×1,5 (core/servers.js rentBonus, #52), sonst 1
+  bonusOf(server) {
+    return this.servers.rentBonus?.(server) ?? 1;
+  }
+
   // Miete pro Spielstunde für eine Anfrage bzw. einen Vertrag auf dieser NAS
   rentPerHour(request, server) {
-    return cents(RENT_PER_GB_STORAGE * request.storage * (server.type.rentFactor ?? 1));
+    return cents(RENT_PER_GB_STORAGE * request.storage * (server.type.rentFactor ?? 1) * this.bonusOf(server));
   }
 
   // Miete pro Spielstunde aller Speicher-Verträge auf der NAS (ob sie gerade online ist oder nicht)

@@ -15,7 +15,7 @@
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { CANCEL_AFTER_OFFLINE } from '../core/server-rentals.js';
-import { isPrivateRowRack, spotLabel } from '../core/server-zones.js';
+import { BUNKER_RENT_FACTOR, isBunkerRack, isPrivateRowRack, spotLabel } from '../core/server-zones.js';
 import { CABLE_COLOR } from '../models/server-hardware.js';
 import { euro, meters } from '../core/format.js';
 import { isNas, storageText } from '../core/nas.js';
@@ -257,8 +257,10 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
       close();
       return;
     }
-    // Orange Reihe: die Server darin vergeben VM-Anfragen automatisch (core/rental-automation.js)
-    titleEl.textContent = `${rack.type.name} · ${spotLabel(rack.slot)}${isPrivateRowRack(rack) ? ' · 🤖 Vergabe-Server' : ''}`;
+    // Orange Reihe: die Server darin vergeben VM-Anfragen automatisch (core/rental-automation.js); im Daten-Bunker
+    // (Keller, #52) bringt jede Miete ×1,5
+    const bunkerText = (r) => (isBunkerRack(r) ? ` · 🛡️ Daten-Bunker ×${BUNKER_RENT_FACTOR.toLocaleString('de-DE', { minimumFractionDigits: 1 })}` : '');
+    titleEl.textContent = `${rack.type.name} · ${spotLabel(rack.slot)}${isPrivateRowRack(rack) ? ' · 🤖 Vergabe-Server' : ''}${bunkerText(rack)}`;
     const reached = servers.reachable();
     const devices = servers.devicesIn(rack.id);
     const usedUnits = devices.reduce((sum, d) => sum + d.type.units, 0);

@@ -90,6 +90,7 @@ const staff = new Staff(economy);
 const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
 const servers = new Servers(economy); // Serverraum in der zweiten Etage
+servers.attachBasement(upgrades.basementLayout); // Daten-Bunker im Keller (#52): Bunker-Plätze, Gitter, Feld-Prüfung
 const climate = new ServerClimate(economy, servers); // Lüfter und Temperaturen der Schränke und Geräte
 const serverParts = new ServerParts(economy, servers, climate); // Server aus Bauteilen: Ausstattung, Teilelager, Defekte
 const nas = new Nas(serverParts); // NAS: Speicher, Festplatten im Schrank tauschen (#46)
@@ -489,6 +490,7 @@ scene.add(workshop.group);
 const serverRoom = createServerRoom({
   economy, servers, climate, carry, upgrades, collision, onOpenRack: openRack,
   nas, // NAS-Schächte vorn: Platten per Klick einsetzen und herausnehmen (#48)
+  basement: { layout: upgrades.basementLayout, fields: basement.fields }, // Daten-Bunker im Keller (#52)
   onNotice: (text, tone) => { hud.notify(text, tone); sound.play('warn'); },
 });
 scene.add(serverRoom.group);
@@ -507,7 +509,6 @@ rentals.onEvent = (type, d) => {
     sound.play('warn');
   }
 };
-// Speicher-Vermietung auf den NAS (#47): Vertragsende und Kündigung melden
 // Eigene Website (#54): live, hochgefahren, offline und neue Online-Anfragen melden
 website.onEvent = (type, d) => {
   if (type === 'state-changed') {
@@ -522,6 +523,7 @@ website.onEvent = (type, d) => {
     hud.notify(`🌐 Online-Anfrage von ${d.request.customer} – in der App „Server-Vermietung“`, 'info');
   }
 };
+// Speicher-Vermietung auf den NAS (#47): Vertragsende und Kündigung melden
 storageRentals.onEvent = (type, d) => {
   if (type === 'rental-ended') {
     hud.notify(`📄 Speicher-Vertrag mit ${d.contract.customer} ist ausgelaufen – ${storageText(d.contract.storage)} auf ${d.server?.type.name ?? 'der NAS'} wieder frei`, 'info');
@@ -1161,8 +1163,8 @@ renderer.setAnimationLoop(() => {
     });
   }
   safely('Drucker', () => workshop.animate(dt));
-  // Wer die zweite Etage verlässt (Treppe, Fahrstuhl), bricht ein angefangenes Verlegen ab
-  if (playerLevel !== 1) serverRoom.cancelPick();
+  // Wer die zweite Etage bzw. den Keller verlässt (Treppe, Fahrstuhl), bricht ein dort angefangenes Verlegen ab
+  serverRoom.leaveLevel(playerLevel);
   safely('Serverraum', () => serverRoom.update(dt));
   safely('Werkbank', () => workbenchStation.update(dt)); // offener Server nur, solange einer darauf liegt
   safely('Ausstellungsregal', () => displayWall.update());

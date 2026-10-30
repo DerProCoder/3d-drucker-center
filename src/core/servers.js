@@ -1,7 +1,8 @@
 // Serverraum in der zweiten Etage: Serverschränke aufstellen, Geräte einbauen, Kabel stecken und mit Servern Geld
 // verdienen. Schränke und Geräte sind Einrichtung aus economy.furniture (Karton, Lieferung, Abstellraum, Tragen wie
 // bei Regalen) mit eigenen Orten:
-//   Schrank: location 'server', slot = Stellplatz oben (core/server-zones.js: 0–15 Kunden, 16–23 privat, 24–27 Automatik)
+//   Schrank: location 'server', slot = Stellplatz (core/server-zones.js: 0–15 Kunden, 16–23 privat, 24–27 Automatik,
+//            ab 28 Daten-Bunker im Keller – Miete dort ×1,5, eigenes Kabelgitter und eigener Glasfaser-Anschluss)
 //   Gerät:   location 'rack', rackId, unit = oberste belegte Höheneinheit (0 = ganz oben im Schrank). Die Höhe
 //            wählt man beim Einbauen durch Zielen und kann sie im Schrankfenster ändern.
 // Ein Server ist online, wenn er über Kabel am LAN der Firewall hängt (direkt oder über Switches) und der WAN-Port
@@ -16,15 +17,21 @@
 // Ein Server, dem ein Pflichtteil fehlt (core/server-parts.js), ist „unvollständig“ und offline. Ohne Three.js und DOM.
 import { CABLE_ROLL, SERVER_CORES, SERVER_RAM, UNIT_METERS, isServerHardware, portName } from './server-catalog.js';
 import { meters } from './format.js';
-import { SERVER_SPOTS, isAutomationRack, isPrivateRack } from './server-zones.js';
 import {
-  CABLE_SLACK, WALL_PORTS, WAN_ID, endField, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath,
-  trayProblem, trayToJSON, validWanRef, wanEnd, wanPortName,
+  ALL_SPOTS, BUNKER_RENT_FACTOR, bunkerFieldOf, bunkerWanField, isAutomationRack, isBunkerRack, isPrivateRack,
+  setBunkerLayout, setBunkerWanField, spotUsable,
+} from './server-zones.js';
+import {
+  BASEMENT_WALL_PORTS, BASEMENT_WAN_PORT0, CABLE_SLACK, WALL_PORTS, WAN_ID, basementCellOf, basementWan, endField,
+  isBasementWanPort, isWanPort, isWanRef, rackEnd, sanitizeTray, trayCableLength, trayPath, trayProblem, trayToJSON,
+  validWanRef, wanEnd, wanPortName,
 } from './cable-tray.js';
+import { GRID } from './basement-layout.js';
 
-// Stellplätze und Zonen (Kunden, privat, Automatik) stehen in core/server-zones.js
+// Stellplätze und Zonen (Kunden, privat, Automatik, Daten-Bunker) stehen in core/server-zones.js
 export {
-  SERVER_SPOTS, isAutomationRack, isPrivateRack, spotDistance, spotLabel, spotPosition, spotZone,
+  ALL_SPOTS, BUNKER_RENT_FACTOR, SERVER_SPOTS, isAutomationRack, isBunkerRack, isPrivateRack, spotArea, spotDistance,
+  spotLabel, spotPosition, spotUsable, spotZone,
 } from './server-zones.js';
 const CLIP_DETOUR = 0.25;       // m je Seite der Kabelführung, die das Kabel anläuft (hin und zurück)
 const round1 = (m) => Math.round(m * 10) / 10;
@@ -93,6 +100,52 @@ export class Servers {
     return isAutomationRack(this.rackOf(device));
   }
 
+  // Ob das Gerät in einem Schrank im Daten-Bunker steckt (Keller, #52)
+  isBunkerDevice(device) {
+    return isBunkerRack(this.rackOf(device));
+  }
+
+  // Miet-Aufschlag für VMs und Speicher auf diesem Gerät: im Daten-Bunker BUNKER_RENT_FACTOR (×1,5), sonst 1 – wirkt
+  // zusätzlich zum Mietfaktor des Modells (core/server-rentals.js, core/storage-rentals.js)
+  rentBonus(device) {
+    return this.isBunkerDevice(device) ? BUNKER_RENT_FACTOR : 1;
+  }
+
+  // ---------- Daten-Bunker im Keller (#52) ----------
+
+  // Kellerfelder anbinden (core/basement-layout.js, upgrades.basementLayout): Bunker-Plätze und Keller-Gitter kennen
+  // dann die Feldarten, und ein Bunker-Feld lässt sich nur umstellen, wenn dort nichts mehr steht oder läuft
+  attachBasement(layout) {
+    setBunkerLayout(layout);
+    this.detachBasement?.();
+    this.detachBasement = layout.addFieldCheck((i, from, to) => (from === 'bunker' && to !== 'bunker' ? this.bunkerFieldProblem(i) : null));
+  }
+
+  // Grund, warum Bunker-Feld i nicht umgestellt werden kann, oder null: Schränke im Feld, Kabel am Keller-Anschluss,
+  // wenn er in diesem Feld steht, oder Kabel im Gitter des Feldes (auch am Rand der Nachbarn, der mit dem Umstellen
+  // wegfiele)
+  bunkerFieldProblem(i) {
+    const racks = this.racks.filter((r) => bunkerFieldOf(r.slot) === i).length;
+    if (racks) return racks === 1 ? 'Im Feld steht noch ein Serverschrank' : `Im Feld stehen noch ${racks} Serverschränke`;
+    const atWan = (ref) => isWanRef(ref) && isBasementWanPort(ref.port);
+    if (basementWan()?.field === i && this.cables.some((c) => atWan(c.a) || atWan(c.b))) {
+      return 'Am Glasfaser-Anschluss im Feld stecken noch Kabel';
+    }
+    const col = i % GRID;
+    const row = Math.floor(i / GRID);
+    const last = 19; // letzte Gitterreihe eines Kellerfeldes (20 × 20 Felder)
+    const touches = (f) => {
+      const c = basementCellOf(f);
+      if (!c) return false;
+      if (c.area === i) return true;
+      return (row > 0 && c.area === i - GRID && c.lz === last) || (row < GRID - 1 && c.area === i + GRID && c.lz === 0)
+        || (col > 0 && c.area === i - 1 && c.lx === last) || (col < GRID - 1 && c.area === i + 1 && c.lx === 0);
+    };
+    const through = this.cables.filter((c) => this.trayRoute(c)?.fields.some(touches)).length;
+    if (through) return through === 1 ? 'Durch das Feld läuft noch ein Kabel im Kabelgitter' : `Durch das Feld laufen noch ${through} Kabel im Kabelgitter`;
+    return null;
+  }
+
   // ---------- Kaufen ----------
 
   // Grund, warum man gerade nicht kaufen kann, oder null. upperFloor: ob die zweite Etage steht
@@ -137,7 +190,9 @@ export class Servers {
   // Getragenen Schrank auf einen freien Stellplatz stellen
   placeRack(id, spot) {
     const rack = this.economy.furnitureById(id);
-    if (rack?.type.kind !== 'rack' || spot < 0 || spot >= SERVER_SPOTS || this.spotUsed(spot)) return false;
+    if (rack?.type.kind !== 'rack' || !Number.isInteger(spot) || spot < 0 || spot >= ALL_SPOTS) return false;
+    // Bunker-Plätze nur in ausgebauten Daten-Bunker-Feldern (core/server-zones.js)
+    if (!spotUsable(spot) || this.spotUsed(spot)) return false;
     rack.location = 'server';
     rack.slot = spot;
     this.economy.notify();
@@ -239,6 +294,15 @@ export class Servers {
   // Ports am Internet-Anschluss an der Wand für die Anzeige am Wandkasten: [{ port, name: 'WAN n', cable | null }]
   wanPorts() {
     return Array.from({ length: WALL_PORTS }, (_, port) => ({ port, name: wanPortName(port), cable: this.cableAt({ id: WAN_ID, port }) }));
+  }
+
+  // Ebenso am Glasfaser-Anschluss im Keller (leer, solange es kein Bunker-Feld gibt)
+  basementWanPorts() {
+    if (!basementWan()) return [];
+    return Array.from({ length: BASEMENT_WALL_PORTS }, (_, k) => {
+      const port = BASEMENT_WAN_PORT0 + k;
+      return { port, name: wanPortName(port), cable: this.cableAt({ id: WAN_ID, port }) };
+    });
   }
 
   // Ob ein Kabel zwischen a und b über das Kabelgitter läuft: ein Ende am Wandanschluss oder Geräte in verschiedenen
@@ -531,6 +595,8 @@ export class Servers {
       deliveries: this.deliveries.map((d) => ({ ...d })),
       // Einmalige Nachricht zum Wandanschluss (alte Stände, core/save.js Version 14) noch nicht gezeigt
       wanNotice: this.wanNotice || undefined,
+      // Kellerfeld mit dem Glasfaser-Anschluss des Bunkers (#52; fehlt → erstes Bunker-Feld)
+      basementWanField: bunkerWanField() ?? undefined,
     };
   }
 
@@ -539,6 +605,8 @@ export class Servers {
     this.cableMeters = data?.cableMeters ?? 0;
     this.deliveries = data?.deliveries ?? [];
     this.wanNotice = !!data?.wanNotice;
+    // Vor dem Prüfen der Kabel: wo der Keller-Anschluss steht (die Kellerfelder lädt core/save.js vorher)
+    setBunkerWanField(data?.basementWanField ?? null);
     // Kabel zu Geräten, die nicht (mehr) eingebaut sind oder den Port nicht (mehr) haben, und Gitterkabel, deren Weg
     // nicht (mehr) geht, zurück in den Vorrat
     const ok = (ref) => {

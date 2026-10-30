@@ -234,8 +234,8 @@ export class Carry {
       let todo = isWallFurniture(furniture.type) ? 'an einen freien Platz an der Südwand stellen' : 'auf einen freien Platz am Druckertisch stellen';
       if (isServerHardware(furniture.type)) {
         todo = furniture.type.kind === 'rack'
-          ? 'in der zweiten Etage an einer grünen Markierung aufstellen'
-          : 'in der zweiten Etage auf einen Serverschrank klicken, um es einzubauen';
+          ? 'im Serverraum (zweite Etage) oder im Daten-Bunker (Keller) an einer grünen Markierung aufstellen'
+          : 'auf einen Serverschrank (zweite Etage oder Daten-Bunker) klicken, um es einzubauen';
         // Server lassen sich auch auf der Werkbank öffnen (world/workbench.js, Teile tauschen, auf- und abrüsten)
         if (furniture.type.kind === 'server') todo += ' – oder auf die Werkbank legen';
       }
