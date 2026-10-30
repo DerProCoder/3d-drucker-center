@@ -246,7 +246,7 @@ Zwischen **9 und 18 Uhr** kommen Besucher über den ganzen Tag verteilt in klein
 
 ## Halle ausbauen
 
-Platz kostet Geld – Tische, Regalebenen, eine zweite Etage, einen Keller und zwei Fahrstühle kauft man in der PC-App **Ausbau**:
+Platz kostet Geld – Tische, Regalebenen, eine zweite Etage, einen Keller (ausbaubar bis 120 × 120 m) und zwei Fahrstühle kauft man in der PC-App **Ausbau**:
 
 - **Drucktische:** Am Anfang hast du einen Tisch mit 4 Druckerplätzen und 3 Regalplätzen dazwischen. Weitere Tische (150 €, 400 €, 900 €) kaufst du in der App **Ausbau** oder direkt in der Halle: Wo der nächste Tisch hinkommt, ist eine gelbe Markierung auf dem Boden – anklicken und kaufen. Der Tisch wird geliefert (blaue Markierung, eine Minute); danach wird die Markierung grün und ein Klick darauf stellt den Tisch auf.
 - **Regalebenen:** Im Abstellraum gibt es erst eine Ebene für 20 Spulen. Weitere Ebenen (60 €, 150 €, 300 €) gibt es ebenfalls in der App **Ausbau**; sie werden nach der Lieferung automatisch eingebaut.
@@ -269,6 +269,7 @@ Platz kostet Geld – Tische, Regalebenen, eine zweite Etage, einen Keller und z
 - **Fahrstuhl (3.000 €, erst nach der Etage):** Kommt neben die Treppe. Am Ruftaster rechts neben der Tür klicken – der Fahrstuhl bringt dich samt allem, was du trägst, aufs andere Stockwerk.
 - **Keller mit Treppe (5.000 €):** Ein leerer Raum so groß wie die Halle, **70 m** unter ihr. Nach dem Bau führt links hinten in der Halle (Nordwestecke, hinter einem Geländer) ein Treppenhaus hinunter: 20 Stockwerke à 3,5 m, je zwei Läufe im Zickzack mit Zwischenpodest, an jedem Podest eine Tiefenanzeige (z. B. „−35 m“). Man läuft Stufe für Stufe – hinunter und wieder hinauf. Was du trägst, nimmst du mit; unten kann man nichts werfen. Das Hallenlicht schaltet den Keller nicht mit aus.
 - **Keller-Fahrstuhl (4.000 €, erst nach dem Keller):** Kommt direkt neben den Treppenabgang an die Westwand. Am Ruftaster rechts neben der Tür klicken – er fährt zwischen Halle und Keller, ohne die 70 m Treppe. Der Fahrstuhl zur zweiten Etage bleibt, wie er ist.
+- **Kellerausbau (10.000 € bis 150.000 €, erst nach dem Keller):** Der Keller wächst in Stufen um je 20 m nach Osten und Süden – das Treppenhaus bleibt in der Nordwest-Ecke: Stufe 2 = 40 × 40 m (10.000 €), 3 = 60 × 60 m (25.000 €), 4 = 80 × 80 m (50.000 €), 5 = 100 × 100 m (90.000 €), 6 = 120 × 120 m (150.000 €), zusammen 325.000 €. Jeder Ausbau dauert zwei Minuten (doppelte Lieferzeit), die nächste Stufe gibt es erst, wenn die vorige fertig ist; dann kommt „⛏️ Keller ausgebaut auf 60 × 60 m“. Der Keller ist in **Felder zu 20 × 20 m** geteilt. Unter den Karten zeigt die **Kellerkarte** (6 × 6 Felder, Norden oben, Treppenhaus 🪜 links oben) die gebauten Felder: 📦 blau = **Lager**, 💾 grün = **Daten-Bunker**, ? gestrichelt = noch nicht festgelegt. Ein Klick auf ein Feld stellt es um (nicht festgelegt → Lager → Daten-Bunker → Lager …), das kostet nichts. Das erste Feld am Treppenhaus ist immer Lager. Umstellen geht nur, solange das Feld leer ist – sonst nennt das Spiel den Grund (z. B. „Im Feld stehen noch 3 Serverschränke“). Wie die Felder im Keller aussehen und was man dort aufstellt, folgt später.
 - **Lieferzeit:** Alles, was als Paket kommt – Drucker, Regale, Tische, Regalebenen – ist nach dem Kauf **eine Minute** unterwegs. Im Druckermenü und in der App **Ausbau** siehst du die Restzeit, bei Ankunft gibt es eine Meldung.
 
 ## Speichern, Level und Grafik
@@ -333,7 +334,8 @@ src/
     laser.js          Laser R1: Holzplatte im Gerät, Laseraufträge (Text, Logo, Ausschneiden)
     progress.js       Level, XP und Titel
     achievements.js   Erfolge und Statistik
-    upgrades.js       Ausbau: Drucktische, Regalebenen, zweite Etage, Keller, Fahrstühle
+    upgrades.js       Ausbau: Drucktische, Regalebenen, zweite Etage, Keller, Fahrstühle, Kellerausbau-Stufe
+    basement-layout.js Kellerausbau: Stufen (20…120 m), Felder 20 × 20 m als Lager oder Daten-Bunker, Feldgrenzen
     staff.js          Personal: Einstellen, Lohn, welche Aufgaben es gibt und was sie bewirken
     visitors.js       Besucher: Tagesplan mit Grüppchen (1–7 Pers.), Ablauf je Grüppchen, Eintritt, Bewertung, XP, Tagesschnitt
     game-clock.js     Spieluhr mit Tagen und Stunden, meldet jede volle Stunde für die Abrechnung

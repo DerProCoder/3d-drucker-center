@@ -1,10 +1,76 @@
-// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage, Keller und Fahrstühle kaufen, dazu die laufenden
-// Kosten pro Stunde.
+// App „Ausbau“ im PC-Fenster: Drucktische, Regalebenen, zweite Etage, Keller (mit Ausbaustufen und Kellerkarte) und
+// Fahrstühle kaufen, dazu die laufenden Kosten pro Stunde.
 import { RACKS_PER_TABLE, SLOTS_PER_TABLE, SPOOLS_PER_SHELF_LEVEL } from '../core/upgrades.js';
 import { RENT_PER_HOUR } from '../core/economy.js';
 import { euro } from '../core/format.js';
+import { FIELD_SIZE, FIELD_TYPE_LABELS, GRID } from '../core/basement-layout.js';
+
+const FIELD_ICONS = { storage: '📦', bunker: '💾' };
 
 export function createUpgradesMenu(upgrades, economy) {
+  const layout = upgrades.basementLayout;
+
+  // Kellerausbau: Stand der laufenden Stufe
+  function basementStageStatus() {
+    const eta = upgrades.arrivalOf('basementStage');
+    if (eta !== null) {
+      const size = upgrades.basementSize + FIELD_SIZE;
+      return ` · wird auf ${size} × ${size} m ausgebaut, noch ${Math.ceil(eta)} s`;
+    }
+    return '';
+  }
+
+  function basementStageCard() {
+    const next = upgrades.nextBasementStage;
+    const size = upgrades.basementSize;
+    const now = upgrades.basement ? `Keller jetzt ${size} × ${size} m (${upgrades.basementStage ** 2} ${upgrades.basementStage === 1 ? 'Feld' : 'Felder'})` : 'Erst den Keller bauen';
+    const nextText = next && upgrades.basementStageOrdered === upgrades.basementStage
+      ? ` · nächste Stufe ${next.size} × ${next.size} m mit ${next.fields} Feldern` : '';
+    return card({
+      id: 'basementStage', title: 'Kellerausbau', perStep: 'je Stufe +20 m',
+      sub: `${now}${nextText}${basementStageStatus()}`,
+      owned: upgrades.basementStage, max: upgrades.maxBasementStage,
+      price: upgrades.basementStageOrdered > upgrades.basementStage ? null : upgrades.basementStagePrice,
+      problem: upgrades.basementStageProblem,
+    });
+  }
+
+  // Kellerkarte: 6 × 6 Felder, Norden oben, Treppenhaus links oben (Nordwest). Klick stellt ein Feld um.
+  function basementMap() {
+    if (!upgrades.basement) return '';
+    const cells = [];
+    for (let i = 0; i < GRID * GRID; i++) {
+      if (!layout.isBuilt(i)) {
+        cells.push('<div class="bm-cell"></div>');
+        continue;
+      }
+      const type = layout.fieldType(i);
+      const label = type ? FIELD_TYPE_LABELS[type] : 'nicht festgelegt';
+      const icon = type ? FIELD_ICONS[type] : '?';
+      if (i === 0) {
+        cells.push(`<div class="bm-cell built storage fixed" title="Feld 1 · Lager mit Treppenhaus (fest)"><span>${icon}</span><span class="bm-stairs">🪜</span></div>`);
+        continue;
+      }
+      const to = layout.nextType(i);
+      const problem = layout.fieldProblem(i, to);
+      const hint = problem ? ` – ${problem}` : ` – Klick: ${FIELD_TYPE_LABELS[to]}`;
+      cells.push(`<button class="bm-cell built ${type ?? 'unset'}${problem ? ' blocked' : ''}" data-field="${i}" title="Feld ${i + 1} · ${label}${hint}"><span>${icon}</span></button>`);
+    }
+    const count = (t) => layout.fields().filter((f) => f.type === t).length;
+    return `
+      <div class="card basement-map-card">
+        <div class="card-head"><div>
+          <div class="card-title">Kellerkarte</div>
+          <div class="card-sub">Je Feld 20 × 20 m – Klick wechselt zwischen Lager und Daten-Bunker (gratis, nur solange das Feld leer ist). Treppenhaus links oben.</div>
+        </div></div>
+        <div class="basement-map">${cells.join('')}</div>
+        <div class="bm-legend">
+          <span><i class="bm-swatch storage"></i>📦 Lager: ${count('storage')}</span>
+          <span><i class="bm-swatch bunker"></i>💾 Daten-Bunker: ${count('bunker')}</span>
+          <span><i class="bm-swatch unset"></i>? nicht festgelegt: ${count(null)}</span>
+        </div>
+      </div>`;
+  }
   function steps(owned, max) {
     return Array.from({ length: max }, (_, i) => `<span class="step ${i < owned ? 'owned' : ''}"></span>`).join('');
   }
@@ -81,7 +147,9 @@ export function createUpgradesMenu(upgrades, economy) {
           owned: upgrades.basementElevator ? 1 : 0, max: 1, price: upgrades.basementElevatorPrice,
           problem: upgrades.basementElevatorProblem,
         })}
+        ${basementStageCard()}
       </div>
+      ${basementMap()}
       <p class="slots power-note">💸 Laufende Kosten, abgebucht zu jeder vollen Spielstunde: <strong>${euro.format(economy.costPerHour)} / h</strong>
         (Miete ${euro.format(RENT_PER_HOUR)} + Strom ${euro.format(economy.powerPerHour)} für alle aufgestellten Drucker${economy.wagesPerHour ? ` + Lohn ${euro.format(economy.wagesPerHour)}` : ""})</p>`;
   }
@@ -95,6 +163,18 @@ export function createUpgradesMenu(upgrades, economy) {
     if (id === 'elevator' && upgrades.buyElevator()) return `Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben der Treppe eingebaut`;
     if (id === 'basement' && upgrades.buyBasement()) return `Keller bestellt – wird in ${economy.deliverySeconds} s gebaut, das Treppenhaus beginnt links hinten in der Halle`;
     if (id === 'basementElevator' && upgrades.buyBasementElevator()) return `Keller-Fahrstuhl bestellt – wird in ${economy.deliverySeconds} s neben dem Treppenhaus eingebaut`;
+    if (id === 'basementStage' && upgrades.buyBasementStage()) {
+      const size = upgrades.basementStageOrdered * FIELD_SIZE;
+      return `Kellerausbau bestellt – in ${upgrades.basementStageSeconds} s ist der Keller ${size} × ${size} m groß`;
+    }
+    // Kellerkarte: Feld umstellen (nicht festgelegt → Lager → Daten-Bunker → Lager …)
+    const field = e.target.closest('[data-field]')?.dataset.field;
+    if (field !== undefined) {
+      const i = Number(field);
+      const to = upgrades.basementLayout.nextType(i);
+      const problem = upgrades.basementLayout.setFieldType(i, to);
+      return problem ? `⚠️ ${problem}` : `Feld ${i + 1} ist jetzt ${FIELD_TYPE_LABELS[to]}`;
+    }
     return null;
   }
 

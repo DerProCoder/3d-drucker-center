@@ -359,7 +359,9 @@ const DELIVERED = {
 };
 upgrades.onEvent = (type, d) => {
   if (type !== 'delivered') return;
-  hud.notify(DELIVERED[d.kind], 'good');
+  // Kellerausbau (#50): Meldung mit der neuen Größe
+  const text = d.kind === 'basementStage' ? `⛏️ Keller ausgebaut auf ${d.size} × ${d.size} m` : DELIVERED[d.kind];
+  hud.notify(text, 'good');
   sound.play('pop');
 };
 

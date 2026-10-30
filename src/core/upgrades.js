@@ -1,8 +1,10 @@
 // Ausbau der Halle: weitere Drucktische und Regalebenen kauft man mit Spielgeld, dazu eine zweite Etage (mit Treppe)
 // und danach einen Fahrstuhl, außerdem einen Keller in 70 m Tiefe (mit Treppenhaus) und danach einen eigenen
 // Keller-Fahrstuhl. Alles wird geliefert (economy.deliverySeconds); Regalebenen, Etage, Keller und Fahrstühle baut
-// der Lieferdienst gleich ein, Tische stellt man selbst auf.
+// der Lieferdienst gleich ein, Tische stellt man selbst auf. Den Keller kann man danach in Stufen bis 120 × 120 m
+// ausbauen (basementStage; Felder, Größen und Preise in core/basement-layout.js).
 // Bewusst ohne Three.js und DOM, damit die Logik unabhängig vom Rendering bleibt.
+import { BasementLayout, MAX_BASEMENT_STAGE, stageInfo } from './basement-layout.js';
 
 export const SLOTS_PER_TABLE = 4;
 export const RACKS_PER_TABLE = 3; // Regalplätze in den Lücken zwischen den 4 Druckerplätzen
@@ -15,6 +17,7 @@ export const UPPER_FLOOR_PRICE = 2000; // zweite Etage, so groß wie die Halle, 
 export const ELEVATOR_PRICE = 3000;    // Fahrstuhl zwischen Halle und zweiter Etage
 export const BASEMENT_PRICE = 5000;    // Keller 70 m unter der Halle, mit Treppenhaus
 export const BASEMENT_ELEVATOR_PRICE = 4000; // Fahrstuhl zwischen Halle und Keller
+export const BASEMENT_STAGE_DELIVERY_FACTOR = 2; // Kellerausbau dauert doppelt so lange wie eine Lieferung
 
 export class Upgrades {
   constructor(economy) {
@@ -27,14 +30,53 @@ export class Upgrades {
     this.upperFloorOrdered = false;
     this.elevator = false;    // Fahrstuhl gebaut
     this.elevatorOrdered = false;
-    this.basement = false;    // Keller mit Treppenhaus gebaut
-    this.basementOrdered = false;
+    // Keller: gebaute bzw. bestellte Ausbaustufe (0 = kein Keller, 1 = 20 × 20 m … 6 = 120 × 120 m). basement und
+    // basementOrdered (Keller mit Treppenhaus = Stufe 1) leiten sich daraus ab.
+    this.basementStage = 0;
+    this.basementStageOrdered = 0;
+    this.basementLayout = new BasementLayout(() => this.basementStage); // Felder: Lager oder Daten-Bunker
     this.basementElevator = false; // Keller-Fahrstuhl gebaut
     this.basementElevatorOrdered = false;
-    // { kind: 'table' | 'shelf' | 'floor' | 'elevator' | 'basement' | 'basementElevator', arriveIn (Sekunden) }
+    // { kind: 'table' | 'shelf' | 'floor' | 'elevator' | 'basement' | 'basementElevator' | 'basementStage',
+    //   arriveIn (Sekunden), bei 'basementStage' dazu stage }
     this.deliveries = [];
     this.listeners = new Set();
     this.onEvent = null;      // (type, data) => void – z. B. 'delivered'
+    // Feldtyp umgestellt: Ausbau-App (und alle anderen Hörer) neu zeichnen
+    this.basementLayout.subscribe((change) => { if (change.type === 'field') this.notify(); });
+  }
+
+  // Keller mit Treppenhaus gebaut bzw. bestellt (= Stufe 1 erreicht)
+  get basement() { return this.basementStage >= 1; }
+  set basement(v) { this.basementStage = v ? Math.max(1, this.basementStage) : 0; }
+  get basementOrdered() { return this.basementStageOrdered >= 1; }
+  set basementOrdered(v) { this.basementStageOrdered = v ? Math.max(1, this.basementStageOrdered) : 0; }
+
+  // Kantenlänge des gebauten Kellers in m (0 ohne Keller)
+  get basementSize() { return stageInfo(this.basementStage)?.size ?? 0; }
+  get maxBasementStage() { return MAX_BASEMENT_STAGE; }
+  // Nächste Ausbaustufe { stage, size, fields, price } oder null, wenn alles bestellt ist
+  get nextBasementStage() {
+    return this.basementStageOrdered >= 1 ? stageInfo(this.basementStageOrdered + 1) : null;
+  }
+  get basementStagePrice() { return this.nextBasementStage?.price ?? null; }
+  // Wie lange ein Kellerausbau dauert (Sekunden)
+  get basementStageSeconds() { return this.economy.deliverySeconds * BASEMENT_STAGE_DELIVERY_FACTOR; }
+
+  // Grund, warum man die nächste Kellerstufe gerade nicht kaufen kann, oder null
+  get basementStageProblem() {
+    if (!this.basement) return 'Erst den Keller bauen';
+    if (this.basementStageOrdered > this.basementStage) return 'Erst den laufenden Ausbau abwarten';
+    if (this.basementStageOrdered >= MAX_BASEMENT_STAGE) return 'Alles ausgebaut';
+    return this.buyProblem(this.basementStagePrice);
+  }
+
+  buyBasementStage() {
+    if (this.basementStageProblem || !this.economy.spend(this.basementStagePrice)) return false;
+    this.basementStageOrdered++;
+    this.deliveries.push({ kind: 'basementStage', stage: this.basementStageOrdered, arriveIn: this.basementStageSeconds });
+    this.notify();
+    return true;
   }
 
   // Gelieferte Tische, die noch aufgestellt werden müssen
@@ -162,7 +204,13 @@ export class Upgrades {
       if (d.kind === 'elevator') this.elevator = true;
       if (d.kind === 'basement') this.basement = true;
       if (d.kind === 'basementElevator') this.basementElevator = true;
-      this.onEvent?.('delivered', { kind: d.kind });
+      if (d.kind === 'basementStage') this.basementStage = Math.max(this.basementStage, d.stage);
+      if (d.kind === 'basement' || d.kind === 'basementStage') {
+        this.basementLayout.emit({ type: 'stage', stage: this.basementStage });
+      }
+      this.onEvent?.('delivered', d.kind === 'basementStage'
+        ? { kind: d.kind, stage: d.stage, size: stageInfo(d.stage)?.size }
+        : { kind: d.kind });
       changed = true;
     }
     this.deliveries = this.deliveries.filter((d) => d.arriveIn > 0);

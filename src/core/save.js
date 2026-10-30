@@ -28,7 +28,9 @@ const KEY = 'druckercenter-save';
 // 22: Speicher-Vermietung auf NAS (core/storage-rentals.js) – Speicher-Anfragen und -Verträge (storageRentals)
 // 23: Defekte Festplatte legt die NAS nicht mehr lahm (#49) – Speicher-Verträge, die nicht mehr auf die heilen Platten
 //     passen, tragen stranded: true (storageRentals.contracts[].stranded)
-const VERSION = 23;
+// 24: Kellerausbau in Stufen (#50) – upgrades.basementStage/basementStageOrdered (0 = kein Keller, 1 = 20 × 20 m … 6)
+//     und Feldtypen upgrades.basementFields (36 Einträge, core/basement-layout.js: 'storage' | 'bunker' | null)
+const VERSION = 24;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -133,6 +135,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       upperFloor: upgrades.upperFloor, upperFloorOrdered: upgrades.upperFloorOrdered,
       elevator: upgrades.elevator, elevatorOrdered: upgrades.elevatorOrdered,
       basement: upgrades.basement, basementOrdered: upgrades.basementOrdered,
+      basementStage: upgrades.basementStage, basementStageOrdered: upgrades.basementStageOrdered,
+      basementFields: upgrades.basementLayout.save(),
       basementElevator: upgrades.basementElevator, basementElevatorOrdered: upgrades.basementElevatorOrdered,
       deliveries: upgrades.deliveries.map((d) => ({ ...d })),
     },
@@ -281,6 +285,15 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     for (const c of data.storageRentals?.contracts ?? []) delete c.stranded;
     data.version = 23;
   }
+  // Version 23 kennt noch keinen Kellerausbau: Wer einen Keller hat (oder bestellt), steht auf Stufe 1, Feld 0 ist Lager
+  if (data?.version === 23) {
+    if (data.upgrades) {
+      data.upgrades.basementStage = data.upgrades.basement ? 1 : 0;
+      data.upgrades.basementStageOrdered = data.upgrades.basementOrdered || data.upgrades.basement ? 1 : 0;
+      data.upgrades.basementFields = null;
+    }
+    data.version = 24;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -316,6 +329,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades.elevatorOrdered = data.upgrades.elevatorOrdered ?? upgrades.elevator;
     upgrades.basement = data.upgrades.basement ?? false;
     upgrades.basementOrdered = data.upgrades.basementOrdered ?? upgrades.basement;
+    upgrades.basementStage = data.upgrades.basementStage ?? upgrades.basementStage;
+    upgrades.basementStageOrdered = Math.max(upgrades.basementStage, data.upgrades.basementStageOrdered ?? upgrades.basementStageOrdered);
     upgrades.basementElevator = data.upgrades.basementElevator ?? false;
     upgrades.basementElevatorOrdered = data.upgrades.basementElevatorOrdered ?? upgrades.basementElevator;
   } else {
@@ -325,6 +340,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     upgrades.tablesOrdered = upgrades.tables;
     upgrades.shelfOrdered = upgrades.shelfLevels;
   }
+  // Kellerfelder: Lager oder Daten-Bunker (Feld 0 bleibt immer Lager)
+  upgrades.basementLayout.load(data.upgrades?.basementFields);
 
   economy.furniture = (e.furniture ?? [])
     .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) }))
