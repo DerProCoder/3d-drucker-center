@@ -507,26 +507,32 @@ storageRentals.onEvent = (type, d) => {
   if (type === 'rental-ended') {
     hud.notify(`📄 Speicher-Vertrag mit ${d.contract.customer} ist ausgelaufen – ${storageText(d.contract.storage)} auf ${d.server?.type.name ?? 'der NAS'} wieder frei`, 'info');
   } else if (type === 'rental-cancelled') {
-    hud.notify(`⚠️ ${d.contract.customer} hat den Speicher gekündigt – NAS war zu lange offline`, 'bad');
+    const why = d.diskFailure ? 'Daten waren wegen der defekten Festplatte zu lange nicht erreichbar' : 'NAS war zu lange offline';
+    hud.notify(`⚠️ ${d.contract.customer} hat den Speicher gekündigt – ${why}`, 'bad');
     sound.play('warn');
   }
 };
 // NAS (#46): Festplatten im Schrank einsetzen und herausnehmen
 const nasScrapped = new Set(); // NAS-IDs, deren defekte Platte gerade entsorgt wurde – dann meldet nur nas.onEvent
-// Nach dem Entsorgen einer defekten Platte: „läuft wieder“ nur, wenn die NAS wirklich ohne Problem online ist
-function scrappedDiskText(device, part) {
+// Speicher-Verträge als Text: „1 Speicher-Vertrag“, „3 Speicher-Verträge“
+const contractsText = (n) => `${n} Speicher-${n === 1 ? 'Vertrag' : 'Verträge'}`;
+// Nach dem Entsorgen einer defekten Platte: Eine defekte Platte legt die NAS nicht lahm (#49) – die Meldung nennt, ob
+// die NAS aus anderem Grund noch steht und ob Speicher-Verträge noch auf eine neue Platte warten
+function scrappedDiskText(device, part, stranded) {
   const why = servers.workProblem(device);
   if (why) return `🗑️ Defekte ${part.name} entsorgt – Schacht frei, ${device.type.name} läuft noch nicht: ${why}`;
-  return servers.isOnline(device) ? `🗑️ Defekte ${part.name} entsorgt – ${device.type.name} läuft wieder` : `🗑️ Defekte ${part.name} entsorgt – Schacht frei`;
+  if (stranded) return `🗑️ Defekte ${part.name} entsorgt – Schacht frei, ${contractsText(stranded)} offline, bis eine neue Platte drin ist`;
+  return `🗑️ Defekte ${part.name} entsorgt – Schacht frei, alle Speicher-Verträge auf ${device.type.name} laufen`;
 }
 nas.onEvent = (type, d) => {
   if (type === 'disk-inserted') {
-    hud.notify(`💽 ${d.part.name} in ${d.device.type.name} eingesetzt (Schacht ${d.bay + 1})`, 'good');
+    const back = d.restored ? ` – ${contractsText(d.restored)} wieder online` : '';
+    const still = d.stranded ? ` · ${contractsText(d.stranded)} noch offline` : '';
+    hud.notify(`💽 ${d.part.name} in ${d.device.type.name} eingesetzt (Schacht ${d.bay + 1})${back}${still}`, 'good');
   } else if (type === 'disk-removed' && d.scrapped) {
     nasScrapped.add(d.device.id);
     queueMicrotask(() => nasScrapped.delete(d.device.id)); // nach 'fixed' (falls es kam) wieder vergessen
-    const text = scrappedDiskText(d.device, d.part);
-    hud.notify(text, text.includes('läuft wieder') ? 'good' : 'info');
+    hud.notify(scrappedDiskText(d.device, d.part, d.stranded), 'info');
   } else if (type === 'disk-removed') {
     hud.notify(`💽 ${d.part.name} herausgenommen – im Teilelager`, 'info');
   }
@@ -598,6 +604,13 @@ const CLIMATE_MESSAGES = {
   frozen: (name) => `🧊 ${name} ist eingefroren – aufwärmen lassen und im Schrankfenster neu starten`,
 };
 climate.onEvent = (type, d) => {
+  // Defekte Festplatte (#49): die NAS läuft weiter, nur Speicher-Verträge, die nicht mehr passen, sind offline
+  if (type === 'broken' && d.down === false) {
+    const n = storageRentals.strandedOn(d.device).length;
+    hud.notify(`💽 ${d.part?.name ?? 'Festplatte'} in ${d.device.type.name} defekt (überhitzt) – ${n ? `${contractsText(n)} offline` : 'NAS läuft weiter'}, Platte tauschen`, 'bad');
+    sound.play('warn');
+    return;
+  }
   hud.notify(CLIMATE_MESSAGES[type](d.device.type.name, d.part?.name), 'bad');
   sound.play('warn');
 };

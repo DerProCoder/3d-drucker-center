@@ -9,6 +9,7 @@
 // Server zeigen ihre Ausstattung aus den Bauteilen (Cores / RAM, core/server-parts.js über servers.capacityOf); ist nach
 // Überhitzung ein Teil defekt, steht es im Status („Lüfter defekt“) – selbst tauschen oder den Techniker rufen.
 // NAS (core/nas.js) zeigen Cores, RAM / max. RAM, Speicher und belegte Schächte; Platten tauscht man direkt im Schrank.
+// Eine defekte Platte legt die NAS nicht lahm (#49): Die Zeile nennt sie und die Speicher-Verträge, die offline sind.
 // Klima-Automatik (core/climate-automation.js): Kopfzeile nennt den regelnden Automatik-Server, Schalter „Automatik an/aus“.
 // Regelt sie, bewegen sich die Regler von selbst; wer einen anfasst, bekommt einen Hinweis – sie übernimmt gleich wieder.
 import { KIND_NAMES, portName } from '../core/server-catalog.js';
@@ -135,13 +136,16 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     return `${s.cores} Cores · ${s.ram} / ${s.maxRam} GB RAM · ${storageText(s.storage)} Speicher · ${s.usedBays} / ${s.bays} Schächte`;
   }
 
-  // Platten der NAS: vermieteter Speicher, defekte Platten und wie man Platten tauscht (direkt im Schrank,
-  // world/server-room.js)
+  // Platten der NAS: vermieteter Speicher, defekte Platten (fallen nur selbst aus, #49 – betroffene Speicher-Verträge
+  // sind offline) und wie man Platten tauscht (direkt im Schrank, world/server-room.js)
   function nasRow(device, s) {
     const stock = nas.diskStock.reduce((sum, d) => sum + d.count, 0);
-    const broken = nas.baysOf(device).filter((b) => b.part && b.broken).length;
+    const broken = s.brokenDisks;
     const used = s.used ? ` · ${storageText(s.used)} vermietet, ${storageText(s.free)} frei` : '';
-    const defect = broken ? ` · <b class="bad">${broken} ${broken === 1 ? 'Platte' : 'Platten'} defekt – herausnehmen und ersetzen</b>` : '';
+    const offline = s.stranded
+      ? `${s.stranded} ${s.stranded === 1 ? 'Speicher-Vertrag' : 'Speicher-Verträge'} offline (passen nicht auf die heilen Platten, keine Miete)`
+      : 'NAS läuft weiter';
+    const defect = broken ? ` · <b class="bad">${broken} ${broken === 1 ? 'Platte' : 'Platten'} defekt (${storageText(s.brokenStorage)} fehlen) – ${offline}; herausnehmen und ersetzen</b>` : '';
     return `
       <div class="rack-nas">💽 ${storageText(s.storage)} in ${s.usedBays} / ${s.bays} Schächten${used}${defect}
         <span class="rack-nas-help">Festplatten tauschen: Glastür öffnen und vorn auf einen Schacht klicken – leer: größte
@@ -153,11 +157,14 @@ export function createRackPanel({ economy, servers, climate, automation = null, 
     if (!climate.hasFan(device)) return '';
     const s = climate.device(device.id);
     let fix = '';
-    if (s.status === 'broken') {
-      // Server: das defekte Teil lässt sich auch selbst tauschen (Teile-Shop, Werkbank) – der Techniker ist teurer
-      const part = device.type.kind === 'server' ? climate.brokenPart(device) : null;
+    if (climate.needsRepair(device)) {
+      // Server: das defekte Teil lässt sich auch selbst tauschen (Teile-Shop, Werkbank) – der Techniker ist teurer.
+      // Auch bei einer NAS, die nur eine defekte Platte hat und weiterläuft (#49)
+      const part = device.type.kind === 'server' ? climate.brokenPart(device) ?? (s.status === 'broken' ? null : 'Festplatte') : null;
       fix = `<button class="small" data-repair="${device.id}" title="${part ? `${part} defekt – selbst tauschen oder den Techniker rufen` : 'Techniker repariert das Gerät'}">`
         + `Techniker rufen (${euro.format(climate.repairCost(device))})</button>`;
+      // NAS mit nur defekter Platte kann zusätzlich eingefroren sein (#49): dann auch neu starten
+      if (s.status === 'frozen' && !climate.restartProblem(device)) fix += ` <button class="small" data-restart="${device.id}">Neu starten</button>`;
     } else if (s.status === 'frozen') {
       fix = `<button class="small" data-restart="${device.id}">Neu starten</button>`;
     }

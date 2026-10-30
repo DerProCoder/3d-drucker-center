@@ -26,7 +26,9 @@ const KEY = 'druckercenter-save';
 //     dazu ohne eigene Version: Server auf der Werkbank (location 'bench', core/workbench.js) – alte Stände haben keinen
 // 21: NAS (#46) – Festplatten je Schacht stecken in serverParts (devices[].slots.disk), kein eigenes Feld; alte Stände brauchen keine Umwandlung
 // 22: Speicher-Vermietung auf NAS (core/storage-rentals.js) – Speicher-Anfragen und -Verträge (storageRentals)
-const VERSION = 22;
+// 23: Defekte Festplatte legt die NAS nicht mehr lahm (#49) – Speicher-Verträge, die nicht mehr auf die heilen Platten
+//     passen, tragen stranded: true (storageRentals.contracts[].stranded)
+const VERSION = 23;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -271,6 +273,13 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 21) {
     data.storageRentals ??= null;
     data.version = 22;
+  }
+  // Version 22 kennt das Kennzeichen stranded nicht: alle Verträge gelten als laufend – passen sie nach einem
+  // Plattendefekt nicht alle, ordnet storageRentals.strandedOn sie beim ersten Zugriff ein (ältere zuerst). Eine NAS,
+  // die nur wegen einer defekten Platte als defekt gespeichert ist, läuft wieder (serverParts.load)
+  if (data?.version === 22) {
+    for (const c of data.storageRentals?.contracts ?? []) delete c.stranded;
+    data.version = 23;
   }
   if (data?.version !== VERSION) return false;
 

@@ -14,10 +14,17 @@
 // Vermieteter Speicher sperrt das Herausnehmen von Platten: nas.rentedStorageOf liefert ihn (Konstruktor), core/nas.js
 // lehnt dann mit „Belegt: 3,5 TB vermietet“ ab. Zeiten in Spielminuten (Delta-Zeit). Ohne Three.js und DOM.
 //
+// Defekte Festplatte (#49): Die NAS bleibt online, ihr Speicher zählt nur die heilen Platten. Passen die Daten aller
+// Verträge nicht mehr darauf, laufen die gerade laufenden Verträge (ältere zuerst) weiter, solange sie in den heilen
+// Speicher passen; danach kommen offline Verträge (ältere zuerst) zurück, sobald Platz frei ist (strandedOn, Kennzeichen
+// stranded je Vertrag – so geht kein laufender Vertrag offline, nur weil ein älterer zurückkommt). Offline Verträge
+// zahlen keine Miete und kündigen nach CANCEL_AFTER_OFFLINE am Stück; alle anderen laufen normal weiter.
+//
 // Anfrage: { id ('S1' …, getrennt von den VM-Nummern), kind: 'storage', customer, note, storage (GB), duration
 //            (Spielminuten Vertragslaufzeit), waitLeft (Spielminuten am Empfang), atCounter (am Empfang angekommen,
 //            wird nicht gespeichert) }
-// Vertrag:  { id, kind: 'storage', customer, note, storage, serverId (NAS), duration, minutesLeft, offlineFor, auto }
+// Vertrag:  { id, kind: 'storage', customer, note, storage, serverId (NAS), duration, minutesLeft, offlineFor, auto,
+//            stranded (offline, weil die Daten nach einem Plattendefekt nicht auf die heilen Platten passen, #49) }
 import { CANCEL_AFTER_OFFLINE, CONTRACT_HOURS, NEW_REQUEST_EVERY, REQUEST_PATIENCE } from './server-rentals.js';
 import { isNas, storageText } from './nas.js';
 
@@ -67,14 +74,17 @@ export class StorageRentals {
     this.listeners = new Set();
     // (type, data) => void – 'new-request' { request }, 'request-expired' { request }, 'request-declined' { request },
     // 'accepted' { request, contract, server }, 'rental-ended' { contract, server },
-    // 'rental-cancelled' { contract, server }, 'income' { amount, contracts }
+    // 'rental-cancelled' { contract, server, diskFailure }, 'income' { amount, contracts }
     this.onEvent = null;
 
-    // Vermieteter Speicher je NAS für core/nas.js (Platte herausnehmen, „zu klein“)
+    // Vermieteter Speicher je NAS für core/nas.js (Platte herausnehmen, „zu klein“) und Verträge, die wegen defekter
+    // Platten offline sind (#49)
     nas.rentedStorageOf = (device) => this.usedOn(device);
-    // Miete je Gerät für Schrankfenster und servers.incomePerHour: VMs (core/server-rentals.js) plus Speicher
+    nas.strandedOf = (device) => this.strandedOn(device);
+    // Miete je Gerät für Schrankfenster und servers.incomePerHour: VMs (core/server-rentals.js) plus Speicher (ohne
+    // Verträge, die wegen einer defekten Platte offline sind)
     const vmRent = servers.rentOf;
-    servers.rentOf = (device) => cents((vmRent?.(device) ?? 0) + this.rentOn(device));
+    servers.rentOf = (device) => cents((vmRent?.(device) ?? 0) + this.activeRentOn(device));
     // Höchstens maxWaiting wartende Anfragen insgesamt: Die VM-Seite sieht so viele Plätze weniger, wie Speicher-Kunden
     // warten (main.js setzt rentals.maxWaiting wie bisher)
     let maxWaiting = rentals.maxWaiting;
@@ -141,18 +151,63 @@ export class StorageRentals {
     return cents(this.contractsOn(server).reduce((sum, c) => sum + this.rentPerHour(c, server), 0));
   }
 
+  // Miete pro Spielstunde der Verträge auf der NAS, deren Daten auf die heilen Platten passen (#49)
+  activeRentOn(server) {
+    const stranded = this.strandedOn(server);
+    return cents(this.contractsOn(server).reduce((sum, c) => (stranded.includes(c) ? sum : sum + this.rentPerHour(c, server)), 0));
+  }
+
   // Ob die NAS die Daten gerade bereitstellt (online, nicht privat) – Regeln wie bei VMs
   serves(server, reached = this.servers.reachable()) {
     return this.rentals.serves(server, reached);
   }
 
+  // Verträge auf der NAS, deren Daten nach einem Plattendefekt (#49) nicht mehr auf die heilen Platten passen.
+  // Vorrang haben die gerade laufenden Verträge (contract.stranded nicht gesetzt), ältere zuerst: Jeder, der noch in den
+  // verbleibenden heilen Speicher passt, läuft weiter. Danach bekommen offline Verträge, ältere zuerst, den Rest. Das
+  // Ergebnis wird als contract.stranded vermerkt (wird gespeichert) – ein zweiter Aufruf ergibt dasselbe, und kein
+  // laufender Vertrag geht offline, nur weil ein älterer zurückkommt. Ohne defekte Platte passt immer alles
+  // (vermieteter Speicher sperrt das Herausnehmen heiler Platten).
+  strandedOn(server) {
+    if (!server) return [];
+    let free = this.storageOf(server);
+    const list = this.contractsOn(server);
+    const out = new Set();
+    for (const c of [...list.filter((x) => !x.stranded), ...list.filter((x) => x.stranded)]) {
+      if (c.storage <= free) free -= c.storage;
+      else out.add(c);
+    }
+    for (const c of list) {
+      if (out.has(c)) c.stranded = true;
+      else delete c.stranded;
+    }
+    return list.filter((c) => out.has(c));
+  }
+
+  // Ob der Vertrag offline ist, weil seine Daten nicht auf die heilen Platten passen (#49)
+  isStranded(contract) {
+    return this.strandedOn(this.serverOf(contract)).includes(contract);
+  }
+
+  // Alle Verträge, die wegen defekter Platten offline sind (Set, für einen Durchlauf)
+  strandedSet() {
+    const out = new Set();
+    for (const id of new Set(this.contracts.map((c) => c.serverId))) {
+      for (const c of this.strandedOn(this.economy.furnitureById(id))) out.add(c);
+    }
+    return out;
+  }
+
+  // Ob der Vertrag gerade läuft: NAS stellt die Daten bereit und sie passen auf die heilen Platten
+  servesContract(contract, reached = this.servers.reachable(), stranded = this.strandedSet()) {
+    return this.serves(this.serverOf(contract), reached) && !stranded.has(contract);
+  }
+
   // Was die Speicher-Verträge auf laufenden NAS gerade pro Spielstunde bringen
   get incomePerHour() {
     const reached = this.servers.reachable();
-    return cents(this.contracts.reduce((sum, c) => {
-      const server = this.serverOf(c);
-      return this.serves(server, reached) ? sum + this.rentPerHour(c, server) : sum;
-    }, 0));
+    const stranded = this.strandedSet();
+    return cents(this.contracts.reduce((sum, c) => (this.servesContract(c, reached, stranded) ? sum + this.rentPerHour(c, this.serverOf(c)) : sum), 0));
   }
 
   // Vermieteter Speicher aller Verträge in GB
@@ -242,22 +297,27 @@ export class StorageRentals {
       changed = true;
     }
 
-    // Verträge: Laufzeit und Offline-Zeit am Stück (offline, privat, ausgebaut oder „zu klein“ – wie bei VMs)
+    // Verträge: Laufzeit und Offline-Zeit am Stück (offline, privat, ausgebaut oder „zu klein“ – wie bei VMs – oder
+    // wegen einer defekten Platte nicht mehr auf der NAS, #49)
     if (this.contracts.length) {
       const reached = this.servers.reachable();
+      const stranded = this.strandedSet();
       const ended = [];
       const cancelled = [];
       for (const contract of this.contracts) {
-        const server = this.serverOf(contract);
         contract.minutesLeft -= gameMinutes;
-        contract.offlineFor = this.serves(server, reached) ? 0 : contract.offlineFor + gameMinutes;
+        contract.offlineFor = this.servesContract(contract, reached, stranded) ? 0 : contract.offlineFor + gameMinutes;
         if (contract.minutesLeft <= 0) ended.push(contract);
         else if (contract.offlineFor >= CANCEL_AFTER_OFFLINE) cancelled.push(contract);
       }
       if (ended.length || cancelled.length) {
         this.contracts = this.contracts.filter((c) => !ended.includes(c) && !cancelled.includes(c));
         for (const contract of ended) this.onEvent?.('rental-ended', { contract, server: this.serverOf(contract) });
-        for (const contract of cancelled) this.onEvent?.('rental-cancelled', { contract, server: this.serverOf(contract) });
+        // diskFailure: Kündigung, weil die Daten wegen einer defekten Platte nicht erreichbar waren (NAS lief, #49)
+        for (const contract of cancelled) {
+          const server = this.serverOf(contract);
+          this.onEvent?.('rental-cancelled', { contract, server, diskFailure: stranded.has(contract) && this.serves(server, reached) });
+        }
         changed = true;
       }
     }
@@ -279,14 +339,15 @@ export class StorageRentals {
   }
 
   // Zu jeder vollen Spielstunde: Miete aller Speicher-Verträge, deren NAS gerade online ist (und nicht privat steht)
+  // und deren Daten auf die heilen Platten passen (#49)
   payHour() {
     const reached = this.servers.reachable();
+    const stranded = this.strandedSet();
     let amount = 0;
     let paying = 0;
     for (const contract of this.contracts) {
-      const server = this.serverOf(contract);
-      if (!this.serves(server, reached)) continue;
-      amount += this.rentPerHour(contract, server);
+      if (!this.servesContract(contract, reached, stranded)) continue;
+      amount += this.rentPerHour(contract, this.serverOf(contract));
       paying++;
     }
     amount = cents(amount);
@@ -334,7 +395,7 @@ export class StorageRentals {
     // Verträge auf NAS, die es nicht mehr gibt, verwerfen
     this.contracts = (data?.contracts ?? [])
       .filter((c) => isNas(this.economy.furnitureById(c.serverId)))
-      .map((c) => ({ ...c, kind: 'storage', offlineFor: c.offlineFor ?? 0 }));
+      .map(({ stranded, ...c }) => ({ ...c, kind: 'storage', offlineFor: c.offlineFor ?? 0, ...(stranded ? { stranded: true } : {}) }));
     const numbers = [...this.requests, ...this.contracts].map((x) => Number(String(x.id).slice(ID_PREFIX.length)) || 0);
     this.nextId = Math.max(data?.nextId ?? 1, ...numbers.map((n) => n + 1));
     this.untilNext = data?.untilNext ?? STORAGE_REQUEST_EVERY;

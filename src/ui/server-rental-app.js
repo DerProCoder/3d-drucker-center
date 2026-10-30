@@ -6,7 +6,8 @@
 // angezeigt und weitergereicht.
 // Speicher-Vermietung (#47, core/storage-rentals.js, optional): Speicher-Anfragen stehen mit 💾 und Größe zwischen den
 // VM-Anfragen und passen nur auf NAS. Jede NAS zeigt zusätzlich einen Balken „Speicher: 1,2 / 4,5 TB belegt“ und ihre
-// Speicher-Verträge (scrollbar wie die VMs).
+// Speicher-Verträge (scrollbar wie die VMs). Nach einem Plattendefekt (#49) läuft die NAS weiter; Verträge, die nicht
+// mehr auf die heilen Platten passen, sind mit 💽 als offline gekennzeichnet.
 import { CANCEL_AFTER_OFFLINE, RENT_PER_CORE, RENT_PER_GB } from '../core/server-rentals.js';
 import { RENT_PER_GB_STORAGE, StorageRentals } from '../core/storage-rentals.js';
 import { isNas, storageText } from '../core/nas.js';
@@ -41,10 +42,13 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
 
   const waitText = (request) => `Wartet noch ca. ${realTime(request.waitLeft)} am Empfang`;
   const leftText = (vm) => `noch ${realTime(vm.minutesLeft)}`;
-  // Server privat (läuft, bedient die VM aber nicht) oder offline
+  // Server privat (läuft, bedient die VM aber nicht) oder offline – Speicher-Verträge auch wegen einer defekten Platte
+  // der NAS (#49)
   const warnText = (vm) => {
     const server = economy.furnitureById(vm.serverId);
-    const why = server && servers.isPrivateDevice(server) ? 'privater Server' : 'Server offline';
+    const disk = vm.kind === 'storage' && storage?.isStranded(vm);
+    const why = disk ? '💽 Festplatte defekt – Daten passen nicht auf die heilen Platten'
+      : server && servers.isPrivateDevice(server) ? 'privater Server' : 'Server offline';
     return `⚠ ${why} – Kunde kündigt in ca. ${realTime(Math.max(0, CANCEL_AFTER_OFFLINE - vm.offlineFor))}`;
   };
 
@@ -189,19 +193,30 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
       </li>`;
   }
 
-  // NAS: Balken „Speicher: 1,2 / 4,5 TB belegt“ und die Speicher-Verträge
+  // NAS: Balken „Speicher: 1,2 / 4,5 TB belegt“ und die Speicher-Verträge – nach einem Plattendefekt (#49) zählt nur
+  // der Speicher der heilen Platten, Verträge, die nicht mehr passen, sind offline
   function storageBlock(server, serving) {
     const contracts = storage.contractsOn(server);
     const used = storage.usedOn(server);
     const total = storage.storageOf(server);
+    const stranded = storage.strandedOn(server);
+    const defect = stranded.length
+      ? `<span class="rack-status off">💽 Festplatte defekt – ${stranded.length} ${stranded.length === 1 ? 'Speicher-Vertrag' : 'Speicher-Verträge'} offline, Platte tauschen</span>`
+      : '';
+    // Mehr vermietet als verfügbar (defekte Platte): orange der Teil, der passt, rot der Überhang – nie über 100 %
+    const over = used > total;
+    const bar = over
+      ? `<div class="bar" style="width:${percent(total, used)}%"></div><div class="bar over" style="width:${100 - percent(total, used)}%"></div>`
+      : `<div class="bar" style="width:${percent(used, total)}%"></div>`;
     return `
       <div class="rental-meter storage-meter">
         <span>Speicher</span>
-        <div class="progress"><div class="bar" style="width:${percent(used, total)}%"></div></div>
-        <span>${storageText(used)} / ${storageText(total)} belegt</span>
+        <div class="progress">${bar}</div>
+        <span>${over ? `${storageText(used)} vermietet · <b class="bad">${storageText(total)} verfügbar</b>` : `${storageText(used)} / ${storageText(total)} belegt`}</span>
       </div>
+      ${defect}
       ${contracts.length
-        ? `<ul class="rental-vms" data-keep-scroll="rental-storage:${server.id}">${contracts.map((c) => contractRow(c, server, serving)).join('')}</ul>`
+        ? `<ul class="rental-vms" data-keep-scroll="rental-storage:${server.id}">${contracts.map((c) => contractRow(c, server, serving && !stranded.includes(c))).join('')}</ul>`
         : '<p class="empty">Noch kein Speicher vermietet.</p>'}`;
   }
 
@@ -213,7 +228,9 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
     const nas = !!storage && isNas(server);
     const contracts = nas ? storage.contractsOn(server).length : 0;
     const busy = vms.length + contracts;
-    const rent = rentals.rentOn(server) + (nas ? storage.rentOn(server) : 0);
+    // Summe ohne Speicher-Verträge, die wegen einer defekten Platte offline sind (#49) – die stehen extra daneben
+    const rent = rentals.rentOn(server) + (nas ? storage.activeRentOn(server) : 0);
+    const lost = nas ? Math.max(0, storage.rentOn(server) - storage.activeRentOn(server)) : 0;
     const counts = `${vms.length} ${vms.length === 1 ? 'VM' : 'VMs'}${nas ? ` · ${contracts} Speicher` : ''}`;
     const scrolls = vms.length > VMS_VISIBLE || contracts > VMS_VISIBLE;
     return `
@@ -236,7 +253,7 @@ export function createServerRentalApp({ economy, servers, rentals, automation = 
         ${nas ? storageBlock(server, serving) : ''}
         <div class="card-foot">
           <span class="stock">${counts}${scrolls ? ' <span class="rental-more">· Liste scrollt ↕</span>' : ''}</span>
-          <span class="price">${euro.format(rent)} / h</span>
+          <span class="price">${euro.format(rent)} / h${lost > 0.004 ? ` <span class="rental-more">(${euro.format(lost)} / h fallen offline aus)</span>` : ''}</span>
         </div>
       </div>`;
   }

@@ -5,3 +5,7 @@
 .rental-nas .rental-vms + .rental-meter,
 .rental-nas .empty + .rental-meter { margin-top: 4px; }
 .storage-request .order-note b { white-space: nowrap; }
+/* Mehr vermietet als verfügbar (defekte Festplatte, #49): orange der Teil, der passt, rot der Überhang */
+.rental-meter.storage-meter .progress { display: flex; }
+.rental-meter.storage-meter .bar.over { background: #e74c3c; }
+.rental-meter.storage-meter .bad { color: #ff8a7a; }

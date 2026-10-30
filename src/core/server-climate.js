@@ -6,6 +6,9 @@
 // Zu heiß (über TEMP_LIMITS.hot): das Gerät nimmt Schaden und ist irgendwann defekt. Bei Servern geht dabei ein
 // bestimmtes Bauteil kaputt (core/server-parts.js, meist ein Lüfter): Teil selbst tauschen (resume) oder den Techniker
 // rufen – die Reparatur kostet REPAIR_SHARE des Kaufpreises und ersetzt alle defekten Teile.
+// Geht dabei nur eine Festplatte einer NAS kaputt (#49), bleibt die NAS online (Status 'ok', Schaden zurück auf 0):
+// Sie läuft weiter, wird weiter warm und kann bei anhaltender Hitze erneut ein Teil verlieren. Der Techniker repariert
+// auch dann (needsRepair).
 // Zu kalt (unter TEMP_LIMITS.cold): es friert irgendwann ein (hängt) – Neustart nötig, sobald es wieder warm genug ist.
 // Defekte und eingefrorene Geräte arbeiten nicht (Server offline, Switch/Firewall leiten nicht weiter, siehe
 // Servers.deviceProblem). Lüfter kosten etwas Strom. Läuft in Spielminuten. Ohne Three.js und DOM.
@@ -47,13 +50,18 @@ export class ServerClimate {
     // Klima-Automatik (core/climate-automation.js) den Schrank regeln darf, Standard an
     this.racks = new Map();
     this.devices = new Map(); // Geräte-ID → { fan (%), temp (°C), heat, cold (Schaden 0…1), status, warned }
-    this.onEvent = null;      // (type, { device }) => void – 'hot', 'cold' (Warnung), 'broken' (mit part), 'frozen'
+    this.onEvent = null;      // (type, { device }) => void – 'hot', 'cold' (Warnung), 'broken' (mit part, down), 'frozen'
     // Bauteile (core/server-parts.js setzt das, sonst ohne Teile): failPart(device) lässt beim Ausfall ein Teil kaputtgehen
     // ({ kind, index, part } oder null), repairParts(device) ersetzt bei der Reparatur alle defekten Teile,
-    // brokenPart(device) nennt das defekte Teil („Lüfter“) oder null
+    // brokenPart(device) nennt das defekte Teil, das das Gerät lahmlegt („Lüfter“), oder null,
+    // hasBrokenParts(device): ob irgendein Teil defekt ist (auch eine Festplatte, die die NAS nicht lahmlegt, #49)
     this.failPart = () => null;
     this.repairParts = () => {};
     this.brokenPart = () => null;
+    this.hasBrokenParts = () => false;
+    // partsRepairCost(device): Preis der Reparatur aus den Teilen (NAS nur mit defekten Platten, #49) oder null –
+    // dann gilt REPAIR_SHARE des Kaufpreises
+    this.partsRepairCost = () => null;
     servers.deviceProblem = (device) => this.problem(device);
     const basePower = economy.extraPowerPerHour;
     economy.extraPowerPerHour = () => (basePower?.() ?? 0) + this.fanPowerPerHour;
@@ -107,12 +115,18 @@ export class ServerClimate {
 
   // ---------- Reparieren und Neustarten ----------
 
+  // Techniker: REPAIR_SHARE des Kaufpreises – hat eine NAS nur defekte Platten, die Plattenpreise + REPAIR_SHARE (#49)
   repairCost(device) {
-    return Math.round(device.type.price * REPAIR_SHARE);
+    return this.partsRepairCost(device) ?? Math.round(device.type.price * REPAIR_SHARE);
+  }
+
+  // Ob der Techniker etwas zu tun hat: Gerät defekt oder (NAS, #49) ein Teil defekt, ohne dass es lahmliegt
+  needsRepair(device) {
+    return this.devices.get(device.id)?.status === 'broken' || this.hasBrokenParts(device);
   }
 
   repairProblem(device) {
-    if (this.devices.get(device.id)?.status !== 'broken') return 'Das Gerät ist nicht defekt';
+    if (!this.needsRepair(device)) return 'Das Gerät ist nicht defekt';
     if (!this.economy.canAfford(this.repairCost(device))) return 'Zu wenig Geld für die Reparatur';
     return null;
   }
@@ -252,9 +266,12 @@ export class ServerClimate {
       s.warned = null;
     }
     if (s.heat >= 1) {
-      s.status = 'broken';
       const failed = this.failPart(device); // Server: ein bestimmtes Teil geht kaputt
-      this.onEvent?.('broken', { device, part: failed?.part ?? null });
+      // down: ob das Gerät jetzt lahmliegt – eine defekte Festplatte (#49) nicht, die NAS läuft weiter
+      const down = failed?.stops !== false;
+      if (down) s.status = 'broken';
+      else s.heat = 0;
+      this.onEvent?.('broken', { device, part: failed?.part ?? null, down });
       return true;
     }
     if (s.cold >= 1) {

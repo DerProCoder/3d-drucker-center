@@ -21,6 +21,9 @@
 // seltener Netzteil, Mainboard, CPU oder RAM. Tauscht man es (ausbauen – das defekte Teil wird entsorgt – und ein
 // Teil aus dem Teilelager einbauen), läuft der Server wieder. Die Reparatur durch den Techniker (30 % des Kaufpreises,
 // climate.repair) ersetzt alle defekten Teile.
+// Ausnahme Festplatten (#49): Eine defekte Platte legt die NAS nicht lahm (stopsServer) – die NAS bleibt online, ihr
+// Speicher (capacity.storage) sinkt nur um die defekte Platte. Welche Speicher-Verträge dann nicht mehr passen, regelt
+// core/storage-rentals.js.
 // Teilelager: ausgebaute (heile) Teile und gekaufte Teile, wie der Kabelvorrat. Bestellungen kommen gesammelt als ein
 // Paket nach economy.deliverySeconds (läuft in echter Zeit, advance(seconds)).
 // Ohne Three.js und DOM.
@@ -101,6 +104,12 @@ function nasSet({ ram, bays, maxRam }) {
 
 // Welches Teil bei Überhitzung kaputtgeht: Gewicht je Teileart (meist ein Lüfter)
 export const FAILURE_WEIGHTS = { fan: 0.6, psu: 0.15, board: 0.1, cpu: 0.1, ram: 0.05, disk: 0.05 };
+// Teilearten, deren Defekt den Server nicht lahmlegt (#49): Eine defekte Festplatte fällt nur selbst aus
+const SOFT_FAILURE_KINDS = ['disk'];
+// Ob ein defektes Teil dieser Art den Server offline schaltet (Lüfter, Netzteil, Mainboard, CPU, RAM: ja)
+export const stopsServer = (kind) => !SOFT_FAILURE_KINDS.includes(kind);
+// Techniker-Aufschlag auf die Plattenpreise, wenn nur Festplatten defekt sind (#49)
+const DISK_REPAIR_SHARE = 0.3;
 
 // Steckplatz-Satz eines Modells (Typ aus dem Katalog bzw. Gerät) oder null (kein Server, keine Teile)
 export function slotSetOf(typeOrDevice) {
@@ -180,7 +189,9 @@ export class ServerParts {
     if (climate) {
       climate.failPart = (device) => this.failPart(device);
       climate.repairParts = (device) => this.repairAll(device);
-      climate.brokenPart = (device) => this.brokenParts(device)[0]?.part.name ?? null;
+      climate.brokenPart = (device) => this.blockingParts(device)[0]?.part.name ?? null;
+      climate.hasBrokenParts = (device) => this.brokenParts(device).length > 0;
+      climate.partsRepairCost = (device) => this.diskRepairCost(device);
     }
   }
 
@@ -226,12 +237,32 @@ export class ServerParts {
     return this.slotsOf(device).filter((s) => s.broken && s.part);
   }
 
+  // Defekte Teile, die den Server lahmlegen (alles außer Festplatten, #49): [{ kind, index, part }]
+  blockingParts(device) {
+    return this.brokenParts(device).filter((s) => stopsServer(s.kind));
+  }
+
+  // Ob noch ein defektes Teil steckt, das den Server lahmlegt
+  hasBlocking(loadout) {
+    return [...loadout.broken].some((key) => stopsServer(toSlot(key)?.kind));
+  }
+
+  // Eingebaute Teile-IDs, die zur Kapazität zählen: defekte Festplatten nicht (#49), andere defekte Teile schon (der
+  // Server läuft dann ohnehin nicht). override: { kind, index, partId } – so tun, als steckte dort partId (heil)
+  countedIds(loadout, override = null) {
+    return Object.entries(loadout.slots).flatMap(([kind, list]) => list.map((id, index) => {
+      if (override && kind === override.kind && index === override.index) return override.partId;
+      return !stopsServer(kind) && loadout.broken.has(slotKey({ kind, index })) ? null : id;
+    })).filter(Boolean);
+  }
+
   // Platz für VMs aus den eingebauten Teilen (defekte zählen mit – der Server läuft dann ohnehin nicht): { cores, ram }
+  // NAS dazu storage: Speicher aus den heilen Platten (defekte Platten zählen nicht, #49)
   // Geräte ohne Teile (Switches …): ihre Katalogwerte bzw. 0
   capacity(device) {
     const loadout = this.loadoutOf(device);
     if (!loadout) return { cores: device?.type?.cores ?? 0, ram: device?.type?.ram ?? 0 };
-    return sumValues(Object.values(loadout.slots).flat().filter(Boolean));
+    return sumValues(this.countedIds(loadout));
   }
 
   // Strom pro Spielstunde: power × Cores / Standard-Cores des Modells, mindestens die Hälfte (Geräte ohne Teile: power),
@@ -255,7 +286,8 @@ export class ServerParts {
   }
 
   // Warum der Server wegen seiner Teile nicht läuft, oder null: unvollständig (Pflichtteil fehlt) oder zu klein für
-  // die VMs darauf (z. B. nach dem Ausbau einer defekten CPU)
+  // die VMs darauf (z. B. nach dem Ausbau einer defekten CPU). Zu wenig Speicher für vermietete Daten legt die NAS
+  // nicht lahm (#49) – dann sind nur einzelne Speicher-Verträge offline (core/storage-rentals.js)
   problem(device) {
     if (!slotSetOf(device)) return null;
     const missing = this.missingParts(device);
@@ -265,23 +297,27 @@ export class ServerParts {
       const text = list.length > 1 ? `${list.slice(0, -1).join(', ')} und ${list[list.length - 1]}` : list[0];
       return `unvollständig – ${text} ${many ? 'fehlen' : 'fehlt'}`;
     }
-    const short = this.shortage(device, this.capacity(device));
+    const short = this.vmShortage(device, this.capacity(device));
     return short ? `zu klein – ${short.replace('Belegt: ', '')}` : null;
   }
 
   // Grund, wenn die VMs auf dem Server mehr brauchen als capacity, oder null
-  shortage(device, capacity) {
+  vmShortage(device, capacity) {
     const used = this.servers.usageOf(device);
     if (used.cores > capacity.cores) return `Belegt: VMs brauchen ${used.cores} Cores`;
     if (used.ram > capacity.ram) return `Belegt: VMs brauchen ${used.ram} GB RAM`;
-    return this.extraShortage(device, capacity);
+    return null;
   }
 
-  // Kapazität, wenn im Steckplatz slot statt des jetzigen Teils partId (oder nichts) steckte
+  // Wie vmShortage, dazu weitere Belegung (vermieteter Speicher der NAS) – für Ausbau und Tausch
+  shortage(device, capacity) {
+    return this.vmShortage(device, capacity) ?? this.extraShortage(device, capacity);
+  }
+
+  // Kapazität, wenn im Steckplatz slot statt des jetzigen Teils partId (oder nichts) steckte (defekte Platten zählen
+  // wie in capacity nicht)
   capacityWith(device, slot, partId) {
-    const loadout = this.loadoutOf(device);
-    const ids = Object.entries(loadout.slots).flatMap(([kind, list]) => list.map((id, i) => (kind === slot.kind && i === slot.index ? partId : id)));
-    return sumValues(ids.filter(Boolean));
+    return sumValues(this.countedIds(this.loadoutOf(device), { kind: slot.kind, index: slot.index, partId }));
   }
 
   // Grund, wenn die Kapazität die Höchstwerte des Satzes übersteigt, oder null
@@ -383,7 +419,8 @@ export class ServerParts {
     loadout.slots[slot.kind][slot.index] = null;
     if (!scrapped) this.addStock(partId);
     this.onEvent?.('removed', { device, slot: { ...slot }, part: partById(partId), scrapped });
-    if (scrapped && !loadout.broken.size) this.fixed(device);
+    // Läuft wieder: kein defektes Teil mehr, bzw. das letzte lahmlegende ist raus (defekte Platten stören nicht, #49)
+    if (scrapped && (!loadout.broken.size || (stopsServer(slot.kind) && !this.hasBlocking(loadout)))) this.fixed(device);
   }
 
   // Grund, warum sich das Teil im Steckplatz nicht gegen partId tauschen lässt, oder null
@@ -420,7 +457,8 @@ export class ServerParts {
   // ---------- Defekte ----------
 
   // Überhitzung (core/server-climate.js): ein bestimmtes heiles Teil geht kaputt, meist ein Lüfter.
-  // Gibt { kind, index, part } zurück oder null (kein Server bzw. kein heiles Teil)
+  // Gibt { kind, index, part, stops } zurück oder null (kein Server bzw. kein heiles Teil). stops: legt das Teil den
+  // Server lahm (false bei einer Festplatte, #49 – die NAS läuft weiter, core/server-climate.js)
   failPart(device) {
     const loadout = this.loadoutOf(device);
     if (!loadout) return null;
@@ -435,7 +473,7 @@ export class ServerParts {
     const slot = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))];
     loadout.broken.add(slotKey(slot));
     this.economy.notify();
-    return { kind: slot.kind, index: slot.index, part: slot.part };
+    return { kind: slot.kind, index: slot.index, part: slot.part, stops: stopsServer(slot.kind) };
   }
 
   // Bestimmtes Teil als defekt markieren (alte Spielstände, Tests). Gibt true zurück, wenn dort ein Teil steckt.
@@ -447,13 +485,21 @@ export class ServerParts {
     return true;
   }
 
+  // Preis des Technikers, wenn nur Festplatten defekt sind (#49): Summe ihrer Preise + 30 % (wie REPAIR_SHARE in
+  // core/server-climate.js), gerundet. Ist ein anderes Teil defekt (oder keins), null – dann 30 % des Kaufpreises
+  diskRepairCost(device) {
+    const broken = this.brokenParts(device);
+    if (!broken.length || broken.some((s) => stopsServer(s.kind))) return null;
+    return Math.round(broken.reduce((sum, s) => sum + s.part.price, 0) * (1 + DISK_REPAIR_SHARE));
+  }
+
   // Techniker-Reparatur (climate.repair): alle defekten Teile werden ersetzt
   repairAll(device) {
     const loadout = this.loadoutOf(device);
     if (loadout) loadout.broken.clear();
   }
 
-  // Kein defektes Teil mehr: Server läuft wieder (Status in core/server-climate.js zurücksetzen)
+  // Kein lahmlegendes defektes Teil mehr: Server läuft wieder (Status in core/server-climate.js zurücksetzen)
   fixed(device) {
     this.climate?.resume(device.id);
     this.onEvent?.('fixed', { device });
@@ -561,7 +607,8 @@ export class ServerParts {
 
   // Ohne Daten (alte Spielstände): alle Server mit Standardausstattung, leeres Teilelager. Nach climate.load aufrufen:
   // Server, die dort defekt sind, aber kein defektes Teil haben (alte Stände), bekommen einen defekten Lüfter; Server mit
-  // defektem Teil gelten dort als defekt.
+  // lahmlegendem defektem Teil gelten dort als defekt. Eine NAS, die nur wegen einer defekten Platte als defekt
+  // gespeichert ist (Stände bis #49), läuft wieder – nur ihre Platte bleibt defekt.
   load(data) {
     this.loadouts.clear();
     this.stock.clear();
@@ -586,11 +633,14 @@ export class ServerParts {
       for (const device of this.economy.furniture.filter((f) => slotSetOf(f))) {
         const loadout = this.loadoutOf(device);
         const status = this.climate.devices.get(device.id)?.status;
+        const blocking = this.hasBlocking(loadout);
         if (status === 'broken' && !loadout.broken.size) {
           const fan = loadout.slots.fan?.findIndex(Boolean) ?? -1;
           if (fan !== -1) loadout.broken.add(slotKey({ kind: 'fan', index: fan }));
           else this.failPart(device);
-        } else if (loadout.broken.size && status !== 'broken') {
+        } else if (status === 'broken' && !blocking) {
+          this.climate.resume(device.id); // nur defekte Platten: die NAS läuft weiter (#49)
+        } else if (blocking && status !== 'broken') {
           this.climate.device(device.id).status = 'broken';
         }
       }

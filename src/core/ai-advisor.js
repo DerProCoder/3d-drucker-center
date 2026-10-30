@@ -760,6 +760,7 @@ export class AIAdvisor {
     if (rentals) {
       for (const vm of rentals.vms.filter((v) => v.offlineFor > 0)) p.problems.push(`VM von ${vm.customer} läuft nicht – Kunde kündigt bald.`);
     }
+    p.problems.push(...this.diskProblems().map((x) => x.text));
     if (!p.problems.length) p.problems.push(f.servers.length ? 'Alle Server sind online.' : 'Noch keine Server eingebaut.');
     if (rentals) {
       for (const request of rentals.requests.slice(0, 3)) {
@@ -773,6 +774,18 @@ export class AIAdvisor {
     if (!p.advice.length) p.advice.push(f.servers.length ? 'Keine Anfragen offen – Server mit hohem Mietfaktor (RISC, GPU) bringen am meisten.' : 'Fang mit einem Schrank, einer Firewall und einem Mini-Server an.');
     if (rentals) p.forecast.push(`Bis Tagesende bringen die VMs${this.game.storageRentals?.contracts.length ? ' und der vermietete Speicher' : ''} noch etwa ${euro.format(this.rentIncome() * Math.floor(this.hoursLeftToday()))}.`);
     return p;
+  }
+
+  // NAS mit defekter Festplatte (#49): Die NAS läuft weiter, nur Speicher-Verträge, die nicht mehr auf die heilen
+  // Platten passen, sind offline. [{ device, stranded, text }]
+  diskProblems() {
+    const { nas, storageRentals: disk } = this.game;
+    if (!nas || !disk) return [];
+    return disk.nasDevices.filter((d) => nas.brokenStorageOf(d) > 0).map((d) => {
+      const stranded = disk.strandedOn(d).length;
+      const what = stranded ? `${plural(stranded, 'Speicher-Vertrag', 'Speicher-Verträge')} offline, ${stranded === 1 ? 'der Kunde kündigt' : 'die Kunden kündigen'} bald` : 'die NAS läuft weiter';
+      return { device: d, stranded, text: `Festplatte in ${this.serverName(d)} defekt – ${what}. Platte tauschen.` };
+    });
   }
 
   // Bester Server für eine VM-Anfrage: wie die automatische Vergabe (höchster Mietfaktor, dann der vollste)
@@ -967,6 +980,7 @@ export class AIAdvisor {
     for (const x of f.printers) if (x.problem) list.push(`${this.printerName(x.p)}: ${x.problem}`);
     if (this.game.servers) list.push(...this.offlineServers([...f.servers, ...f.aiServers], f));
     for (const d of f.climate.down) list.push(`${this.serverName(d.device)} ${d.status === 'broken' ? 'ist überhitzt und defekt' : 'ist eingefroren'}`);
+    list.push(...this.diskProblems().map((x) => x.text.replace(/\.$/, ''))); // defekte Festplatten in NAS (#49)
     const hot = hottestPerRack(f.climate.hot);
     for (const h of hot.values()) list.push(`${h.label} ist zu heiß (${degrees(h.temp)})`);
     for (const [customer, orders] of byCustomer(f.orders.filter((o) => o.order.stage === 'counter'))) {
@@ -1217,6 +1231,8 @@ export class AIAdvisor {
     for (const d of f.climate.down) {
       add(`down-${d.device.id}`, 'climate', 90, `${this.serverName(d.device)} ${d.status === 'broken' ? 'ist noch immer überhitzt und defekt – reparieren' : 'ist noch immer eingefroren – neu starten'}.`, { remindOnly: true });
     }
+    // Defekte Festplatte (#49) meldet main.js schon – die KI erinnert, solange Speicher-Verträge deshalb offline sind
+    for (const x of this.diskProblems().filter((y) => y.stranded)) add(`disk-${x.device.id}`, 'servers', 88, x.text, { remindOnly: true });
     // Je Schrank eine Warnung, überhitzte KI-GPU-Server stehen mit drin. Zu warm (über idealMax) ohne Schaden meldet
     // die KI einmal; ab TEMP_LIMITS.hot (Schaden, GPUs drosseln) steigt die Gefahr – dann gleich und alle WARN_REPEAT
     for (const h of hottestPerRack(f.climate.hot).values()) {
@@ -1323,6 +1339,7 @@ export class AIAdvisor {
       else add(70, 'printers', `${this.printerName(x.p)}: ${x.problem}`, 'solange verdient der Drucker nichts');
     }
     for (const d of f.climate.down) add(88, 'climate', `${this.serverName(d.device)} ${d.status === 'broken' ? 'reparieren' : 'neu starten'}`, d.status === 'broken' ? 'überhitzt und defekt' : 'eingefroren');
+    for (const x of this.diskProblems()) add(x.stranded ? 86 : 60, 'servers', `Festplatte in ${this.serverName(x.device)} tauschen`, x.stranded ? `${plural(x.stranded, 'Speicher-Vertrag', 'Speicher-Verträge')} offline, keine Miete` : 'die NAS läuft weiter, hat aber weniger Speicher');
     if (f.aiHot.length && this.ai) {
       const gain = feeFor(f.aiWorking.length + f.aiHot.length) - this.ai.incomePerHour;
       add(85, 'ai', `${plural(f.aiHot.length, 'KI-GPU-Server', 'KI-GPU-Server')} kühlen`, `+${euro.format(gain)} KI-Abo pro Stunde`, gain * 10);

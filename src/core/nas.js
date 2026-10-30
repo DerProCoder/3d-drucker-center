@@ -4,6 +4,8 @@
 // NAS-Sonderfälle: Speicher (Summe der Platten), freie Schächte und das Einsetzen und Herausnehmen von Platten direkt
 // im Schrank (Hot-Swap, Klick in world/ #48). RAM, CPU, Lüfter und Netzteil tauscht man an der Werkbank (#45).
 // Sonst ist eine NAS ein ganz normaler Server: Strom, Netz, Kühlung, Defekte und VMs (auf ihre 32 Cores und ihren RAM).
+// Ausnahme (#49): Eine defekte Platte legt die NAS nicht lahm – sie bleibt online, ihr Speicher zählt nur die heilen
+// Platten. Speicher-Verträge, die dann nicht mehr passen, sind offline (core/storage-rentals.js, Rückruf strandedOf).
 //
 // Vermieteter Speicher (#47) kommt über den Rückruf rentedStorageOf; eine Platte darf nur heraus, wenn er danach noch
 // passt. Dieselbe Prüfung gilt über serverParts.extraShortage auch an der Werkbank.
@@ -33,16 +35,23 @@ export class Nas {
   constructor(parts) {
     this.parts = parts;
     this.economy = parts.economy;
-    // (type, data) => void – 'disk-inserted' { device, bay, part }, 'disk-removed' { device, bay, part, scrapped }
+    // (type, data) => void – 'disk-inserted' { device, bay, part, stranded, restored },
+    // 'disk-removed' { device, bay, part, scrapped, stranded }
     // (bay: Schacht-Nummer; scrapped: defekte Platte entsorgt statt ins Teilelager)
     this.onEvent = null;
     // Vermieteter Speicher einer NAS in GB (#47 setzt das, z. B. storageRentals.usedOn) – bis dahin 0
     this.rentedStorageOf = () => 0;
-    // Ausbau und Tausch prüfen (auch an der Werkbank): vermieteter Speicher muss auf die übrigen Platten passen
+    // Speicher-Verträge der NAS, die wegen defekter Platten nicht mehr passen und offline sind (#49, setzt
+    // core/storage-rentals.js) – bis dahin keine
+    this.strandedOf = () => [];
+    // Ausbau und Tausch prüfen (auch an der Werkbank): vermieteter Speicher muss auf die übrigen Platten passen.
+    // Fehlt nach einem Plattendefekt ohnehin schon Speicher (#49), ist nur verboten, was ihn weiter verkleinert – der
+    // Tausch der defekten Platte gegen eine kleinere oder eine größere Platte in einem anderen Schacht geht also.
     parts.extraShortage = (device, capacity) => {
       if (!isNas(device)) return null;
       const rented = this.rentedStorageOf(device) ?? 0;
-      return rented > (capacity.storage ?? 0) ? `Belegt: ${storageText(rented)} vermietet` : null;
+      const after = capacity.storage ?? 0;
+      return rented > after && after < this.storageOf(device) ? `Belegt: ${storageText(rented)} vermietet` : null;
     };
   }
 
@@ -58,7 +67,7 @@ export class Nas {
 
   // ---------- Speicher ----------
 
-  // Speicher in GB: Summe der eingebauten Platten (auch defekte – eine NAS mit defekter Platte läuft ohnehin nicht)
+  // Speicher in GB: Summe der heilen eingebauten Platten (eine defekte Platte fällt nur selbst aus, #49)
   storageOf(device) {
     device = this.deviceOf(device);
     return isNas(device) ? this.parts.capacity(device).storage ?? 0 : 0;
@@ -98,7 +107,13 @@ export class Nas {
     return this.baysOf(device).filter((b) => b.part).length;
   }
 
-  // Übersicht für Schrankfenster und Server-Shop: { cores, ram, maxRam, storage, used, free, bays, usedBays }
+  // Speicher der defekten Platten in GB (fällt aus, bis sie getauscht sind)
+  brokenStorageOf(device) {
+    return this.baysOf(device).filter((b) => b.part && b.broken).reduce((sum, b) => sum + b.gb, 0);
+  }
+
+  // Übersicht für Schrankfenster und Server-Shop: { cores, ram, maxRam, storage, used, free, bays, usedBays,
+  // brokenDisks, brokenStorage, stranded (Speicher-Verträge offline wegen defekter Platten, #49) }
   // (Zeile z. B. „32 Cores · 256 / 512 GB RAM · 2,5 TB Speicher · 2 / 4 Schächte“)
   summary(device) {
     device = this.deviceOf(device);
@@ -113,6 +128,9 @@ export class Nas {
       free: this.freeStorageOf(device),
       bays: this.bayCount(device),
       usedBays: this.usedBays(device),
+      brokenDisks: this.baysOf(device).filter((b) => b.part && b.broken).length,
+      brokenStorage: this.brokenStorageOf(device),
+      stranded: this.strandedOf(device).length,
     };
   }
 
@@ -144,15 +162,18 @@ export class Nas {
     return this.parts.installProblem(device, { kind: 'disk', index }, id);
   }
 
-  // Platte aus dem Teilelager in den Schacht setzen: { ok: true, part } oder { ok: false, reason }
+  // Platte aus dem Teilelager in den Schacht setzen: { ok: true, part } oder { ok: false, reason }.
+  // Das Ereignis nennt dazu stranded (danach noch offline Speicher-Verträge) und restored (wieder online, #49)
   insertDisk(deviceId, bay, partId = null) {
     const device = this.deviceOf(deviceId);
     const reason = this.canInsertDisk(device, bay, partId);
     if (reason) return { ok: false, reason };
     const index = bayIndex(bay);
     const part = partById(partId ?? this.bestDisk.id);
+    const before = this.strandedOf(device).length;
     if (!this.parts.install(device.id, { kind: 'disk', index }, part.id)) return { ok: false, reason: 'Einsetzen fehlgeschlagen' };
-    this.onEvent?.('disk-inserted', { device, bay: index, part });
+    const stranded = this.strandedOf(device).length;
+    this.onEvent?.('disk-inserted', { device, bay: index, part, stranded, restored: Math.max(0, before - stranded) });
     return { ok: true, part };
   }
 
@@ -166,7 +187,8 @@ export class Nas {
     return this.parts.removeProblem(device, { kind: 'disk', index });
   }
 
-  // Platte herausnehmen: heil ins Teilelager, defekt wird entsorgt.
+  // Platte herausnehmen: heil ins Teilelager, defekt wird entsorgt. Das Ereignis nennt stranded (Speicher-Verträge, die
+  // danach noch offline sind, #49).
   // { ok: true, part, scrapped } oder { ok: false, reason }
   removeDisk(deviceId, bay) {
     const device = this.deviceOf(deviceId);
@@ -177,7 +199,7 @@ export class Nas {
     const part = partById(this.parts.loadoutOf(device).slots.disk[index]);
     const scrapped = this.parts.loadoutOf(device).broken.has(slotId(slot));
     if (!this.parts.remove(device.id, slot)) return { ok: false, reason: 'Herausnehmen fehlgeschlagen' };
-    this.onEvent?.('disk-removed', { device, bay: index, part, scrapped });
+    this.onEvent?.('disk-removed', { device, bay: index, part, scrapped, stranded: this.strandedOf(device).length });
     return { ok: true, part, scrapped };
   }
 }
