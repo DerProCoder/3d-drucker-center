@@ -1,4 +1,5 @@
-// Keller 70 m unter der Halle (Ausbau, core/upgrades.js): ein leerer, beleuchteter Raum so groß wie die Halle. Hinunter
+// Keller 70 m unter der Halle (Ausbau, core/upgrades.js): beleuchtete Halle, die in Stufen von 20 × 20 bis
+// 120 × 120 m wächst (Felder, Wände, Stützen und Stahltüren: world/basement-fields.js). Hinunter
 // geht es über ein Treppenhaus in der Ecke links hinten (Nordwest) – wie in einem Hochhaus mit 20 Stockwerken zu je
 // 3,5 m: pro Stockwerk zwei gegenläufige Läufe im Zickzack, dazwischen ein Zwischenpodest (Westen) und an jedem
 // Stockwerkspodest (Osten) eine Tiefenanzeige. Später kommt ein eigener Keller-Fahrstuhl direkt südlich daneben dazu.
@@ -9,10 +10,11 @@
 // footing() sagt, wie hoch der Boden unter ihr ist und auf welchem Stockwerk sie danach steht. Weil das Treppenhaus
 // 20-mal übereinander dieselbe Grundfläche hat, braucht footing() zusätzlich die bisherige Bodenhöhe.
 import * as THREE from 'three';
-import { ROOM_HEIGHT, ROOM_SIZE, WALL_THICKNESS, createCeilingLight } from './room.js';
+import { ROOM_HEIGHT, ROOM_SIZE, WALL_THICKNESS } from './room.js';
 import { box } from '../models/mesh-helpers.js';
-import { canvasTexture, speckle } from '../models/canvas-texture.js';
+import { canvasTexture } from '../models/canvas-texture.js';
 import { mergeStatic } from '../models/merge-static.js';
+import { createBasementFields, VIEW_DIST } from './basement-fields.js';
 
 const HALF = ROOM_SIZE / 2;
 const T = WALL_THICKNESS;
@@ -46,6 +48,8 @@ const RAIL_HEIGHT = 1.0;
 const HALL_VISIBLE_Y = -STOREY - 0.7;     // darunter (Augenhöhe) sieht man die Halle nicht mehr
 const BASEMENT_VISIBLE_Y = BASEMENT_Y + 2 * STOREY; // darüber sieht man den Keller nicht
 const LIGHT_ON = 22;                      // Deckenspots im Keller (wie die zweite Etage)
+// Die drei Deckenspots folgen im Keller der Spielfigur (je Feld eigene Lichter wären zu teuer): im Dreieck um sie herum
+const SPOT_OFFSETS = [[0, -6], [-5.2, 3], [5.2, 3]];
 const FOLLOW_ON = 9;                      // Licht, das im Treppenhaus über der Spielfigur mitläuft
 const EXIT_GAP = 0.7;                     // so weit vor der Fahrstuhltür taucht man auf
 
@@ -283,56 +287,6 @@ function createHallPart(m, room) {
   return mergeStatic(g); // Geländer, Platte und Schild: je Material ein Mesh
 }
 
-// Kellerraum: Betonboden mit Fugen, Wände, Decke (mit Aussparung fürs Treppenhaus), Leuchten
-function createBasementRoom(m) {
-  const g = new THREE.Group();
-  const y = BASEMENT_Y;
-  const floorTexture = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#8c8f94';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 5000, 0.08);
-    ctx.strokeStyle = 'rgba(40,40,40,0.45)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, w - 2, h - 2); // Fuge alle 2 m
-  }, ROOM_SIZE / 2, ROOM_SIZE / 2);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIZE, ROOM_SIZE), new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.8 }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = y;
-  g.add(floor);
-
-  const wall = new THREE.MeshStandardMaterial({ color: 0xc9c5bc, roughness: 0.95 });
-  const plinth = new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.8 });
-  const yc = y + STOREY / 2;
-  g.add(
-    box(ROOM_SIZE + 2 * T, STOREY, T, wall, 0, yc, -HALF - T / 2),
-    box(ROOM_SIZE + 2 * T, STOREY, T, wall, 0, yc, HALF + T / 2),
-    box(T, STOREY, ROOM_SIZE, wall, -HALF - T / 2, yc, 0),
-    box(T, STOREY, ROOM_SIZE, wall, HALF + T / 2, yc, 0),
-    // Sockel (Treppenhaus-Ecke ausgenommen)
-    box(ROOM_SIZE - (X1 - X0), 0.1, 0.02, plinth, (X1 + HALF) / 2, y + 0.05, -HALF + 0.01),
-    box(ROOM_SIZE, 0.1, 0.02, plinth, 0, y + 0.05, HALF - 0.01),
-    box(0.02, 0.1, HALF - Z1, plinth, -HALF + 0.01, y + 0.05, (Z1 + HALF) / 2),
-    box(0.02, 0.1, ROOM_SIZE, plinth, HALF - 0.01, y + 0.05, 0),
-  );
-  // Decke: zwei Platten, die Ecke des Treppenhauses bleibt frei
-  const ceiling = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.95 });
-  const cy = y + STOREY + 0.15;
-  g.add(
-    box(HALF - X1, 0.3, ROOM_SIZE, ceiling, (X1 + HALF) / 2, cy, 0),
-    box(X1 - X0, 0.3, HALF - Z1 - T, ceiling, (X0 + X1) / 2, cy, (Z1 + T + HALF) / 2),
-  );
-  for (const x of [-6, 0, 6]) {
-    for (const z of [-4, 4]) {
-      const lamp = createCeilingLight();
-      for (const light of lamp.children.filter((o) => o.isLight)) lamp.remove(light, light.target);
-      lamp.position.set(x, y + STOREY, z);
-      g.add(lamp);
-    }
-  }
-  g.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
-  return mergeStatic(g, { cell: 7 });
-}
-
 // Haltestelle des Keller-Fahrstuhls auf Höhe y: Schachtstück, Tür nach Osten, Ruftaster rechts daneben, Schild
 function createElevatorStop(y, target, onRide) {
   const g = new THREE.Group();
@@ -381,10 +335,10 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
   const m = createMaterials();
   // Lichter von Anfang an da (nur ohne Helligkeit), damit sich die Zahl der Lichter nie ändert – sonst übersetzt
   // three.js beim Kauf alle Shader neu (siehe world/hall-lights.js)
-  const spots = [-6, 0, 6].map((x) => {
+  const spots = SPOT_OFFSETS.map(([x, z]) => {
     const light = new THREE.SpotLight(0xfff1dc, 0, 14, Math.PI * 0.45, 0.8, 2);
-    light.position.set(x, BASEMENT_Y + STOREY - 0.1, 0);
-    light.target.position.set(x, BASEMENT_Y, 0);
+    light.position.set(x, BASEMENT_Y + STOREY - 0.1, z);
+    light.target.position.set(x, BASEMENT_Y, z);
     group.add(light, light.target);
     return light;
   });
@@ -393,8 +347,16 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
   group.add(follow, follow.target);
   const sunOn = sun?.intensity ?? 0;
 
+  // Felder des Kellers (Boden, Wände, Stützen, Stahltüren) – Materialien entstehen schon hier, nicht erst beim Ausbau
+  const layout = upgrades.basementLayout;
+  const fields = createBasementFields({
+    layout, collision, level: LEVEL.BASEMENT,
+    stairwell: { x0: X0, x1: X1, z0: Z0, z1: Z1 + T },
+    // Fahrstuhl samt Platz zum Aussteigen
+    keepFree: [{ minX: BASEMENT_ELEVATOR.x0, maxX: BASEMENT_ELEVATOR.x1 + 1.5, minZ: BASEMENT_ELEVATOR.z0 - 0.3, maxZ: BASEMENT_ELEVATOR.z1 + 0.3 }],
+  });
   const storeys = [];
-  let basementRoom = null;
+  let basementRoom = null; // Felder und Fahrstuhl-Haltestelle unten
   let built = false;
   let elevatorBuilt = false;
 
@@ -410,11 +372,8 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       { minX: X0 - T, maxX: X1 + T, minZ: Z1, maxZ: Z1 + T, level: LEVEL.STAIRS },
       { minX: X1, maxX: X1 + T, minZ: Z0 - T, maxZ: Z1 + T, level: LEVEL.STAIRS },
       { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.STAIRS },
-      // Keller: Außenwände, Südwand des Treppenhauses, Trennwand, Wand unter dem letzten Lauf A
-      { minX: -HALF - T, maxX: HALF + T, minZ: -HALF - T, maxZ: -HALF, level: LEVEL.BASEMENT },
-      { minX: -HALF - T, maxX: HALF + T, minZ: HALF, maxZ: HALF + T, level: LEVEL.BASEMENT },
-      { minX: -HALF - T, maxX: -HALF, minZ: -HALF, maxZ: HALF, level: LEVEL.BASEMENT },
-      { minX: HALF, maxX: HALF + T, minZ: -HALF, maxZ: HALF, level: LEVEL.BASEMENT },
+      // Keller: Südwand des Treppenhauses, Trennwand, Wand unter dem letzten Lauf A (Außenwände, Stützen und
+      // Bunkerwände wachsen mit dem Ausbau, siehe fields.colliders)
       { minX: X0 - T, maxX: X1 + T, minZ: Z1, maxZ: Z1 + T, level: LEVEL.BASEMENT },
       { minX: XW, maxX: XE, minZ: ZD0, maxZ: ZD1, level: LEVEL.BASEMENT },
       { minX: XE - 0.05, maxX: XE + 0.05, minZ: ZD0, maxZ: Z1, level: LEVEL.BASEMENT },
@@ -423,7 +382,7 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       const { x0, x1, z0, z1 } = BASEMENT_ELEVATOR;
       for (const level of [LEVEL.HALL, LEVEL.BASEMENT]) boxes.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, level });
     }
-    return boxes;
+    return [...boxes, ...fields.colliders()];
   }
 
   // Ausbau-Stand übernehmen: Keller bzw. Fahrstuhl bauen, sobald sie geliefert sind (auch beim Laden eines Spielstands)
@@ -438,7 +397,9 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
         storeys.push(storey);
         group.add(storey);
       }
-      basementRoom = createBasementRoom(m);
+      basementRoom = new THREE.Group();
+      basementRoom.name = 'basement-room';
+      basementRoom.add(fields.group);
       basementRoom.visible = false;
       group.add(basementRoom);
       for (const light of spots) light.intensity = LIGHT_ON;
@@ -448,9 +409,14 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       hallGroup.add(createElevatorStop(0, LEVEL.BASEMENT, onRide));
       basementRoom.add(createElevatorStop(BASEMENT_Y, LEVEL.HALL, onRide));
     }
-    if (built) collision.setDynamic('basement', colliders());
+    if (built) {
+      fields.sync(); // billig, solange sich Stufe und Feldarten nicht geändert haben
+      collision.setDynamic('basement', colliders());
+    }
   }
   upgrades.subscribe(sync);
+  // Das Laden eines Spielstands meldet die Kellerkarte nur selbst (nicht über upgrades.notify)
+  layout.subscribe(() => sync());
 
   // Höhe am Ort x/z eines Stockwerks k (0 = oben): nächstgelegenes zur bisherigen Bodenhöhe yPrev, k in [kMin, kMax]
   function storeyHeight(x, z, yPrev, kMin, kMax) {
@@ -514,6 +480,31 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
     return p.y < BASEMENT_Y + STOREY && !inShaft(p.x, p.z) ? 'basement' : 'stairs';
   }
 
+  // Kellernebel: Der Außennebel (world/outdoor.js, hellblau ab 45 m) gälte auch hier unten – hinter den nicht mehr
+  // gezeichneten Feldern (ab VIEW_DIST) bliebe dann ein schwarzer Streifen. Im Keller deshalb dunkler Nebel in der
+  // Hintergrundfarbe, der vor VIEW_DIST dicht ist. Nur Farbe und Reichweite des vorhandenen scene.fog ändern sich –
+  // kein Shader wird neu übersetzt. Beim Verlassen kommen die alten Werte zurück.
+  const FOG_NEAR = 22;
+  const FOG_FAR = VIEW_DIST - 4;
+  let savedFog = null;
+  function setBasementFog(on) {
+    let scene = group.parent;
+    while (scene && !scene.isScene) scene = scene.parent;
+    const fog = scene?.fog;
+    if (!fog?.isFog || on === !!savedFog) return;
+    if (on) {
+      savedFog = { color: fog.color.clone(), near: fog.near, far: fog.far };
+      fog.color.copy(scene.background?.isColor ? scene.background : new THREE.Color(0x1a1d22));
+      fog.near = FOG_NEAR;
+      fog.far = FOG_FAR;
+    } else {
+      fog.color.copy(savedFog.color);
+      fog.near = savedFog.near;
+      fog.far = savedFog.far;
+      savedFog = null;
+    }
+  }
+
   const frustum = new THREE.Frustum();
   const matrix = new THREE.Matrix4();
   const holeBox = new THREE.Box3(new THREE.Vector3(X0, -2 * STOREY, Z0), new THREE.Vector3(X1, 0.1, Z1));
@@ -524,7 +515,9 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
     if (!built) return;
     const p = camera.position;
     const inHallArea = Math.abs(p.x) < HALF && Math.abs(p.z) < HALF;
-    let near = inHallArea;
+    // Tiefer als ein Stockwerk gibt es nur Treppenhaus und Keller – der Keller reicht weit über die Halle hinaus
+    const deep = p.y < -STOREY;
+    let near = inHallArea || deep;
     if (near && p.y > -STOREY) {
       camera.updateMatrixWorld();
       matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -537,17 +530,33 @@ export function createBasement({ upgrades, collision, room, onRide = () => {}, s
       const top = -STOREY * k;
       storey.visible = near && top - STOREY < p.y + 4 && top > p.y - below;
     });
-    basementRoom.visible = inHallArea && p.y < BASEMENT_VISIBLE_Y;
-    const underground = inHallArea && p.y < 0.5;
+    const shown = p.y < BASEMENT_VISIBLE_Y;
+    basementRoom.visible = shown;
+    setBasementFog(shown);
+    // Felder: Neubau nach dem Ausbau (verteilt auf mehrere Bilder), nur nahe Felder zeichnen, Stahltüren
+    fields.update(dt, camera, shown, p.y < BASEMENT_Y + STOREY);
+    const underground = (inHallArea && p.y < 0.5) || deep;
     follow.intensity = underground ? FOLLOW_ON : 0;
     follow.position.set(p.x, p.y + 0.9, p.z);
     follow.target.position.set(p.x, p.y - 3, p.z);
     follow.target.updateMatrixWorld();
-    if (sun) sun.intensity = inHallArea && p.y < -STOREY ? 0 : sunOn;
+    // Deckenspots im Keller: im Dreieck um die Spielfigur, nicht über die Außenwände hinaus
+    if (shown) {
+      const lo = -HALF + 1;
+      const hi = -HALF + Math.max(layout.size, ROOM_SIZE) - 1;
+      spots.forEach((light, k) => {
+        const x = THREE.MathUtils.clamp(p.x + SPOT_OFFSETS[k][0], lo, hi);
+        const z = THREE.MathUtils.clamp(p.z + SPOT_OFFSETS[k][1], lo, hi);
+        light.position.set(x, BASEMENT_Y + STOREY - 0.1, z);
+        light.target.position.set(x, BASEMENT_Y, z);
+        light.target.updateMatrixWorld();
+      });
+    }
+    if (sun) sun.intensity = deep ? 0 : sunOn;
   }
 
   return {
-    group, hallGroup, footing, elevatorExit, update, hallVisibleFrom, zoneOf, colliders, hallObstacles,
+    group, hallGroup, footing, elevatorExit, update, hallVisibleFrom, zoneOf, colliders, hallObstacles, fields,
     get built() { return built; },
     get elevatorBuilt() { return elevatorBuilt; },
     get storeys() { return storeys; },
