@@ -124,9 +124,11 @@ Jede Datei gehört in genau einen Ordner. Neue Module nach dieser Tabelle einsor
 **Auf dem Mac** (zweiter Entwicklungsrechner): `python3` und `git` hängen an den Xcode-Kommandozeilentools und
 funktionieren dort ggf. nicht, PowerShell gibt es nicht. Chrome liegt unter
 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`. Statischer Server im Repo-Wurzelordner mit Perl
-(Port als letztes Argument, im Hintergrund starten, danach mit `pkill -f "LocalPort=>shift"` beenden):
+(Port als letztes Argument, im Hintergrund starten, danach nur den eigenen Prozess per PID beenden – nie `pkill`, Port 8080
+ist der Server des Nutzers). Die Fassung bearbeitet jede Verbindung in einem eigenen Prozess, sonst hängt der
+Browser beim Laden vieler Module:
 ```
-perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>"127.0.0.1",LocalPort=>shift,Listen=>20,ReuseAddr=>1)or die;%t=(html=>"text/html",js=>"text/javascript",css=>"text/css",png=>"image/png");while($c=$s->accept){($p)=<$c>=~m{GET (\S+)};1 while($_=<$c>)!~/^\r?\n$/;$p=~s/\?.*//;$p="/index.html"if$p eq"/";($e)=$p=~/\.(\w+)$/;if($p!~/\.\./&&open F,"<:raw",".$p"){local$/;$d=<F>;print$c "HTTP/1.1 200 OK\r\nContent-Type: ".($t{$e}//"application/octet-stream")."\r\nContent-Length: ".length($d)."\r\nConnection: close\r\n\r\n$d"}else{print$c "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"}close$c}' 8765
+perl -MIO::Socket::INET -e '$SIG{CHLD}="IGNORE";$s=IO::Socket::INET->new(LocalAddr=>"127.0.0.1",LocalPort=>shift,Listen=>64,ReuseAddr=>1)or die;%t=(html=>"text/html",js=>"text/javascript",css=>"text/css",png=>"image/png",json=>"application/json",svg=>"image/svg+xml",jpg=>"image/jpeg",glb=>"model/gltf-binary",mp3=>"audio/mpeg");while(1){$c=$s->accept or next;if(fork){close$c;next}($p)=(<$c>//"")=~m{GET (\S+)};1 while defined($_=<$c>)&&!/^\r?\n$/;$p//="/";$p=~s/\?.*//;$p="/index.html"if$p eq"/";($e)=$p=~/\.(\w+)$/;if($p!~/\.\./&&open F,"<:raw",".$p"){local$/;$d=<F>;print$c "HTTP/1.1 200 OK\r\nContent-Type: ".($t{$e//""}//"application/octet-stream")."\r\nContent-Length: ".length($d)."\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n$d"}else{print$c "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"}close$c;exit}' 8765
 ```
 
 ## Pull Requests und Deployment
