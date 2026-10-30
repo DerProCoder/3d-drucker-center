@@ -93,6 +93,14 @@ export class BasementStorage {
     return this.stack(field, zone, [entry]).overflow === 0;
   }
 
+  // Wie viele der Kartons (der Reihe nach, z. B. ein getragener Stapel von oben nach unten) passen nacheinander noch
+  // in die Zone? Für „Alles tragen“ (#63): auf einer Zone wird alles abgestellt, was dort Platz hat.
+  fittingCount(field, zone, entries) {
+    let n = 0;
+    while (n < entries.length && this.stack(field, zone, entries.slice(0, n + 1)).overflow === 0) n++;
+    return n;
+  }
+
   // Erste Zone, in die der Karton ({ model } | { type } oder ein Drucker/Möbel) passt: { field, zone } oder null
   findZone(entry) {
     for (const field of this.storageFields()) {

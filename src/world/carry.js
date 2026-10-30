@@ -51,6 +51,11 @@ export class Carry {
     return this.boxes[this.boxes.length - 1] ?? null;
   }
 
+  // Alle getragenen Kartons als Drucker bzw. Einrichtungsstücke, der oberste zuerst (so werden sie abgestellt)
+  get boxItems() {
+    return this.boxes.map((b) => (b.kind === 'printer' ? this.economy.printerById(b.id) : this.economy.furnitureById(b.id))).reverse();
+  }
+
   // Oberster Drucker bzw. oberstes Einrichtungsstück im Kartonstapel (das wird als Nächstes aufgestellt) oder null
   get printer() {
     return this.topBox?.kind === 'printer' ? this.economy.printerById(this.topBox.id) : null;

@@ -1,6 +1,7 @@
 // Keller-Lager (#53) in 3D: In jedem Lager-Feld des Kellers (core/basement-layout.js) liegen
 //   - vier Stapelzonen für Kartons (gelb umrandet, am Mittelgang): Klick auf einen Karton nimmt ihn, mit einem Karton
-//     in der Hand stellt ein Klick auf Zone oder Stapel ihn dort ab,
+//     in der Hand stellt ein Klick auf Zone oder Stapel ihn dort ab. Mit „Alles tragen“ (#63) nimmt ein Klick auf einen
+//     Karton ihn zum Stapel in der Hand dazu, ein Klick auf den Zonenboden stellt alle getragenen ab, soweit Platz ist,
 //   - acht Regalplätze (blau umrandet, beiderseits des Mittelgangs) für Filament-Regale auf einem Stahlgestell. Spulen
 //     darin bleiben trocken (core/basement-storage.js).
 // Lage der Zonen und Plätze: ZONE_LAYOUT/RACK_LAYOUT aus core/basement-storage.js (relativ zur Feldmitte).
@@ -116,33 +117,48 @@ export function createBasementStorage({ economy, store, carry, collision, fields
 
   // ---------- Interaktion ----------
 
+  // Getragene Kartons, der oberste zuerst – auf einer Zone wird alles abgestellt, was dort noch Platz hat (#63:
+  // mit „Alles tragen“ mehrere, sonst ist es ohnehin nur einer)
   function putHint(field, zone) {
-    const item = heldBox();
-    if (!item) return null;
-    if (!store.zoneFits(field, zone, item)) return 'Stapelplatz voll – die Kartons reichen bis unter die Decke';
-    return `Linksklick: ${boxName(item)} hier abstellen (Keller-Lager)`;
+    const items = heldBox() ? carry.boxItems : [];
+    if (!items.length) return null;
+    const n = store.fittingCount(field, zone, items);
+    if (!n) return 'Stapelplatz voll – die Kartons reichen bis unter die Decke';
+    if (items.length === 1) return `Linksklick: ${boxName(items[0])} hier abstellen (Keller-Lager)`;
+    const what = n === items.length ? `alle ${n} Kartons` : `${n} von ${items.length} Kartons (mehr passen nicht)`;
+    return `Linksklick: ${what} hier abstellen (Keller-Lager)`;
   }
 
   function put(field, zone) {
-    const item = heldBox();
-    if (!item || store.putBox(item, field, zone)) return;
-    if (item.model) carry.releasePrinter();
-    else carry.releaseFurniture();
+    while (heldBox()) {
+      const item = heldBox();
+      if (store.putBox(item, field, zone)) return;
+      if (item.model) carry.releasePrinter();
+      else carry.releaseFurniture();
+    }
   }
 
   function zoneInteraction(field, zone) {
     return { hint: () => putHint(field, zone), action: () => put(field, zone) };
   }
 
+  // Mit „Alles tragen“ und Platz in den Händen nimmt ein Klick auf einen Karton ihn dazu (wie im Abstellraum);
+  // abgestellt wird dann über den gelb markierten Boden der Zone. Sonst stellt der Klick den Karton auf den Stapel.
+  const collecting = () => heldBox() && carry.maxBoxes > 1 && carry.canTakeBox;
+
   function crateInteraction(item, field, zone) {
     return {
       hint: () => {
+        if (collecting()) {
+          return `Linksklick: ${boxName(item)} dazunehmen (${carry.boxes.length + 1}/${carry.maxBoxes} in der Hand) · `
+            + 'zum Abstellen auf den gelb markierten Boden der Zone zielen';
+        }
         if (heldBox()) return putHint(field, zone);
         if (!carry.canTakeBox) return 'Hände voll – Q legt alles zurück ins Lager';
         return `Linksklick: ${boxName(item)} aufheben`;
       },
       action: () => {
-        if (heldBox()) {
+        if (heldBox() && !collecting()) {
           put(field, zone);
           return;
         }
@@ -197,7 +213,11 @@ export function createBasementStorage({ economy, store, carry, collision, fields
       hint: () => {
         const spool = rack.spools[index];
         if (!spool) return whole.hint();
-        if (carry.canTakeSpool) return `Linksklick: ${spoolLabel(spool)} nehmen · ${DRY_RACK_LABEL}`;
+        if (carry.canTakeSpool) {
+          // Mehrere Spulen nacheinander (bis carry.maxSpools, mit „Alles tragen“ mehr), wie an den Regalen oben
+          const count = carry.hasSpools ? ` (${carry.spools.length + 1}/${carry.maxSpools} in der Hand)` : '';
+          return `Linksklick: ${spoolLabel(spool)} nehmen${count} · ${DRY_RACK_LABEL}`;
+        }
         return whole.hint();
       },
       action: () => {
