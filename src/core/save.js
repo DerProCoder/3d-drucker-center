@@ -83,7 +83,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
   const furniture = economy.furniture.map((f) => ({
     id: f.id,
     typeId: f.type.id,
-    // Getragene Regale landen beim Laden wieder im Abstellraum
+    // Getragene Regale landen beim Laden wieder im Abstellraum (Platz vergibt economy.placeLooseBoxes, #64)
     location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench', 'basement', 'basement-rack', 'technik'].includes(f.location) ? f.location : 'storage',
     slot: ['table', 'wall', 'server', 'technik'].includes(f.location) ? f.slot : null, // technik: Akku-/Generatorplatz (#59)
     rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
@@ -114,7 +114,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
       pendingCosts: economy.pendingCosts,
       nextPrinterId: economy.nextPrinterId,
       nextLooseId: economy.nextLooseId,
-      // Getragene Drucker landen beim Laden wieder im Abstellraum
+      // Getragene Drucker landen beim Laden wieder im Abstellraum (Platz vergibt economy.placeLooseBoxes, #64)
       printers: economy.printers.map((p) => ({
         id: p.id,
         modelId: p.model.id,
@@ -523,6 +523,10 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   }
   // Keller-Lager: Kartons und Regale auf ungültigen Plätzen zurück in den Abstellraum (core/basement-storage.js)
   basementStorage?.load();
+  // Beim Speichern getragene oder geworfene Kartons stehen als „im Abstellraum“ ohne Platz im Stand (#64). Sie bekommen
+  // einen freien Platz bzw. einen im Keller-Lager – sofort, wenn der Abstellraum schon steht (Laden im laufenden
+  // Spiel), sonst gleich nach dem Aufbau der Welt (world/storage-room.js), weil erst dann die Kartonhöhen bekannt sind.
+  if (economy.storageFits) economy.placeLooseBoxes();
 
   orders.open = data.orders.open;
   orders.nextId = data.orders.nextId;

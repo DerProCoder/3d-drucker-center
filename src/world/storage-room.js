@@ -258,6 +258,11 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
   const group = new THREE.Group();
   // Kaufen geht nur, solange der neue Karton noch auf einen Stapel passt
   economy.storageFits = (entries) => stackCrates(entries).overflow === 0;
+  // Kartons ohne Platz aus dem Spielstand (beim Speichern in der Hand, #64) einräumen, sobald der Aufbau fertig ist –
+  // dann kennt auch das Keller-Lager die Kartonhöhen (world/basement-storage.js), falls der Abstellraum voll ist
+  queueMicrotask(() => {
+    if (economy.placeLooseBoxes()) economy.notify();
+  });
 
   const floorMat = new THREE.MeshStandardMaterial({
     map: canvasTexture(512, 512, drawConcrete('#8e8c87'), W / 2, (D + WALL_THICKNESS) / 2),
@@ -473,7 +478,8 @@ export function createStorageRoom({ economy, carry, collision, upgrades }) {
     upgrades.shelfLevels, economy.hasDryer,
     economy.shelf.map((s) => [idOf(s), s.shelfSlot, s.filamentId]),
     WOODS.map((w) => economy.woodCount(w.id)),
-    [...economy.printers, ...economy.furniture].map((item) => [idOf(item), item.location === 'storage' ? item.storageSpot : null]),
+    // Karton im Abstellraum auch ohne Platz anders als „in der Hand“, sonst bliebe beim Aufheben ein Geisterkarton (#64)
+    [...economy.printers, ...economy.furniture].map((item) => [idOf(item), item.location === 'storage' ? `s${item.storageSpot}` : null]),
   ]);
 
   function sync() {

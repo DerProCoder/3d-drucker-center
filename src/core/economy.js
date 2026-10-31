@@ -1294,6 +1294,23 @@ export class Economy {
     item.storageSpot = this.freeStorageSpot();
   }
 
+  // Kartons im Abstellraum ohne gültigen oder mit doppelt belegtem Platz – z. B. beim Speichern in der Hand getragen
+  // oder geworfen (save.js speichert sie als „im Abstellraum“ ohne Platz, #64) – wie beim Zurücklegen (Q) auf einen
+  // freien Platz stellen, bei vollem Abstellraum ins Keller-Lager. Gibt zurück, wie viele Kartons umgestellt wurden.
+  placeLooseBoxes() {
+    const used = new Set();
+    const loose = [];
+    for (const item of [...this.printers, ...this.furniture]) {
+      if (item.location !== 'storage') continue;
+      const spot = item.storageSpot;
+      if (Number.isInteger(spot) && spot >= 0 && !used.has(spot)) used.add(spot);
+      else loose.push(item);
+    }
+    for (const item of loose) item.storageSpot = null;
+    for (const item of loose) this.putAway(item);
+    return loose.length;
+  }
+
   // Erster freier Kartonplatz in der Lieferzone
   freeStorageSpot() {
     const used = new Set([...this.printers, ...this.furniture]
