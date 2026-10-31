@@ -1,13 +1,15 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
 // game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench,
-// nas, storageRentals, website, powerGrid }
+// nas, storageRentals, website, powerGrid, backupPower }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
 import { BUNKER_ROW_X, BUNKER_ROW_Z, BUNKER_SPOTS_PER_FIELD, FIRST_BUNKER_SPOT, bunkerSpot } from './server-zones.js';
 import { LEGACY_BASEMENT_WAN_PORT0, LEGACY_BASEMENT_WALL_PORTS, basementWanPort } from './cable-tray.js';
 import { GRID } from './basement-layout.js';
+import { techById } from './server-catalog.js';
+import { BATTERY, GENERATOR, isBatteryType } from './backup-power.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
@@ -47,7 +49,10 @@ const KEY = 'druckercenter-save';
 // 29: Raum bei −10,5 m am Kellertreppenhaus (#56, core/upgrades.js) – upgrades.controlRoom/controlRoomOrdered
 // 30: Stromnetz (#57, core/power-grid.js) – laufender Stromausfall (Restdauer), Zeit bis zum nächsten Ausfall und der
 //     letzte Ausfall (powerGrid). Alte Stände: kein Ausfall, Zählung beginnt erst mit Notstrom (#59)
-const VERSION = 30;
+// 31: Notstrom und Akkus (#59, core/backup-power.js) – Batterieschränke und Generator als Einrichtung mit location
+//     'technik' und slot, dazu backupPower (Ladung je Akku, Diesel, Priorität, Reserve, Statistik). Alte Stände:
+//     nichts gekauft, Standard-Priorität
+const VERSION = 31;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -70,7 +75,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website, powerGrid }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website, powerGrid, backupPower }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -79,8 +84,8 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     id: f.id,
     typeId: f.type.id,
     // Getragene Regale landen beim Laden wieder im Abstellraum
-    location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench', 'basement', 'basement-rack'].includes(f.location) ? f.location : 'storage',
-    slot: ['table', 'wall', 'server'].includes(f.location) ? f.slot : null,
+    location: ['table', 'wall', 'shipping', 'server', 'rack', 'bench', 'basement', 'basement-rack', 'technik'].includes(f.location) ? f.location : 'storage',
+    slot: ['table', 'wall', 'server', 'technik'].includes(f.location) ? f.slot : null, // technik: Akku-/Generatorplatz (#59)
     rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
     unit: f.location === 'rack' ? f.unit : undefined,
     storageSpot: f.location === 'storage' ? f.storageSpot : null,
@@ -174,6 +179,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     storageRentals: storageRentals?.toJSON(), // Speicher-Anfragen und -Verträge auf den NAS (core/storage-rentals.js)
     website: website?.toJSON(), // eigene Website: Einstellungen, Status, Statistik (core/website.js)
     powerGrid: powerGrid?.toJSON(), // Stromausfall und Zeit bis zum nächsten (core/power-grid.js, #57)
+    backupPower: backupPower?.toJSON(), // Akkus, Generator, Diesel, Priorität (core/backup-power.js, #59)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -287,7 +293,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage, powerGrid }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage, powerGrid, backupPower }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -424,6 +430,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     data.powerGrid ??= null;
     data.version = 30;
   }
+  // Version 30 kennt noch keinen Notstrom: nichts gekauft, Standard-Priorität (backupPower.load ohne Daten)
+  if (data?.version === 30) {
+    data.backupPower ??= null;
+    data.version = 31;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -476,7 +487,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   upgrades.basementLayout.load(data.upgrades?.basementFields);
 
   economy.furniture = (e.furniture ?? [])
-    .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) }))
+    .map(({ typeId, ...f }) => ({ ...f, type: furnitureById(typeId) ?? techById(typeId) })) // techById: Technik (#59)
     .filter((f) => f.type);
   for (const f of economy.furniture) {
     if (f.type.id === 'display-shelf') f.parts ??= Array(f.type.capacity).fill(null);
@@ -494,6 +505,20 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
       f.storageSpot = economy.freeStorageSpot();
     } else {
       usedRackSlots.add(key);
+    }
+  }
+  // Technikraum (#59): Akkus und Generator auf ungültigen oder doppelten Plätzen zurück in den Abstellraum
+  const usedTechSlots = new Set();
+  for (const f of economy.furniture) {
+    if (f.location !== 'technik') continue;
+    const max = isBatteryType(f.type) ? BATTERY.max : GENERATOR.max;
+    const key = `${f.type.id}:${f.slot}`;
+    if (!Number.isInteger(f.slot) || f.slot < 0 || f.slot >= max || usedTechSlots.has(key)) {
+      f.location = 'storage';
+      f.slot = null;
+      f.storageSpot = economy.freeStorageSpot();
+    } else {
+      usedTechSlots.add(key);
     }
   }
   // Keller-Lager: Kartons und Regale auf ungültigen Plätzen zurück in den Abstellraum (core/basement-storage.js)
@@ -520,6 +545,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   rentalAutomation?.load(data.rentalAutomation);
   website?.load(data.website); // nach rentals und storageRentals (Online-Anfragen stehen dort)
   powerGrid?.load(data.powerGrid); // Stromnetz (#57): laufender Ausfall, Zeit bis zum nächsten
+  backupPower?.load(data.backupPower); // nach Einrichtung und Stromnetz (#59): Ladung, Diesel, Priorität
   aiService?.load(data.aiService);
   economy.notify();
   orders.notify();

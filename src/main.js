@@ -13,6 +13,7 @@ import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
 import { PowerGrid, NIGHT_FACTOR, DAY_FACTOR } from './core/power-grid.js';
+import { BackupPower, groupListText } from './core/backup-power.js';
 import { euro, euroRound, meters } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
@@ -44,6 +45,7 @@ import { createRoomCulling } from './world/room-culling.js';
 import { createUpperFloor } from './world/upper-floor.js';
 import { createBasement } from './world/basement.js';
 import { createServerRoom } from './world/server-room.js';
+import { createBackupPowerWorld } from './world/backup-power.js';
 import { createRackPanel } from './ui/rack-panel.js';
 import { createWorkbenchPanel } from './ui/workbench-panel.js';
 import { createWorkbenchStation } from './world/workbench.js';
@@ -91,9 +93,13 @@ const orders = new Orders(economy, progress);
 const achievements = new Achievements();
 const upgrades = new Upgrades(economy);
 const gameClock = new GameClock();
-// Stromnetz (#57): Tag-/Nachttarif und Stromausfälle (die gibt es erst mit Notstrom, hasBackup kommt mit #59)
+// Stromnetz (#57): Tag-/Nachttarif und Stromausfälle (die gibt es erst mit Notstrom, siehe backupPower unten)
 const powerGrid = new PowerGrid({ clock: gameClock });
 economy.powerGrid = powerGrid; // Tarif in der Abrechnung, Drucker pausieren bei Stromausfall
+// Notstrom und Akkus (#59) im Technikraum: laden nachts, decken tagsüber zuerst, versorgen bei Ausfall nach Priorität.
+// Setzt powerGrid.hasBackup (Ausfälle erst mit Notstrom) und powerGrid.supplier – vor loadGame anlegen
+const backupPower = new BackupPower({ economy, grid: powerGrid });
+economy.backupPower = backupPower;
 const staff = new Staff(economy);
 const reception = new Reception(orders);
 staff.reception = reception; // Azubis packen fertige Aufträge ins Abholregal
@@ -120,7 +126,7 @@ const website = new Website({ economy, servers, rentals, storage: storageRentals
 const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
 // Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage, powerGrid };
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage, powerGrid, backupPower };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -129,7 +135,7 @@ if (saveFound) {
 } else {
   economy.giveStarterKit();
 }
-const hud = createHud(economy, orders, progress, gameClock, powerGrid);
+const hud = createHud(economy, orders, progress, gameClock, powerGrid, backupPower);
 // Zu jeder vollen Spielstunde Miete und Strom abbuchen
 gameClock.onNewHour = () => {
   economy.payHourlyBill();
@@ -143,13 +149,34 @@ const sound = createSound();
 // Stromnetz (#57): Stromausfall und Rückkehr melden, Wechsel auf Nachtstrom leise ansagen
 powerGrid.onEvent = (type, d) => {
   if (type === 'outage-start') {
-    hud.notify(`⚡ Stromausfall! Drucker pausieren, Server sind offline – etwa ${d.minutes} Spielminuten`, 'bad');
+    hud.notify(backupPower.installed
+      ? `⚡ Stromausfall! Notstrom übernimmt – erst die Akkus, dann der Generator – etwa ${d.minutes} Spielminuten`
+      : `⚡ Stromausfall! Drucker pausieren, Server sind offline – etwa ${d.minutes} Spielminuten`, 'bad');
     sound.play('outage');
   } else if (type === 'outage-end') {
     hud.notify('💡 Strom ist wieder da – Drucker und Server laufen weiter', 'good');
     sound.play('power-back');
   } else if (type === 'tariff-change') {
     hud.notify(d.tariff.id === 'night' ? `🌙 Nachtstrom: Strom kostet jetzt weniger (× ${String(NIGHT_FACTOR).replace('.', ',')})` : `☀️ Tagstrom: Strom kostet wieder mehr (× ${String(DAY_FACTOR).replace('.', ',')})`, 'info');
+  }
+};
+// Notstrom (#59): Generator, Diesel, Akkus und Gruppen, die der Notstrom nicht mehr trägt
+backupPower.onEvent = (type, d) => {
+  if (type === 'generator-start') {
+    hud.notify('⛽ Dieselgenerator läuft – Notstrom aus dem Generator', 'info');
+    sound.play('generator-start');
+  } else if (type === 'generator-stop') {
+    sound.play('generator-stop');
+  } else if (type === 'diesel-empty') {
+    hud.notify('⛽ Diesel leer – im Server-Shop unter „Technik“ nachkaufen', 'bad');
+  } else if (type === 'batteries-empty') {
+    hud.notify('🔋 Akkus leer', 'bad');
+  } else if (type === 'groups-off') {
+    hud.notify(`🔌 Notstrom reicht nicht: ${groupListText(d.groups)} aus`, 'bad');
+  } else if (type === 'groups-on') {
+    hud.notify(`🔌 Notstrom versorgt wieder: ${groupListText(d.groups)}`, 'good');
+  } else if (type === 'placed') {
+    sound.play('clunk');
   }
 };
 progress.onLevelUp = (level, title) => {
@@ -519,6 +546,11 @@ collision.addObject(computerDesk); // inkl. PC darunter und Kabel dahinter
 
 // Getragener Gegenstand, Druckertisch (Aufstellen, Filament einlegen), Abstellraum (Lieferungen)
 const carry = new Carry(camera, economy, document.getElementById('carry-info'));
+// Notstrom im Technikraum (#59): Akkus und Generator auf festen Plätzen (grüne Markierungen beim Tragen), Ladebalken,
+// Generator vibriert und brummt im Betrieb
+const backupWorld = createBackupPowerWorld({
+  backup: backupPower, carry, controlRoom: basement.controlRoom, collision, onNotice: (text, tone) => hud.notify(text, tone ?? 'info'),
+});
 const workshop = createWorkshop({ tables: hall.tables, tableHeight: TABLE_HEIGHT, economy, carry, upgrades });
 scene.add(workshop.group);
 // Serverschränke in der zweiten Etage – verkabelt wird hinten am Schrank, ein Klick auf den Schrank öffnet das Schrankfenster
@@ -1257,7 +1289,9 @@ renderer.setAnimationLoop(() => {
     serverParts.advance(dt); // Bauteil-Pakete ins Teilelager
   });
   safely('HUD', () => hud.update());
+  safely('Notstrom', () => backupWorld.update(dt, camera.position)); // Ladebalken, Generator vibriert
   safely('Geräusche', () => printerSounds(dt));
+  safely('Generator', () => { const g = backupWorld.audioState(camera.position); sound.updateGenerator(g.running, g.distance); });
   safely('Bewegung', () => updateMovement(dt));
   safely('Zielen', () => {
     interaction.update(playing());

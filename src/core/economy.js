@@ -11,6 +11,7 @@ import {
   multiColorProblem, multiColorSlots, partColors, waitingFilament,
 } from './two-color.js';
 import { createLaserJob, isLaser, laserProblem } from './laser.js';
+import { KWH_PRICE, LIGHTS_KW } from './backup-power.js';
 
 
 // Start klein: 150 €, ein A1 mini auf dem ersten Tisch und eine Rolle PLA schon eingelegt (siehe giveStarterKit)
@@ -141,6 +142,7 @@ export class Economy {
     this.onEvent = null;             // (type, data) => void – für Sound, Meldungen und Erfolge
     this.extraPowerPerHour = null;   // () => Strom weiterer Geräte pro Stunde (Server, core/servers.js)
     this.powerGrid = null;           // Stromnetz (core/power-grid.js, #57): Tarif, Stromausfall – ohne: Faktor 1
+    this.backupPower = null;         // Notstrom und Akkus (core/backup-power.js, #59): laden nachts, decken tagsüber zuerst
     this.random = Math.random;       // austauschbar, damit sich Pannen im Test erzwingen lassen
   }
 
@@ -159,9 +161,28 @@ export class Economy {
     return this.powerGrid ? this.powerGrid.costFactor : 1;
   }
 
-  // Was der Strom gerade wirklich kostet (Verbrauch × Tarif) – powerPerHour ist der Verbrauch zum Grundpreis
+  // Was der Strom gerade wirklich kostet (Verbrauch × Tarif) – powerPerHour ist der Verbrauch zum Grundpreis.
+  // Mit Akkus (#59) zählt der Netzbezug: tagsüber weniger (Akkus decken zuerst), nachts mehr (Akkus laden)
   get powerCostPerHour() {
-    return this.powerPerHour * this.powerCostFactor;
+    const flow = this.backupPower && !this.powerGrid?.isOutage ? this.backupPower.flowKw * KWH_PRICE : 0;
+    return Math.max(0, this.powerPerHour + flow) * this.powerCostFactor;
+  }
+
+  // Leistungsbedarf je Strom-Gruppe in kW für den Notstrom (#59, core/backup-power.js). Drucker zählen so, als
+  // liefen ihre wegen des Ausfalls pausierten Drucke – sonst schaltete der Notstrom sie im Wechsel an und aus.
+  // Licht braucht im Normalbetrieb nichts auf der Rechnung, bei Notstrom aber LIGHTS_KW.
+  powerGroupsKw() {
+    const printers = this.printers
+      .filter((p) => p.location === 'table')
+      .reduce((sum, p) => {
+        const running = p.job?.status === 'printing' || (p.job?.status === 'paused' && p.job.pauseReason === 'power');
+        return sum + p.model.powerPerHour * (running ? 1 : IDLE_POWER_SHARE);
+      }, 0);
+    return {
+      servers: (this.extraPowerPerHour?.() ?? 0) / KWH_PRICE,
+      lights: LIGHTS_KW,
+      printers: printers / KWH_PRICE,
+    };
   }
 
   get costPerHour() {
@@ -174,6 +195,7 @@ export class Economy {
       ...(this.powerGrid?.status() ?? { factor: 1, outage: null, backup: false }),
       powerPerHour: this.powerPerHour,
       powerCostPerHour: this.powerCostPerHour,
+      backupPower: this.backupPower?.status() ?? null, // Akkus, Generator, Diesel, Priorität (#59)
     };
   }
 
@@ -187,9 +209,18 @@ export class Economy {
 
   // Lässt die Spielzeit laufen: Spulen ziehen Feuchte, Miete und Strom laufen auf. from: Spielzeit zu Beginn des
   // Schritts (GameClock.minutes) – damit gilt über 6 bzw. 22 Uhr hinweg genau der Tarif der jeweiligen Minuten
+  // Mit Notstrom (#59) rechnet core/backup-power.js den Netzbezug: nachts plus Laden der Akkus, tagsüber minus das,
+  // was die Akkus decken, bei Stromausfall nichts (Akkus und Generator versorgen nach Priorität)
   advanceTime(gameMinutes, from) {
-    const factor = this.powerGrid ? this.powerGrid.costFactorOver(from ?? this.powerGrid.time, gameMinutes) : 1;
-    const power = (this.powerPerHour * factor * gameMinutes) / 60;
+    let power;
+    if (this.backupPower) {
+      const start = from ?? this.powerGrid?.time ?? 0;
+      const kw = this.powerPerHour / KWH_PRICE;
+      power = this.backupPower.advance(gameMinutes, start, { loadKw: kw, groups: this.powerGroupsKw() }).cost;
+    } else {
+      const factor = this.powerGrid ? this.powerGrid.costFactorOver(from ?? this.powerGrid.time, gameMinutes) : 1;
+      power = (this.powerPerHour * factor * gameMinutes) / 60;
+    }
     const costs = ((RENT_PER_HOUR + this.wagesPerHour) * gameMinutes) / 60 + power;
     this.pendingCosts += costs;
     this.powerCostTotal += power;

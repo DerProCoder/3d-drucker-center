@@ -15,6 +15,7 @@ import { isLaser, laserJobLabel } from '../core/laser.js';
 import { spotLabel } from '../core/server-zones.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { euro, euroRound, realTime } from '../core/format.js';
+import { BATTERY, GENERATOR, GROUP_ICONS, GROUP_NAMES as BACKUP_GROUP_NAMES, generatorStartText } from '../core/backup-power.js';
 
 const STATUS_MS = 500;          // so alt darf der gesammelte Zustand höchstens sein
 const PANEL_REFRESH_MS = 1000;  // offenes Overlay: Anzeigen jede Sekunde auffrischen
@@ -292,7 +293,7 @@ export function createWallScreens({ status, cam }) {
       line(ctx, euro.format(m.balance), 14, top + 6, 64, m.balance < 0 ? '#ff5a4a' : '#7ee08a', 700);
       const t = m.today;
       if (t) {
-        line(ctx, `Heute: +${euroRound.format(t.income)} rein · −${euroRound.format(t.costs)} laufende Kosten`, 14, top + 90, 22, '#e6e8ec', 600, w - 28);
+        line(ctx, `Heute: +${euroRound.format(t.income)} rein · ${Math.round(t.costs) ? '−' : ''}${euroRound.format(t.costs)} laufende Kosten`, 14, top + 90, 22, '#e6e8ec', 600, w - 28);
       }
       line(ctx, `Kosten ${euro.format(m.costPerHour)} / h · davon Strom ${euro.format(m.powerCostPerHour)} / h`, 14, top + 126, 22, '#c9ccd1', 600, w - 28);
       line(ctx, `Einnahmen Miete + KI ${euro.format(m.incomePerHour)} / h`, 14, top + 160, 22, '#c9ccd1', 600, w - 28);
@@ -543,26 +544,76 @@ export function createControlPanel({ economy, status, cam, onClose }) {
 
   // ---------- Reiter „Strom“ ----------
 
-  const GROUP_NAMES = { printers: 'Drucker', servers: 'Server und Klima', lights: 'Licht' };
   function gridHtml(power) {
     const o = power.outage;
     const outage = o
       ? `<span class="bad">⚡ Stromausfall – noch etwa ${Math.max(1, Math.ceil(o.minutesLeft))} Spielminuten (insgesamt ${Math.round(o.duration)})</span>`
       : '<span class="good">Netz in Ordnung</span>';
-    const groups = Object.entries(power.powered ?? {}).map(([g, on]) => `<li class="${on ? 'good' : 'bad'}">${on ? '✔' : '✖'} ${escapeHtml(GROUP_NAMES[g] ?? g)}</li>`).join('');
-    const last = power.lastOutage ? `Letzter Ausfall: ${Math.round(power.lastOutage.duration)} Spielminuten` : 'Bisher kein Stromausfall';
-    const next = power.backup
-      ? (power.nextOutageIn != null && !o ? `Nächster Ausfall in etwa ${realTime(power.nextOutageIn)} (echt)` : '')
-      : 'Stromausfälle gibt es erst mit Notstrom im Technikraum.';
+    const groups = Object.entries(power.powered ?? {}).map(([g, on]) => `<li class="${on ? 'good' : 'bad'}">${on ? '✔' : '✖'} ${escapeHtml(BACKUP_GROUP_NAMES[g] ?? g)}</li>`).join('');
+    // Während eines Ausfalls steht der laufende schon als lastOutage in power-grid.js – dann nicht als „letzter“ zeigen
+    const last = o ? '' : power.lastOutage ? `Letzter Ausfall: ${Math.round(power.lastOutage.duration)} Spielminuten` : 'Bisher kein Stromausfall';
+    const next = o ? ''
+      : power.backup ? (power.nextOutageIn != null ? `Nächster Ausfall in etwa ${realTime(power.nextOutageIn)} (echt)` : '')
+        : 'Stromausfälle gibt es erst mit Notstrom im Technikraum.';
     return `
       <div class="cp-stats">
-        <div class="cp-stat"><b>${escapeHtml(power.tariff?.text ?? '–')}</b><span>Tarif (× ${String(power.factor ?? 1).replace('.', ',')})</span></div>
+        <div class="cp-stat"><b>${escapeHtml(power.tariff?.text ?? '–')}</b><span>${o ? 'Tarif der Uhrzeit · kein Netzstrom' : `Tarif (× ${String(power.factor ?? 1).replace('.', ',')})`}</span></div>
         <div class="cp-stat"><b>${euro.format(power.powerCostPerHour ?? 0)}</b><span>Stromkosten pro Stunde</span></div>
         <div class="cp-stat"><b>${euro.format(power.powerPerHour ?? 0)}</b><span>Verbrauch pro Stunde (Grundpreis)</span></div>
       </div>
       <p>${outage}</p>
-      <p class="cp-help">${escapeHtml(last)}${next ? ` · ${escapeHtml(next)}` : ''}</p>
+      ${last || next ? `<p class="cp-help">${[last, next].filter(Boolean).map(escapeHtml).join(' · ')}</p>` : ''}
       ${groups ? `<h3>Versorgung</h3><ul class="cp-groups">${groups}</ul>` : ''}`;
+  }
+
+  // Notstrom (#59, core/backup-power.js über economy.backupPower): Akkus, Generator, Diesel, Ersparnis, Priorität.
+  // Die Priorität stellen ▲/▼ um (backupPower.movePriority) – sonst nur lesend aus power.backupPower (status()).
+  const kw = (v) => `${Math.round(Math.abs(v ?? 0) * 10) / 10} kW`.replace('.', ',');
+  const MODE_TEXT = { idle: 'Ruhe', charging: 'lädt', discharging: 'gibt ab', backup: 'Notstrom' };
+  function backupHtml(power) {
+    const b = power.backupPower;
+    if (!b) return '';
+    if (!b.installed) {
+      return '<p class="cp-help">Noch kein Notstrom aufgestellt – Batterieschränke und Dieselgenerator gibt es im Server-Shop unter „Technik“. Sie kommen als Karton und stehen auf festen Plätzen im Technikraum hinter der Glaswand.</p>';
+    }
+    const flow = b.mode === 'charging' ? `+${kw(b.flowKw)}` : b.flowKw < -0.01 ? `−${kw(b.flowKw)}` : '0 kW';
+    const g = b.generator;
+    const genText = !g.installed ? '–'
+      : g.running ? `läuft · ${kw(g.kw)}` : g.startsIn != null ? generatorStartText(g.startsIn) : g.diesel <= 0 ? 'Tank leer' : 'Bereitschaft';
+    const batLevel = b.percent < 20 ? 'bad' : b.percent < 50 ? 'warn' : 'good';
+    const dieselLevel = !g.installed ? '' : g.diesel < g.tank * 0.15 ? 'bad' : g.diesel < g.tank * 0.4 ? 'warn' : 'good';
+    const cabinets = b.batteries.map((x) => {
+      const pct = Math.round(x.percent);
+      return `<li class="cp-cabinet"><span>Akku ${x.slot + 1}</span><span class="cp-cabinet-bar"><span style="width:${pct}%" class="${pct < 20 ? 'bad' : pct < 50 ? 'warn' : 'good'}"></span></span><span>${pct} %</span></li>`;
+    }).join('');
+    const prio = b.priority.map((group, i) => `
+      <li class="cp-prio-row ${b.supplied[group] ? 'good' : 'bad'}">
+        <span class="cp-prio-rank">${i + 1}.</span>
+        <span class="cp-prio-name">${GROUP_ICONS[group] ?? ''} ${escapeHtml(BACKUP_GROUP_NAMES[group] ?? group)}</span>
+        <span class="cp-prio-kw">${kw(b.groups[group])}</span>
+        <button class="buy cp-action cp-prio-btn" data-prio="${group}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="nach oben">▲</button>
+        <button class="buy cp-action cp-prio-btn" data-prio="${group}" data-dir="1" ${i === b.priority.length - 1 ? 'disabled' : ''} aria-label="nach unten">▼</button>
+      </li>`).join('');
+    return `
+      <div class="cp-stats">
+        <div class="cp-stat ${batLevel}"><b>${b.batteries.length ? `${Math.round(b.percent)} %` : '–'}</b><span>🔋 Akkus ${b.batteries.length} × ${BATTERY.capacityKwh} kWh (${Math.round(b.chargeKwh)} / ${b.capacityKwh} kWh)</span></div>
+        <div class="cp-stat"><b>${flow}</b><span>${MODE_TEXT[b.mode] ?? b.mode}${b.mode === 'charging' ? ' (Nachtstrom)' : b.mode === 'discharging' ? ' (deckt den Verbrauch)' : ''}</span></div>
+        <div class="cp-stat ${dieselLevel}"><b>${g.installed ? `${Math.round(g.diesel)} / ${g.tank} L` : '–'}</b><span>⛽ Generator ${GENERATOR.kw} kW: ${genText}</span></div>
+        <div class="cp-stat good"><b>${euro.format(b.savedToday)}</b><span>gespart heute (gestern ${euro.format(b.savedYesterday)})</span></div>
+      </div>
+      ${cabinets ? `<ul class="cp-cabinets">${cabinets}</ul>` : ''}
+      <h3>Priorität bei Stromausfall</h3>
+      <p class="cp-help">Reicht der Notstrom nicht, bleiben zuerst die unteren Gruppen aus. Diesel im Server-Shop (Technik) nachkaufen.</p>
+      <ol class="cp-prio">${prio}</ol>`;
+  }
+
+  function backupClick(e) {
+    const btn = e.target.closest('[data-prio]');
+    if (!btn || !economy.backupPower) return false;
+    const group = btn.dataset.prio;
+    if (!economy.backupPower.movePriority(group, Number(btn.dataset.dir))) return false;
+    say(`Priorität geändert: ${economy.backupPower.priority.map((g) => BACKUP_GROUP_NAMES[g] ?? g).join(' → ')}`, 'good');
+    return true;
   }
 
   function powerHtml(s) {
@@ -735,6 +786,9 @@ export function createControlPanel({ economy, status, cam, onClose }) {
       queueRender();
     };
   }
+
+  // Notstrom (#59): eigener Abschnitt, sobald die Abrechnung ein Notstrom-Modul hat (main.js setzt economy.backupPower)
+  if (economy.backupPower) addPowerSection({ id: 'backup', title: 'Notstrom', render: backupHtml, onClick: backupClick });
 
   return {
     open: openPanel,

@@ -104,6 +104,20 @@
 
 /* Strom */
 .cp-groups { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+/* Notstrom (#59): Ladebalken je Akku und Prioritätsliste */
+.cp-cabinets { margin: 4px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 14px; }
+.cp-cabinet { display: grid; grid-template-columns: 52px 1fr 44px; align-items: center; gap: 8px; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.cp-cabinet-bar { height: 8px; border-radius: 4px; background: #121418; overflow: hidden; }
+.cp-cabinet-bar > span { display: block; height: 100%; background: #2bb673; }
+.cp-cabinet-bar > span.warn { background: #f2c419; }
+.cp-cabinet-bar > span.bad { background: #e0503f; }
+.cp-prio { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-width: 520px; }
+.cp-prio-row { display: grid; grid-template-columns: 24px 1fr auto auto auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px; background: #262a31; border-left: 3px solid #2bb673; }
+.cp-prio-row.bad { border-left-color: #e0503f; }
+.cp-content .cp-prio-row.good, .cp-content .cp-prio-row.bad { color: inherit; }
+.cp-prio-rank { opacity: 0.6; }
+.cp-prio-kw { font-size: 0.8rem; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.cp-prio-btn { min-width: 34px; padding: 2px 8px; }
 .cp-power-section + .cp-power-section { margin-top: 14px; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 
 /* Touch: größere Tippflächen */

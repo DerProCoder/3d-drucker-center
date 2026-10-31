@@ -120,6 +120,17 @@ export function createSound() {
     },
   };
 
+  // Dieselgenerator (#59): Anlasser und Abstellen
+  EFFECTS['generator-start'] = () => {
+    for (let i = 0; i < 5; i++) tone(70 + i * 6, i * 0.11, 0.1, { type: 'square', volume: 0.06, slideTo: 50 }); // Anlasser
+    noise(0.9, { volume: 0.22, lowpass: 300, wobble: 9 });
+    tone(30, 0.5, 0.8, { type: 'sawtooth', volume: 0.12, slideTo: 48 }); // Motor dreht hoch
+  };
+  EFFECTS['generator-stop'] = () => {
+    tone(48, 0, 1.4, { type: 'sawtooth', volume: 0.1, slideTo: 18 });
+    noise(0.6, { volume: 0.12, lowpass: 220 });
+  };
+
   function play(name) {
     if (!ctx || muted || ctx.state !== 'running') return;
     EFFECTS[name]?.();
@@ -173,10 +184,72 @@ export function createSound() {
     }
   }
 
+  // Laufender Dieselgenerator (#59): tiefes Tuckern (Sägezahn ~ 25 Hz Zündfolge) und gefiltertes Rauschen, leiser mit
+  // Abstand. running: läuft er? distance: Meter bis zur Kamera. Aufrufen in jedem Bild (main.js)
+  let generator = null; // { osc, osc2, lfo, lfoGain, noiseSrc, gain }
+  function updateGenerator(running, distance = Infinity) {
+    if (!ctx || ctx.state !== 'running') return;
+    const volume = running ? 0.16 / (1 + distance * distance * 0.06) : 0;
+    if (!generator && volume > 0.0005) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = 25;
+      const osc2 = ctx.createOscillator();
+      osc2.type = 'triangle';
+      osc2.frequency.value = 50;
+      // Rauschen in einer Schleife (eine Sekunde Puffer)
+      const length = ctx.sampleRate;
+      const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+      const noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = buffer;
+      noiseSrc.loop = true;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'lowpass';
+      noiseFilter.frequency.value = 260;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.value = 0.5;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 180;
+      // Tuckern: Lautstärke schwankt mit der Zündfolge
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 12.5;
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.value = 0.35;
+      const pulse = ctx.createGain();
+      pulse.gain.value = 0.65;
+      lfo.connect(lfoGain).connect(pulse.gain);
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(filter);
+      osc2.connect(filter);
+      noiseSrc.connect(noiseFilter).connect(noiseGain).connect(filter);
+      filter.connect(pulse).connect(gain).connect(master);
+      osc.start();
+      osc2.start();
+      lfo.start();
+      noiseSrc.start();
+      generator = { osc, osc2, lfo, noiseSrc, gain };
+    }
+    if (!generator) return;
+    generator.gain.gain.setTargetAtTime(volume, ctx.currentTime, 0.25);
+    if (volume <= 0.0005) {
+      // ausgeblendet: nach dem Abklingen abbauen
+      const g = generator;
+      generator = null;
+      g.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+      const t = ctx.currentTime + 1.2;
+      for (const node of [g.osc, g.osc2, g.lfo, g.noiseSrc]) node.stop(t);
+    }
+  }
+
   return {
     unlock,
     play,
     updatePrinters,
+    updateGenerator,
     get muted() { return muted; },
     toggleMute: () => setMuted(!muted),
   };

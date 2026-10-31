@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { box } from './mesh-helpers.js';
 import { mergeStatic } from './merge-static.js';
 import { createServerHardwareModel } from './server-hardware.js';
+import { createBatteryCabinet } from './battery-cabinet.js';
+import { createGeneratorCrateShape } from './generator.js';
 
 const RACK = { w: 0.5, d: 0.3, h: 0.56, levels: [0.03, 0.29], perLevel: 4 };
 const PARTS = { w: 0.42, d: 0.26, h: 0.34, cols: 4, rows: 3 };
@@ -139,6 +141,8 @@ function createWoodRack() {
 
 const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPartsRack, 'wood-rack': createWoodRack,
   'display-shelf': createDisplayShelf,
+  // Technik für den Technikraum (#59): hier nur für Kartongröße und Vorschau, aufgestellt baut world/backup-power.js
+  'battery-cabinet': createBatteryCabinet, 'diesel-generator': createGeneratorCrateShape,
 };
 
 export function createFurnitureModel(type) {

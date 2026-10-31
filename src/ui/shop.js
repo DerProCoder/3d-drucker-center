@@ -11,6 +11,7 @@ import { DISPLAY_SPOTS, freeDisplaySpots } from '../core/display-shelf.js';
 import { ACHIEVEMENTS } from '../core/achievements.js';
 import { CARRY_ALL_MAX, WOOD_STOCK_MAX } from '../core/economy.js';
 import { DRY_RACK_LABEL } from '../core/basement-storage.js';
+import { isBackupType } from '../core/backup-power.js';
 import { renderPrinterPreviews } from './printer-preview.js';
 import { createPrinterMenu } from './printer-menu.js';
 import { createOrdersMenu } from './orders-menu.js';
@@ -223,9 +224,9 @@ export function createShop(economy, {
 
   let printerImages = null; // erst beim ersten Öffnen des Reiters erzeugt
   // Regalplätze zwischen den Druckern – Ausstellungsregale stehen an der Wand und zählen nicht mit, Filament-Regale im
-  // Keller-Lager (#53) auch nicht
+  // Keller-Lager (#53) auch nicht, Akkus und Generator (Technikraum, #59) ebenso wenig
   const freeRackSlots = () => upgrades.rackSlots
-    - economy.furniture.filter((f) => !isWallFurniture(f.type) && f.location !== 'basement-rack').length;
+    - economy.furniture.filter((f) => !isWallFurniture(f.type) && !isBackupType(f.type) && f.location !== 'basement-rack').length;
   // Kein Platz für einen Karton mehr: Abstellraum (und Keller-Lager, sobald es eins gibt) voll
   const boxRoomFull = () => (economy.overflow?.storageFields().length ? 'Abstellraum und Keller-Lager voll' : 'Abstellraum voll');
   // Wohin die Lieferung kommt (economy.ship reserviert ggf. einen Platz im Keller-Lager)

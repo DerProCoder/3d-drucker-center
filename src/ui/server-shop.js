@@ -1,6 +1,8 @@
 // PC-App „Server-Shop“: Serverschränke, Server, Switches, Firewalls, Patchpanels und Kabelrollen kaufen. Oben steht,
 // was der Serverraum gerade bringt (VMs und Miete aus core/server-rentals.js). Gekauft werden kann erst, wenn die
 // zweite Etage steht (dort kommen die Schränke hin).
+// Kategorie „Technik“ (#59, core/backup-power.js über economy.backupPower): Batterieschränke, Dieselgenerator und
+// Diesel für den Technikraum – kaufbar, sobald der Raum bei −10,5 m steht.
 import { CABLE_ROLL, SERVER_CORES, SERVER_DEVICES, SERVER_RACKS, SERVER_RAM, SERVER_SERIES } from '../core/server-catalog.js';
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
@@ -9,9 +11,13 @@ import { AI_FEE_PER_SERVER, isAIServer } from '../core/ai-service.js';
 import { SLOT_SETS, isUpgradable, partsOfKind, standardCapacity } from '../core/server-parts.js';
 import { isNas, storageText } from '../core/nas.js';
 import { DESIGN_BONUS, MAX_COUNTED_SERVERS, REQUESTS_PER_DAY, isWebsiteServer } from '../core/website.js';
+import { TECH_EQUIPMENT } from '../core/server-catalog.js';
+import { BATTERY, DIESEL, GENERATOR, isBatteryType } from '../core/backup-power.js';
+import { createBatteryCabinet } from '../models/battery-cabinet.js';
+import { createGenerator } from '../models/generator.js';
 
 const hex = (n) => `#${n.toString(16).padStart(6, '0')}`;
-const ICONS ={ rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌' };
+const ICONS = { rack: '🗄️', server: '🖥️', switch: '🔀', firewall: '🛡️', patch: '🔌', battery: '🔋', generator: '⛽' };
 // Eigener Hinweis unter einer Serien-Überschrift, wo der allgemeine („verdienen Geld mit vermieteten VMs“) nicht passt
 const SERIES_HINTS = {
   ai: 'nicht vermietbar – betreiben die eigene KI, Geld über das KI-Abo (App „KI“)',
@@ -80,6 +86,82 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       </div>`;
   }
 
+  // ---------- Technik (#59): Akkus, Generator, Diesel für den Technikraum im Raum bei −10,5 m ----------
+  const backup = () => economy.backupPower; // core/backup-power.js – ohne ihn gibt es keine Kategorie „Technik“
+  const roomBuilt = () => !!upgrades.controlRoom;
+
+  function techCard(type) {
+    const bp = backup();
+    const problem = bp.buyProblem(type, roomBuilt());
+    const specs = isBatteryType(type)
+      ? [
+        `<dt>Kapazität</dt><dd>${BATTERY.capacityKwh} kWh (kommt halb geladen)</dd>`,
+        `<dt>Leistung</dt><dd>lädt und gibt ab mit bis zu ${BATTERY.maxKw} kW</dd>`,
+        '<dt>Betrieb</dt><dd>lädt nachts billigen Nachtstrom, deckt tagsüber den Verbrauch zuerst, überbrückt Stromausfälle</dd>',
+        `<dt>Platz</dt><dd>Technikraum, Ostwand (${BATTERY.max} Plätze)</dd>`,
+      ]
+      : [
+        `<dt>Leistung</dt><dd>${GENERATOR.kw} kW, springt ${GENERATOR.startMinutes} Spielminuten nach einem Stromausfall an</dd>`,
+        `<dt>Tank</dt><dd>${GENERATOR.tankLiters} L (kommt mit ${GENERATOR.startDiesel} L), Verbrauch ${String(GENERATOR.litersPerKwh).replace('.', ',')} L je kWh</dd>`,
+        '<dt>Platz</dt><dd>Technikraum, Südwand – Auspuff nach oben</dd>',
+      ];
+    return `
+      <div class="card">
+        ${image(type.id, type.name)}
+        <div class="card-head"><span class="server-icon">${ICONS[type.kind]}</span><div class="card-title">${type.name}</div></div>
+        <dl class="specs">${specs.join('')}</dl>
+        <div class="card-foot">
+          <span class="stock">Im Besitz: ${bp.owned(type)} / ${type.max}</span>
+          <span class="price">${euro.format(type.price)}</span>
+          ${problem ? `<button class="buy" disabled>${problem}</button>` : `<button class="buy" data-tech-buy="${type.id}">Kaufen</button>`}
+        </div>
+      </div>`;
+  }
+
+  function dieselCard() {
+    const bp = backup();
+    const step = bp.dieselOffer(DIESEL.stepLiters);
+    const full = bp.dieselOffer(GENERATOR.tankLiters);
+    const button = (liters, label, attr) => {
+      const problem = bp.dieselProblem(liters);
+      return problem ? `<button class="buy" disabled>${problem}</button>`
+        : `<button class="buy" data-tech-diesel="${attr}">${label} · ${euro.format(bp.dieselPrice(liters))}</button>`;
+    };
+    return `
+      <div class="card">
+        <div class="card-head"><span class="server-icon">🛢️</span><div class="card-title">Diesel</div></div>
+        <dl class="specs">
+          <dt>Preis</dt><dd>${euro.format(DIESEL.pricePerLiter)} je Liter</dd>
+          <dt>Tank</dt><dd>${Math.round(bp.diesel)} / ${GENERATOR.tankLiters} L</dd>
+          <dt>Lieferung</dt><dd>per Tankwagen direkt in den Tank des Generators</dd>
+        </dl>
+        <div class="card-foot">
+          <span class="stock">${Math.round(bp.diesel)} L im Tank</span>
+          ${button(step, `${Math.round(step)} L`, 'step')}
+          ${full > step ? button(full, 'Volltanken', 'full') : ''}
+        </div>
+      </div>`;
+  }
+
+  function techSection() {
+    const bp = backup();
+    if (!bp) return '';
+    const s = bp.status();
+    const info = s.installed
+      ? `🔋 Akkus: <strong>${s.batteries.length} × ${BATTERY.capacityKwh} kWh · ${Math.round(s.percent)} %</strong>
+        · ⛽ Generator: <strong>${s.generator.installed ? `${Math.round(s.generator.diesel)} L Diesel` : '–'}</strong>
+        · gespart heute <strong>${euro.format(s.savedToday)}</strong>`
+      : 'Noch kein Notstrom aufgestellt – ohne Notstrom gibt es auch keine Stromausfälle.';
+    return `
+      <section><h3>Technik<span class="hint">Notstrom und Akkus für den Technikraum im Raum bei −10,5 m</span></h3>
+        <p class="slots">${info}</p>
+        <p class="slots">Kommt als Karton in den Abstellraum. Trag ihn in den Technikraum (hinter der Glaswand im Raum bei −10,5 m)
+          und stell ihn an einer grünen Markierung auf. Akkus laden nachts billig und decken tagsüber den Verbrauch zuerst.
+          Mit Notstrom gibt es gelegentlich <b>Stromausfälle</b>: Dann versorgen erst die Akkus, nach ${GENERATOR.startMinutes} Minuten der Generator –
+          nach Priorität <b>Server und Netzwerk → Licht → Drucker</b>. Reicht es nicht, bleibt der Rest aus.</p>
+        <div class="grid">${TECH_EQUIPMENT.map(techCard).join('')}${dieselCard()}</div></section>`;
+  }
+
   // Kauf-Ausstattung der NAS für den Einleitungstext, z. B. „256 GB RAM, 32 Cores und 512 GB Speicher“
   function nasStandard() {
     const type = SERVER_DEVICES.find(isNas);
@@ -92,6 +174,9 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
     images ??= renderPreviews([
       ...[...SERVER_RACKS, ...SERVER_DEVICES].map((t) => ({ id: t.id, name: t.name, make: () => createServerHardwareModel(t) })),
       { id: CABLE_ROLL.id, name: CABLE_ROLL.name, make: createCableRoll },
+      // Technik (#59): Batterieschrank und Generator (ohne Auspuffrohr bis zur Decke)
+      { id: BATTERY.id, name: 'Batterieschrank', make: createBatteryCabinet },
+      { id: GENERATOR.id, name: 'Dieselgenerator', make: () => createGenerator() },
     ]);
     // Vermietbare Server und KI-GPU-Server getrennt zählen – wie die Server-Vermietung, die nur vermietbare kennt
     // Website-Server (#54) zählen extra – sie betreiben nur die Website
@@ -140,7 +225,8 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
             ${cableProblem ? `<button class="buy" disabled>${cableProblem}</button>` : '<button class="buy" data-server-cables>Kaufen</button>'}
           </div>
         </div>
-      </div></section>`;
+      </div></section>
+      ${techSection()}`;
   }
 
   // Gibt den Text für die Erfolgsmeldung zurück oder null
@@ -152,6 +238,21 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       // Ist der Abstellraum voll, reserviert die Lieferung einen Platz im Keller-Lager (#53)
       const where = item.basement ? 'ins Keller-Lager (Abstellraum voll)' : 'in den Abstellraum';
       return `${type.name} bestellt – kommt in ${economy.deliverySeconds} s ${where}`;
+    }
+    // Technik (#59)
+    const bp = backup();
+    const techId = e.target.closest('[data-tech-buy]')?.dataset.techBuy;
+    const tech = bp && TECH_EQUIPMENT.find((t) => t.id === techId);
+    if (tech) {
+      const bought = bp.buy(tech, roomBuilt());
+      if (!bought) return null;
+      const where = bought.basement ? 'ins Keller-Lager (Abstellraum voll)' : 'in den Abstellraum';
+      return `${tech.name} bestellt – kommt in ${economy.deliverySeconds} s ${where}`;
+    }
+    const diesel = e.target.closest('[data-tech-diesel]')?.dataset.techDiesel;
+    if (bp && diesel) {
+      const liters = bp.buyDiesel(diesel === 'full' ? GENERATOR.tankLiters : DIESEL.stepLiters);
+      return liters ? `${Math.round(liters)} L Diesel getankt – jetzt ${Math.round(bp.diesel)} / ${GENERATOR.tankLiters} L` : null;
     }
     if (e.target.closest('[data-server-cables]') && !servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor) && servers.buyCables()) {
       return `${CABLE_ROLL.name} bestellt – in ${economy.deliverySeconds} s im Vorrat`;

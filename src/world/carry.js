@@ -12,6 +12,7 @@ import { createPrinterModel } from '../models/printer-model.js';
 import { createNozzle, furnitureSize } from '../models/furniture.js';
 import { CARRY_ALL_MAX, spoolLabel } from '../core/economy.js';
 import { isServerHardware } from '../core/server-catalog.js';
+import { isBackupType } from '../core/backup-power.js';
 
 export const MAX_SPOOLS = 5;
 export const MAX_SHEETS = 5;
@@ -248,6 +249,8 @@ export class Carry {
         // Server lassen sich auch auf der Werkbank öffnen (world/workbench.js, Teile tauschen, auf- und abrüsten)
         if (furniture.type.kind === 'server') todo += ' – oder auf die Werkbank legen';
       }
+      // Akkus und Generator (#59): feste Plätze im Technikraum hinter der Glaswand im Raum bei −10,5 m
+      if (isBackupType(furniture.type)) todo = 'im Technikraum (Raum bei −10,5 m, hinter der Glaswand) an einer grünen Markierung aufstellen';
       this.setInfo(`In der Hand: ${count}Karton ${furniture.type.name} – ${todo} · ${back}`);
       return;
     }

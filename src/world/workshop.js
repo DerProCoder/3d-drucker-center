@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { FAILURES, SHEET_MM, filamentById, isWallFurniture, filamentLabel, ledColorById, templateById, speedById, woodById } from '../core/catalog.js';
 import { NOZZLE_POKES, WASTE_BIN_GRAMS, WASTE_EMPTY_AT, plateLayout, spoolLabel } from '../core/economy.js';
 import { isServerHardware } from '../core/server-catalog.js';
+import { isBackupType } from '../core/backup-power.js';
 import { colorsLabel, partColors, partFilaments, waitingFilament } from '../core/two-color.js';
 import { INFILL_CHUNKS, getInfillChunk, getPrintShape, outlinePoint, plateOutline } from '../models/print-shapes.js';
 import { createPrinterModel, printerSize, updatePrinterTubes } from '../models/printer-model.js';
@@ -60,6 +61,7 @@ function badgeFor(printer) {
   if ((printer.nozzleWear ?? 0) >= 1) return ['🔧', '#c0392b'];
   if (job?.pauseReason === 'filament') return ['🧵', '#d68910'];
   if (job?.pauseReason === 'waste') return ['🗑️', '#d68910'];
+  if (job?.pauseReason === 'power') return ['⚡', '#d68910']; // Stromausfall ohne Notstrom für die Drucker (#59)
   if (job?.status === 'done') return ['✔', '#27ae60'];
   return null;
 }
@@ -88,8 +90,9 @@ export function createWorkshop({ tables, tableHeight, economy, carry, upgrades }
         used: (i) => economy.tableSlotUsed(i),
       };
     }
-    // Ausstellungsregale gehören an die Wand, Server-Hardware in die zweite Etage (world/server-room.js)
-    if (carry.furniture && !isWallFurniture(carry.furniture.type) && !isServerHardware(carry.furniture.type)) {
+    // Ausstellungsregale gehören an die Wand, Server-Hardware in die zweite Etage (world/server-room.js), Akkus und
+    // Generator in den Technikraum (world/backup-power.js, #59)
+    if (carry.furniture && !isWallFurniture(carry.furniture.type) && !isServerHardware(carry.furniture.type) && !isBackupType(carry.furniture.type)) {
       return {
         name: carry.furniture.type.name, size: furnitureSize(carry.furniture.type), perTable: RACKS_PER_TABLE, x: rackX, z: rackZ,
         used: (i) => economy.rackSlotUsed(i),

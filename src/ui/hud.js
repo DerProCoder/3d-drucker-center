@@ -7,7 +7,8 @@ import { euro } from '../core/format.js';
 const COUNT_SECONDS = 0.6; // so lange zählt der Kontostand zum neuen Wert
 
 // clock: Spieluhr (game-clock.js), powerGrid: Stromnetz (core/power-grid.js, #57) für Tarif bzw. Stromausfall
-export function createHud(economy, orders, progress, clock, powerGrid = null) {
+// backupPower: Notstrom (core/backup-power.js, #59) – während eines Ausfalls Kurzinfo hinter dem Ausfall („🔋 Notstrom: 64 %“)
+export function createHud(economy, orders, progress, clock, powerGrid = null, backupPower = null) {
   const hud = document.createElement('div');
   hud.id = 'hud';
   hud.innerHTML = `
@@ -90,7 +91,8 @@ export function createHud(economy, orders, progress, clock, powerGrid = null) {
     lastClock = text;
     field('clock').textContent = text;
     if (powerGrid) {
-      field('power').textContent = powerGrid.statusText();
+      const backup = backupPower?.hudText();
+      field('power').textContent = backup ? `${powerGrid.statusText()} · ${backup}` : powerGrid.statusText();
       field('power').parentElement.classList.toggle('outage', powerGrid.isOutage);
     }
     field('costs').textContent = `${euro.format(economy.costPerHour)} / h`;
