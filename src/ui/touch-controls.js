@@ -3,6 +3,7 @@
 // Aufheben (E), Werfen (F), Ins Lager (Q), Spule wechseln (Mausrad), Schleichen (C), Tablet (G) und Pause (Esc).
 // Außerdem: welches Gerät der Spieler gewählt hat (PC oder Tablet), gespeichert im Browser.
 import * as THREE from 'three';
+import { getLanguage, subscribe as onLanguage, t, tFor } from '../core/i18n.js';
 
 const DEVICE_KEY = 'druckercenter-device';
 const STICK_RADIUS = 56;     // px – so weit lässt sich der Knauf ziehen
@@ -32,23 +33,32 @@ export function saveDevice(device) {
 // Vorschlag fürs erste Fragen: Touchscreen ohne Maus → Tablet
 export const suggestedDevice = () => (matchMedia('(pointer: coarse)').matches ? 'tablet' : 'pc');
 
-// Hinweistexte, die von Maus und Tasten sprechen, für das Tablet umschreiben
+// Hinweistexte, die von Maus und Tasten sprechen, für das Tablet umschreiben. Die Bausteine stehen im Wörterbuch
+// (input.pc.* → input.tablet.*); zuerst die der Spielsprache, dann die deutschen für noch nicht übersetzte Hinweise.
+const INPUT_PARTS = ['click', 'throw', 'take', 'store', 'wheel'];
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const replacementCache = new Map(); // Sprache → [[RegExp, Ersatz], …]
+function tabletReplacements() {
+  const lang = getLanguage();
+  if (!replacementCache.has(lang)) {
+    const pairs = INPUT_PARTS.map((k) => [t(`input.pc.${k}`), t(`input.tablet.${k}`)]);
+    if (lang !== 'de') pairs.push(...INPUT_PARTS.map((k) => [tFor('de', `input.pc.${k}`), tFor('de', `input.tablet.${k}`)]));
+    // Bausteine, die mit einem Buchstaben beginnen („F: werfen“), nur am Wortanfang ersetzen
+    replacementCache.set(lang, pairs.map(([pc, tablet]) => [new RegExp(`${/^\w/.test(pc) ? '\\b' : ''}${escapeRegExp(pc)}`, 'g'), tablet]));
+  }
+  return replacementCache.get(lang);
+}
 export function tabletText(text) {
-  return text
-    .replace(/Linksklick/g, 'Tippen')
-    .replace(/\bF: werfen/g, '🤾 Werfen')
-    .replace(/\bE: hochheben/g, '✋ Aufheben')
-    .replace(/\bQ: /g, '↩ ')
-    .replace(/Mausrad: Spule wählen/g, '🔄 Spule wechseln');
+  return tabletReplacements().reduce((s, [pattern, tablet]) => s.replace(pattern, tablet), text);
 }
 
 const BUTTONS = [
-  { id: 'take', label: '✋', title: 'Aufheben' },
-  { id: 'throw', label: '🤾', title: 'Werfen' },
-  { id: 'return', label: '↩', title: 'Ins Lager' },
-  { id: 'cycle', label: '🔄', title: 'Spule' },
-  { id: 'sneak', label: '🧎', title: 'Schleichen' },
-  { id: 'tablet', label: '📱', title: 'Tablet' }, // Tablet in der Hand öffnen (#67), wie G am PC
+  { id: 'take', label: '✋' },
+  { id: 'throw', label: '🤾' },
+  { id: 'return', label: '↩' },
+  { id: 'cycle', label: '🔄' },
+  { id: 'sneak', label: '🧎' },
+  { id: 'tablet', label: '📱' }, // Tablet in der Hand öffnen (#67), wie G am PC
 ];
 const ALWAYS = new Set(['sneak', 'tablet']); // immer sichtbar, die anderen nur, wenn sie gerade Sinn ergeben
 
@@ -60,14 +70,19 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
   root.className = 'hidden';
   root.innerHTML = `
     <div class="touch-stick hidden"><div class="touch-knob"></div></div>
-    <button class="touch-pause" data-touch="pause" aria-label="Pause">⏸</button>
+    <button class="touch-pause" data-touch="pause" aria-label="${t('touch.pause')}">⏸</button>
     <div class="touch-buttons">
-      ${BUTTONS.map((b) => `<button class="touch-btn ${ALWAYS.has(b.id) ? '' : 'hidden'}" data-touch="${b.id}"><span>${b.label}</span><small>${b.title}</small></button>`).join('')}
+      ${BUTTONS.map((b) => `<button class="touch-btn ${ALWAYS.has(b.id) ? '' : 'hidden'}" data-touch="${b.id}"><span>${b.label}</span><small>${t(`touch.${b.id}`)}</small></button>`).join('')}
     </div>`;
   document.body.appendChild(root);
   const stickEl = root.querySelector('.touch-stick');
   const knobEl = root.querySelector('.touch-knob');
   const buttons = Object.fromEntries(BUTTONS.map((b) => [b.id, root.querySelector(`[data-touch="${b.id}"]`)]));
+  // Sprachwechsel (#69): Beschriftungen der Knöpfe neu schreiben
+  onLanguage(() => {
+    for (const b of BUTTONS) buttons[b.id].querySelector('small').textContent = t(`touch.${b.id}`);
+    root.querySelector('.touch-pause').setAttribute('aria-label', t('touch.pause'));
+  });
 
   const move = { x: 0, y: 0 }; // x: rechts, y: vorwärts (−1…1)
   let active = false;

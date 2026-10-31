@@ -20,6 +20,7 @@ import { Achievements } from './core/achievements.js';
 import { hasSave, loadGame, deleteSave, startAutosave } from './core/save.js';
 import { createTouchControls, loadDevice, saveDevice, suggestedDevice, tabletText } from './ui/touch-controls.js';
 import { createTitleScreen } from './ui/title-screen.js';
+import { t } from './core/i18n.js';
 import { createHud } from './ui/hud.js';
 import { createRoom, roomColliders } from './world/room.js';
 import { createDesktopScreen } from './ui/desktop.js';
@@ -440,7 +441,7 @@ scene.add(upperFloor.group);
 
 // Fahrstuhl: kurz abblenden, auf dem anderen Stockwerk vor der Tür wieder auftauchen – was man trägt, fährt mit
 function rideElevator(level) {
-  screenFade.run(level ? '🛗 Fahrstuhl fährt nach oben …' : '🛗 Fahrstuhl fährt nach unten …', () => {
+  screenFade.run(t(level ? 'fade.elevatorUp' : 'fade.elevatorDown'), () => {
     const exit = upperFloor.elevatorExit(level);
     playerLevel = level;
     groundY = exit.y;
@@ -454,13 +455,14 @@ const basement = createBasement({ upgrades, collision, room, sun, outdoor, onRid
 scene.add(basement.group, basement.hallGroup);
 
 // Keller-Fahrstuhl: wie oben, zwischen Halle (0), Raum bei −10,5 m (−3) und Keller (−2)
+// Schlüssel im Wörterbuch (fade.*), übersetzt erst bei der Fahrt
 const BASEMENT_RIDE_TEXT = {
-  0: '🛗 Fahrstuhl fährt nach oben in die Halle …',
-  [-2]: '🛗 Fahrstuhl fährt hinunter in den Keller …',
-  [-3]: '🛗 Fahrstuhl fährt zum Raum bei −10,5 m …',
+  0: 'fade.basementToHall',
+  [-2]: 'fade.basementToCellar',
+  [-3]: 'fade.basementToControlRoom',
 };
 function rideBasementElevator(level) {
-  screenFade.run(BASEMENT_RIDE_TEXT[level], () => {
+  screenFade.run(t(BASEMENT_RIDE_TEXT[level]), () => {
     const exit = basement.elevatorExit(level);
     playerLevel = level;
     groundY = exit.y;
@@ -1031,7 +1033,7 @@ const leitstand = createLeitstand({
 const uiOpen = () => shop.isOpen() || rackPanel.isOpen() || workbenchPanel.isOpen() || controlPanel.isOpen();
 
 const pcInteraction = {
-  hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
+  hint: () => t('hints.pc'),
   action: () => {
     shop.open();
     stopPlaying();
@@ -1052,7 +1054,10 @@ const interaction = new Interaction({
 });
 
 // Tablet: kein Esc – abbrechen geht dort per Tippen auf den gewählten Port oder ⏸
-interaction.formatText = (text) => (isTablet() ? tabletText(text).replace(' oder Esc:', ':') : text);
+// „ oder Esc:“ in der Spielsprache; die deutsche Fassung bleibt, solange world/-Hinweise noch deutsch sind (#70)
+interaction.formatText = (text) => (isTablet()
+  ? tabletText(text).replace(t('input.pc.orEsc'), t('input.tablet.orEsc')).replace(' oder Esc:', ':')
+  : text);
 
 document.addEventListener('mousedown', (e) => {
   if (e.button === 0 && controls.isLocked) interaction.click();
@@ -1113,8 +1118,8 @@ const belowHall = () => playerLevel < 0 || (playerLevel === 0 && groundY < -0.01
 // Werfen nur in der Halle – von der zweiten Etage fiele der Drucker durch die Decke, unten in Treppenhaus und Keller
 // (auch schon auf dem obersten Treppenlauf) kennt die Wurfbahn den Boden nicht
 function throwCarried() {
-  if (playerLevel > 0) hud.notify('Von hier oben lieber nichts werfen – erst runter in die Halle', 'info');
-  else if (belowHall()) hud.notify('Hier unten lieber nichts werfen – erst hoch in die Halle', 'info');
+  if (playerLevel > 0) hud.notify(t('hints.noThrowUpstairs'), 'info');
+  else if (belowHall()) hud.notify(t('hints.noThrowBelow'), 'info');
   else throwing.throwCarried();
 }
 

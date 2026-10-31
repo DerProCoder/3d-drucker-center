@@ -306,6 +306,7 @@ Platz kostet Geld – Tische, Regalebenen, eine zweite Etage, einen Keller (ausb
 - **Ton:** Drucker surren je nach Tempo ihres Druckkopfs – tief beim langsamen Drucken, höher bei schnellen Stufen, Leerfahrten und Düsenwechseln –, piepen bei fertig oder Fehler, der Kater miaut und schnurrt. `M` schaltet den Ton aus.
 - **Level:** Jeder gelieferte Auftrag bringt XP (1 XP pro Euro). Mit jedem Level gibt es einen neuen Titel – vom *Bastler* bis zur *Legende des Filaments* –, 10 % mehr Lohn pro Auftrag und nach und nach mehr Aufträge gleichzeitig.
 - **Grafik:** Im Titelbildschirm zwischen **Hoch** (mit Umgebungsverdeckung und Schatten der Deckenlampen), **Mittel** und **Niedrig** wählen. „Niedrig“ rechnet mit weniger Pixeln, ohne Nachbearbeitung und mit einfacheren Schatten – für Laptops und schwächere Rechner. Schafft der Rechner keine flüssigen 45 Bilder pro Sekunde, senkt das Spiel die Auflösung von selbst ein Stück (und hebt sie wieder, wenn Luft ist). `F3` zeigt, wie schnell es gerade läuft.
+- **Sprache:** Im Start- und Pausenbildschirm unter **Sprache** zwischen Deutsch, Englisch, Französisch und Spanisch (DE · EN · FR · ES) wählen – die Texte wechseln sofort. Die Wahl bleibt im Browser gespeichert; beim allerersten Start gilt die Sprache des Browsers (sonst Deutsch). Geld und Zahlen werden passend zur Sprache geschrieben (z. B. „1.234,50 €“ bzw. „€1,234.50“). Noch nicht übersetzte Texte erscheinen auf Deutsch.
 - **Alte Spielstände** werden übernommen. Fertige Teile von früher bekommen dabei Weiß als Farbe, weil die Farbe damals nicht gespeichert wurde.
 
 ## Probleme?
@@ -349,7 +350,10 @@ src/
   main.js           Verdrahtet alles: Szene, Steuerung, Ereignisse, Spielschleife; baut derzeit auch Computertisch und
                     Spielerbewegung (soll später ausgelagert werden)
   core/             Spiellogik, ohne Three.js und ohne DOM
-    format.js         Gemeinsame Anzeige-Formatierer: Euro (euro, euroRound), Kabellänge (meters), Zeiten (formatMinutes, realTime)
+    format.js         Gemeinsame Anzeige-Formatierer: Euro (euro, euroRound), Kabellänge (meters), Zeiten (formatMinutes, realTime) – Schreibweise nach Spielsprache
+    i18n.js           Sprachsystem (#69): t('schlüssel', {werte}) mit Mehrzahl und Rückfall auf Deutsch, Sprache wählen/speichern, subscribe()
+    lang/             Wörterbücher je Sprache (de, en, fr, es): index.js sammelt base.js (Start/Pause, HUD, Touch, Hinweise),
+                      apps.js, catalog.js, messages.js, world.js; merge.js fügt die Teile zusammen
     catalog.js        Sammelstelle: reicht die Teilkataloge weiter (Import bleibt ../core/catalog.js)
     filament-catalog.js  Filamentsorten und -farben, Holzplatten für den Laser
     printer-catalog.js   Drucker und Laser mit technischen Daten, Geschwindigkeitsstufen, LED-Farben
