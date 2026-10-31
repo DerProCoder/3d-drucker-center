@@ -1,6 +1,7 @@
 /* Tablet in der Hand (#67, ui/tablet.js): HTML-Bildschirm genau über dem Bildschirm des 3D-Modells, darin die
    PC-Apps (#shop mit Klasse .in-tablet). Steht vor touch.css; die Regeln hier sind spezifischer (#shop.in-tablet …)
-   und gelten deshalb auch gegen dessen Handy-Anpassungen. Randfarbe über --tablet-frame (für #68). */
+   und gelten deshalb auch gegen dessen Handy-Anpassungen. Randfarbe über --tablet-frame, Hintergrundbild über --tablet-wallpaper(-portrait) (#68, setzt ui/tablet.js).
+   Unten auch die App „Einstellungen“ (ui/settings-app.js), die am PC und im Tablet läuft. */
 
 #tablet {
   --tablet-frame: #23262d;
@@ -82,6 +83,9 @@
 /* ---------- PC-Apps im Tablet ---------- */
 
 #shop.in-tablet { position: absolute; inset: 0; z-index: auto; }
+/* Gewähltes Hintergrundbild statt des PC-Hintergrunds (der steht als Inline-Stil am #shop, daher !important) */
+#tablet #shop.in-tablet { background-image: var(--tablet-wallpaper) !important; }
+#tablet.portrait #shop.in-tablet { background-image: var(--tablet-wallpaper-portrait) !important; }
 /* Kein Windows-Mauszeiger im Tablet */
 #shop.in-tablet, #shop.in-tablet * { cursor: auto; }
 #shop.in-tablet button:not(:disabled), #shop.in-tablet button:not(:disabled) *, #shop.in-tablet select { cursor: pointer; }
@@ -148,3 +152,39 @@
 /* Bei offenem Tablet: HUD aus (Kontostand steht in der Titelleiste der Apps), Meldungen bleiben lesbar über dem Tablet */
 body.tablet-open #hud, body.tablet-open #carry-info, body.tablet-open #crosshair, body.tablet-open #zoom-info { visibility: hidden; }
 body.tablet-open #feed { z-index: 21; }
+
+/* ---------- App „Einstellungen“ (#68): Tablet-Farbe und Hintergrundbild ---------- */
+
+.tset-colors { display: flex; flex-wrap: wrap; gap: 10px 6px; }
+.tset-color, .tset-wallpaper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  touch-action: manipulation;
+}
+.tset-color { width: 72px; }
+.tset-color:hover, .tset-wallpaper:hover { background: rgba(255, 255, 255, 0.07); }
+.tset-color.selected, .tset-wallpaper.selected { border-color: #3aa0ff; background: rgba(58, 160, 255, 0.12); }
+.tset-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.35), transparent 55%), var(--dot);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.tset-color.selected .tset-dot { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 0 3px #1e2128, 0 0 0 5px #3aa0ff; }
+.tset-wallpapers { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.tset-wallpaper img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+@media (max-width: 700px), (max-height: 500px) {
+  .tset-color { width: 60px; }
+  .tset-dot { width: 34px; height: 34px; }
+  .tset-wallpapers { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}

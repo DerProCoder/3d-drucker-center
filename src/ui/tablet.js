@@ -1,11 +1,17 @@
 // Tablet (#67): HTML-Bildschirm des Tablets in der Hand. Er liegt genau über dem Bildschirm des 3D-Modells
 // (world/tablet-hold.js liefert dafür das Rechteck) und zeigt die PC-Apps – dieselbe Fassung wie am PC (ui/shop.js),
 // nur in den Tablet-Bildschirm eingehängt. Oben eine Statusleiste mit Uhr, Startbildschirm- und Weglegen-Knopf,
-// unten ein Home-Balken. Die Randfarbe kommt aus der CSS-Variable --tablet-frame (setFrameColor, z. B. für #68).
-import { drawIcon, drawWallpaperCover } from './desktop.js';
+// unten ein Home-Balken. Aussehen (#68, core/tablet-style.js): Die Randfarbe kommt aus der CSS-Variable --tablet-frame
+// (setFrameColor), das Hintergrundbild des Startbildschirms aus --tablet-wallpaper(-portrait) und erscheint auch auf
+// den Bildern für das 3D-Modell (homeImages).
+import { drawIcon } from './desktop.js';
+import { drawTabletWallpaper, tabletWallpaperUrl } from './tablet-wallpapers.js';
+import { DEFAULT_TABLET_COLOR, bezelColor } from '../models/tablet.js';
+import { hexToCss } from '../core/tablet-style.js';
 
 // shop: PC-Fenster aus ui/shop.js (open({ host, mode }), close(), home(), apps)
-export function createTablet({ shop }) {
+// style: Aussehen aus core/tablet-style.js (Farbe, Hintergrundbild) oder null (Standard)
+export function createTablet({ shop, style = null }) {
   const root = document.createElement('div');
   root.id = 'tablet';
   root.className = 'hidden';
@@ -33,6 +39,16 @@ export function createTablet({ shop }) {
     clockEl.textContent = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   }
   setInterval(() => { if (open) updateClock(); }, 1000);
+
+  // Rand in der (etwas dunkleren) Randfarbe des 3D-Modells, Hintergrund je Ausrichtung
+  function applyStyle() {
+    root.style.setProperty('--tablet-frame', hexToCss(bezelColor(style ? style.colorHex : DEFAULT_TABLET_COLOR)));
+    const id = style?.wallpaper ?? 'bloom';
+    root.style.setProperty('--tablet-wallpaper', `url(${tabletWallpaperUrl(id, 1280, 800)})`);
+    root.style.setProperty('--tablet-wallpaper-portrait', `url(${tabletWallpaperUrl(id, 800, 1280)})`);
+  }
+  applyStyle();
+  style?.subscribe(applyStyle);
 
   return {
     isOpen: () => open,
@@ -77,18 +93,19 @@ export function createTablet({ shop }) {
     },
     // Startbildschirm als Bild für den Bildschirm des 3D-Modells (sieht man beim Heben und Senken)
     homeImages() {
-      return { landscape: homeCanvas(1024, 640, shop.apps), portrait: homeCanvas(640, 1024, shop.apps) };
+      const id = style?.wallpaper ?? 'bloom';
+      return { landscape: homeCanvas(1024, 640, shop.apps, id), portrait: homeCanvas(640, 1024, shop.apps, id) };
     },
   };
 }
 
-// Hintergrund, Statusleiste und App-Symbole im Raster wie im HTML-Startbildschirm
-function homeCanvas(width, height, apps) {
+// Hintergrund (wallpaper: ID aus core/tablet-style.js), Statusleiste und App-Symbole im Raster wie im HTML-Startbildschirm
+function homeCanvas(width, height, apps, wallpaper) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
-  drawWallpaperCover(ctx, width, height);
+  drawTabletWallpaper(ctx, wallpaper, width, height);
   ctx.fillStyle = 'rgba(10, 12, 18, 0.55)';
   ctx.fillRect(0, 0, width, 34);
   ctx.fillStyle = '#ffffff';

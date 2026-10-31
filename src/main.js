@@ -27,6 +27,7 @@ import { createDesktopScreen } from './ui/desktop.js';
 import { createShop } from './ui/shop.js';
 import { createTablet } from './ui/tablet.js';
 import { createTabletHold } from './world/tablet-hold.js';
+import { TabletStyle } from './core/tablet-style.js';
 import { createStorageRoom } from './world/storage-room.js';
 import { createBasementStorage } from './world/basement-storage.js';
 import { BasementStorage } from './core/basement-storage.js';
@@ -129,7 +130,8 @@ const website = new Website({ economy, servers, rentals, storage: storageRentals
 const aiService = new AIService({ economy, servers, climate, orders, clock: gameClock, progress });
 // Besucher: über den Tag verteilt kleine Grüppchen ohne Führer (Eintritt, Bewertung, Bonus-XP)
 const visitors = new Visitors({ economy, staff, upgrades, progress, clock: gameClock, servers, climate });
-const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage, powerGrid, backupPower };
+const tabletStyle = new TabletStyle(); // Aussehen des Tablets (#68): Farbe und Hintergrundbild
+const game = { economy, orders, progress, achievements, upgrades, clock: gameClock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, nas, storageRentals, website, basementStorage, powerGrid, backupPower, tabletStyle };
 // KI-Chat (PC-App „KI“): baut die Antworten aus dem Spielstand, je nach KI-Stufe genauer
 const advisor = createAdvisor({ ...game, climateAutomation: automation });
 const saveFound = hasSave();
@@ -941,6 +943,7 @@ const shop = createShop(economy, {
   rentalAutomation, // automatische Vergabe durch die privaten Server: Schalter und Status in der App
   storageRentals, // Speicher-Vermietung auf den NAS (#47): Anfragen und Verträge in der App „Server-Vermietung“
   website, // eigene Website (#54): Statuszeile in der Server-Vermietung, App „Website“ (#55)
+  tabletStyle, // App „Einstellungen“: Tablet-Farbe und Hintergrundbild (#68)
   ai: aiService, // App „KI“: Stufe, KI-GPU-Server online, KI-Abo
   serverParts, // App „Teile-Shop“: Bauteile kaufen, Teilelager, defekte Server
   advisor, // Antworten im KI-Chat (core/ai-advisor.js)
@@ -962,9 +965,10 @@ const shop = createShop(economy, {
 // Tablet in der Hand (#67, Taste G bzw. Knopf 📱): dieselben Apps wie am PC, überall dabei und von Anfang an da.
 // Das 3D-Modell hebt sich vor die Kamera, der HTML-Bildschirm mit den Apps liegt genau über seinem Bildschirm.
 // Wie das PC-Fenster: Maus frei, Spielzeit läuft weiter, G oder Esc schließt (über shop.close → onClose oben)
-const tablet = createTablet({ shop });
-const tabletHold = createTabletHold({ camera });
+const tablet = createTablet({ shop, style: tabletStyle }); // Rand und Hintergrund folgen der Wahl (#68)
+const tabletHold = createTabletHold({ camera, style: tabletStyle }); // Gehäusefarbe folgt der Wahl (#68)
 tabletHold.setScreenImages(tablet.homeImages());
+tabletStyle.subscribe(() => tabletHold.setScreenImages(tablet.homeImages())); // neuer Hintergrund im 3D-Bildschirm
 function openTablet() {
   if (gameOver || !playing() || uiOpen() || screenFade.busy) return;
   tablet.open();

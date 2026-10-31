@@ -2,6 +2,7 @@
 // sich beim Schließen wieder. Oben füllt der Bildschirm einen festen Anteil des Blickfelds; screen-Rechteck in
 // Bildschirm-Pixeln liefert update(), damit das HTML-Fenster mit den Apps genau darüber liegt (ui/tablet.js).
 // Was man sonst in der Hand hält (Spule, Karton), bleibt dabei unverändert an der Kamera.
+// Gehäusefarbe (#68): folgt dem Aussehen aus core/tablet-style.js (style), sonst setColor.
 import * as THREE from 'three';
 import { createTabletModel, TABLET_SCREEN } from '../models/tablet.js';
 
@@ -14,8 +15,10 @@ const LOWER_TILT = -1.15;  // rad – gesenkt zeigt der Bildschirm schräg nach 
 
 const ease = (t) => t * t * (3 - 2 * t);
 
-export function createTabletHold({ camera }) {
-  const model = createTabletModel();
+// style: core/tablet-style.js (TabletStyle) oder null – dann bleibt das Tablet schwarz, bis setColor gerufen wird
+export function createTabletHold({ camera, style = null }) {
+  const model = createTabletModel(style ? { color: style.colorHex } : {});
+  style?.subscribe(() => model.setColor(style.colorHex));
   const group = model.group;
   group.visible = false;
   group.renderOrder = 10; // vor allem anderen an der Kamera (Spulen, Kartons) zeichnen

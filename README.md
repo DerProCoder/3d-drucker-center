@@ -109,6 +109,9 @@ bleibt trotzdem.
 - **⌂** oben bzw. der Balken unten führt zurück zum Startbildschirm.
 - Was du in der Hand hältst (Spulen, Karton, Holzplatten), bleibt dabei in der Hand.
 - Auf dem Handy dreht sich das Tablet mit: quer im Querformat, hochkant im Hochformat.
+- In der App **Einstellungen** (auf dem Tablet und am PC) wählst du kostenlos die **Tablet-Farbe** (Schwarz, Weiß,
+  Silber, Gold, Blau, Rot, Grün, Lila) und das **Hintergrundbild** des Startbildschirms (Blüte, Sonnenuntergang,
+  Berge, Sternenhimmel, Filament, Schiefer). Die Wahl gilt sofort und wird im Spielstand gespeichert.
 
 Auch auf dem **Handy** spielbar, quer und hochkant: Das HUD wird dort zur schmalen Leiste (Level, Kontostand, Uhrzeit,
 Aufträge), die Knöpfe stehen als kleines Raster unten rechts, und die PC-Apps öffnen sich bildschirmfüllend. Die
@@ -215,7 +218,7 @@ Der Hallenkater streunt herum, macht Nickerchen und springt gern auf den Drucker
 
 Wer gemein ist: Drucker mit `E` vom Tisch heben und mit `F` werfen. Trifft er den Kater, kippt der um und landet als kleiner Geist im Katzenhimmel 👻 – nach 20 Sekunden läuft ein neuer Kater zu. Der geworfene Drucker bleibt auf dem Boden liegen und lässt sich mit Linksklick wieder aufheben (Spulen und fertige Teile sind noch drin).
 
-Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner**.
+Mit der App **Drucker-Cam** schaust du deinen Druckern live beim Drucken zu – wie mit der Kamera im echten Gerät. Außerdem gibt es am PC **Notizen** (z. B. für die Einkaufsliste) und einen **Rechner** sowie die App **Einstellungen** für das Aussehen deines Tablets.
 
 Für die Pause zwischendurch: **Snake** (Filament-Snake). Die Schlange frisst Filamentspulen, jedes neue Stück hat die
 Farbe der gefressenen Spule, und mit jeder Spule wird sie etwas schneller. Steuern mit **Pfeiltasten** oder **WASD**,
@@ -338,7 +341,7 @@ css/                Gestaltung, je Bereich eine Datei, in fester Reihenfolge gel
   storage-rental.css  Server-Vermietung: Speicher-Balken je NAS, Speicher-Anfragen (#47) und Kennzeichen „🌐 Website“ (#54)
   website-app.css     PC-App Website (#55): Assistent, Gestaltung, Statistik und Live-Vorschau (vor touch.css)
   control-panel.css   Leitstand-Fenster (#58): Reiter, Kennzahlen, Drucker mit Start/Abnehmen, Tabellen, Warnungen (vor touch.css)
-  tablet.css          Tablet in der Hand (#67): Bildschirm über dem 3D-Modell, Statusleiste, Startbildschirm, Apps im Tablet (vor touch.css)
+  tablet.css          Tablet in der Hand (#67): Bildschirm über dem 3D-Modell, Statusleiste, Startbildschirm, Apps im Tablet, App Einstellungen (#68) (vor touch.css)
   touch.css           Tablet-Steuerung, Anpassungen für Touch/Tablet/Handy (steht nach hud.css … apps.css,
                       damit sie deren Regeln überschreibt; neue Bereichsdateien davor einbinden, wenn sie für sie gelten soll)
   screen-fade.css     Abblenden des Bildschirms (z. B. Fahrstuhl)
@@ -395,6 +398,7 @@ src/
     cable-tray.js     Kabelgitter unter der Decke (Felder 1 m, Weg aus Wegpunkten, Kabellänge) und Internet-Anschluss an der Wand (28 Ports) – oben und im Daten-Bunker (Trassen über den Reihen, je Feld 4 Internet-Kästen à 33 Ports, keine Kabel zwischen den Bereichen)
     display-shelf.js  Ausstellungsregal: Wandplätze, Teile ausstellen und zurücknehmen
     storage-stack.js  Kartons im Abstellraum stapeln: 4 Stapel bis unter die Decke, ob ein neuer Karton noch passt
+    tablet-style.js   Aussehen des Tablets (#68): Gehäusefarbe und Hintergrundbild zur Auswahl, Speichern
     basement-storage.js Keller-Lager: Platzraster je Lager-Feld (Kartonstapel oder Filament-Regal je Platz), Umwandlung alter Stände, Lieferziel bei vollem Abstellraum, trockene Filament-Regale, Feld-Prüfung
     save.js           Spielstand in localStorage, Autospeichern, Umwandlung alter Stände
   world/            3D-Szene und Spielfigur
@@ -474,7 +478,7 @@ src/
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
     control-desk.js   Leitstand: Pult mit kleinen Bildschirmen und Schaltfeld, Bildschirmwand (Rahmen und Plätze der 6 Bildschirme)
     battery-cabinet.js Batterieschrank mit LED-Ladebalken
-    tablet.js         Tablet der Spielfigur: Gehäuse mit runden Ecken, Rand, Kamera-Punkt, Bildschirm; Farbe per setColor
+    tablet.js         Tablet der Spielfigur: Gehäuse mit runden Ecken, Rand, Kamera-Punkt, Bildschirm; Farbe per setColor (Rand um den Bildschirm färbt sich mit)
     generator.js      Dieselgenerator in 4 Größen (40–240 kW) mit Auspuff nach oben, Bedienfeld, Tankanzeige und kW-Schild
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
@@ -491,7 +495,9 @@ src/
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm, Geräteabfrage (PC oder Tablet)
     shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger; dieselben Apps auch im Tablet
     desktop.js        Bildschirm und App-Symbole
-    tablet.js         Tablet (#67): Bildschirm über dem 3D-Modell, Statusleiste und Home-Balken, hängt die PC-Apps aus shop.js ein
+    tablet.js         Tablet (#67): Bildschirm über dem 3D-Modell, Statusleiste und Home-Balken, hängt die PC-Apps aus shop.js ein; gewählter Rand und Hintergrund (#68)
+    tablet-wallpapers.js  Hintergrundbilder des Tablet-Startbildschirms (#68), per Canvas gezeichnet
+    settings-app.js   App Einstellungen (#68): Tablet-Farbe und Hintergrundbild wählen
     printer-menu.js · orders-menu.js · upgrades-menu.js · staff-menu.js   Apps Druckermenü, Aufträge, Ausbau, Personal
     printer-cam.js    App Drucker-Cam; Standbilder für die Bildschirmwand im Leitstand (still)
     printer-preview.js  Produktbilder der Drucker für den Shop

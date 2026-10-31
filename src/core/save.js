@@ -1,7 +1,7 @@
 // Spielstand in localStorage: Geld, Spielzeit, Drucker, Lager, Regale, fertige Teile, Aufträge, Level, Erfolge
 // und Hallen-Ausbau. Speichert automatisch alle paar Sekunden und beim Schließen des Tabs.
 // game: { economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench,
-// nas, storageRentals, website, powerGrid, backupPower }
+// nas, storageRentals, website, powerGrid, backupPower, tabletStyle }
 import { PRINTERS, furnitureById, templateById } from './catalog.js';
 import { SLOTS_PER_TABLE } from './upgrades.js';
 import { DISPLAY_SPOTS } from './display-shelf.js';
@@ -59,7 +59,9 @@ const KEY = 'druckercenter-save';
 //     Karton basement = { field, place, order }, Regal basement = { field, place }. Alte Stände (27 … 32) mit
 //     { field, zone, order } bzw. { field, spot } wandelt basementStorage.load()/settle() um: alles kommt auf den nächsten
 //     freien Platz im selben Feld, auch unterwegs reservierte Lieferungen – hier ist nichts weiter umzuwandeln
-const VERSION = 33;
+// 34: Aussehen des Tablets (#68, core/tablet-style.js) – Gehäusefarbe und Hintergrundbild (tabletStyle). Alte Stände:
+//     Schwarz und „Blüte“ (tabletStyle.load ohne Daten)
+const VERSION = 34;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -82,7 +84,7 @@ export function deleteSave() {
 // carried: { spools, nozzles, sheet } in der Hand – Spulen werden als „im Lagerregal“, Düsen als „im Ersatzteilregal“,
 // eine Holzplatte als „auf dem Stapel im Abstellraum“
 // gespeichert, damit beim Neuladen nichts verloren geht
-export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website, powerGrid, backupPower }, carried = {}) {
+export function saveGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, storageRentals, website, powerGrid, backupPower, tabletStyle }, carried = {}) {
   const carriedSpools = Array.isArray(carried) ? carried : carried.spools ?? [];
   const shelf = economy.shelf.map((s) => ({ ...s }));
   const used = new Set(shelf.map((s) => s.shelfSlot));
@@ -187,6 +189,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     website: website?.toJSON(), // eigene Website: Einstellungen, Status, Statistik (core/website.js)
     powerGrid: powerGrid?.toJSON(), // Stromausfall und Zeit bis zum nächsten (core/power-grid.js, #57)
     backupPower: backupPower?.toJSON(), // Akkus, Generator, Diesel, Priorität (core/backup-power.js, #59)
+    tabletStyle: tabletStyle?.toJSON(), // Gehäusefarbe und Hintergrundbild des Tablets (core/tablet-style.js, #68)
   };
   try {
     storage()?.setItem(KEY, JSON.stringify(data));
@@ -300,7 +303,7 @@ function migrateV2(data) {
 }
 
 // Überschreibt den Zustand der übergebenen Objekte. Gibt false zurück, wenn kein (gültiger) Spielstand da ist.
-export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage, powerGrid, backupPower }) {
+export function loadGame({ economy, orders, progress, achievements, upgrades, clock, staff, servers, climate, rentals, rentalAutomation, visitors, aiService, serverParts, workbench, storageRentals, website, basementStorage, powerGrid, backupPower, tabletStyle }) {
   let data;
   try {
     data = JSON.parse(storage()?.getItem(KEY) ?? 'null');
@@ -450,6 +453,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   // Version 32 → 33 (#72): Keller-Lager mit Platzraster. Kartons und Regale behalten basement mit zone bzw. spot –
   // basementStorage.load() (unten) verteilt sie auf freie Plätze im selben Feld, sobald die Kartonhöhen bekannt sind
   if (data?.version === 32) data.version = 33;
+  // Version 33 kennt noch kein Aussehen des Tablets: Schwarz und „Blüte“ (tabletStyle.load ohne Daten, #68)
+  if (data?.version === 33) {
+    data.tabletStyle ??= null;
+    data.version = 34;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -570,6 +578,7 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   powerGrid?.load(data.powerGrid); // Stromnetz (#57): laufender Ausfall, Zeit bis zum nächsten
   backupPower?.load(data.backupPower); // nach Einrichtung und Stromnetz (#59): Ladung, Diesel, Priorität
   aiService?.load(data.aiService);
+  tabletStyle?.load(data.tabletStyle); // Aussehen des Tablets (#68)
   economy.notify();
   orders.notify();
   progress.notify();

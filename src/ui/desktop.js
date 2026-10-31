@@ -484,7 +484,33 @@ function iconWeb(ctx, x, y, s) {
   ctx.stroke();
 }
 
+// Einstellungen (#68): graues Zahnrad auf blauem Grund
+function iconSettings(ctx, x, y, s) {
+  ctx.fillStyle = '#3a6fd8';
+  roundRect(ctx, x + s * 0.04, y + s * 0.04, s * 0.92, s * 0.92, s * 0.2);
+  ctx.fill();
+  const cx = x + s / 2;
+  const cy = y + s / 2;
+  const teeth = 8;
+  ctx.fillStyle = '#e6e9ef';
+  ctx.beginPath();
+  for (let i = 0; i < teeth * 2; i++) {
+    const a = (i / (teeth * 2)) * Math.PI * 2;
+    const r = i % 2 ? s * 0.27 : s * 0.36;
+    const spread = Math.PI / (teeth * 2) * 0.55;
+    ctx.lineTo(cx + Math.cos(a - spread) * r, cy + Math.sin(a - spread) * r);
+    ctx.lineTo(cx + Math.cos(a + spread) * r, cy + Math.sin(a + spread) * r);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#3a6fd8';
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 const ICONS = {
+  settings: iconSettings,
   trophy: iconTrophy, server: iconServer, cloud: iconCloud, ai: iconAI, parts: iconParts,
   start: iconStart, folder: iconFolder, printer: iconPrinter, spool: iconSpool,
   orders: iconOrders, notes: iconNotes, calc: iconCalc, trash: iconTrash, pc: iconPc, cam: iconCam, build: iconBuild, staff: iconStaff,

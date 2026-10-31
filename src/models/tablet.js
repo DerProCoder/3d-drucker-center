@@ -1,6 +1,7 @@
 // Tablet der Spielfigur (#67): flaches Gerät mit abgerundeten Ecken, schmalem Rand, Kamera-Punkt oben im Rand und
 // selbstleuchtendem Bildschirm. Im Querformat gebaut, Mitte des Bildschirms im Ursprung, der Bildschirm zeigt nach +z.
-// Die Gehäusefarbe lässt sich von außen setzen (setColor), z. B. für eine spätere Farbwahl (#68).
+// Die Gehäusefarbe lässt sich von außen setzen (setColor, Farbwahl in der App „Einstellungen“, #68): Sie färbt das
+// Gehäuse und – etwas dunkler – den Rand um den Bildschirm (bezelColor), damit man die Farbe auch von vorn sieht.
 import * as THREE from 'three';
 import { mat } from './mesh-helpers.js';
 
@@ -9,7 +10,15 @@ export const TABLET_SCREEN = { width: 0.24, height: 0.15, radius: 0.006 };
 const BEZEL = 0.011;
 const BODY = { width: TABLET_SCREEN.width + 2 * BEZEL, height: TABLET_SCREEN.height + 2 * BEZEL, depth: 0.006, radius: 0.016 };
 const BEVEL = 0.0012;
-export const DEFAULT_TABLET_COLOR = 0x23262d;
+export const DEFAULT_TABLET_COLOR = 0x23262d; // entspricht „Schwarz“ in core/tablet-style.js
+const GLASS_COLOR = 0x0a0b0d; // Rand um den Bildschirm beim schwarzen Standard-Tablet
+
+// Farbe des Rands um den Bildschirm zur Gehäusefarbe: beim Standard schwarzes Glas, sonst die Gehäusefarbe leicht
+// abgedunkelt (für das 3D-Modell und den Saum des HTML-Bildschirms, ui/tablet.js)
+export function bezelColor(hex) {
+  if (hex === DEFAULT_TABLET_COLOR) return GLASS_COLOR;
+  return new THREE.Color(GLASS_COLOR).lerp(new THREE.Color(hex), 0.85).getHex();
+}
 
 // Rechteck mit abgerundeten Ecken, Mitte im Ursprung
 function roundedRect(w, h, r) {
@@ -51,11 +60,9 @@ export function createTabletModel({ color = DEFAULT_TABLET_COLOR } = {}) {
   const body = new THREE.Mesh(bodyGeo, bodyMat);
   group.add(body);
 
-  // Schwarze Glasfläche über der Vorderseite (der Rand um den Bildschirm)
-  const glass = new THREE.Mesh(
-    roundedPlane(BODY.width - 0.003, BODY.height - 0.003, BODY.radius - 0.0015),
-    new THREE.MeshStandardMaterial({ color: 0x0a0b0d, roughness: 0.15, metalness: 0.1 }),
-  );
+  // Glasfläche über der Vorderseite (der Rand um den Bildschirm), Farbe passend zum Gehäuse (bezelColor)
+  const glassMat = new THREE.MeshStandardMaterial({ color: bezelColor(color), roughness: 0.15, metalness: 0.1 });
+  const glass = new THREE.Mesh(roundedPlane(BODY.width - 0.003, BODY.height - 0.003, BODY.radius - 0.0015), glassMat);
   glass.position.z = 0.0003;
   group.add(glass);
 
@@ -84,9 +91,10 @@ export function createTabletModel({ color = DEFAULT_TABLET_COLOR } = {}) {
   let texture = null;
   return {
     group,
-    // Gehäusefarbe, z. B. 0x23262d
+    // Gehäusefarbe, z. B. 0x23262d – der Rand um den Bildschirm folgt (bezelColor)
     setColor(hex) {
       bodyMat.color.set(hex);
+      glassMat.color.set(bezelColor(hex));
     },
     // Bild auf dem Bildschirm (Canvas). rotate: true dreht es für das Hochformat (Gerät um 90° gedreht)
     setScreenImage(canvas, { rotate = false } = {}) {

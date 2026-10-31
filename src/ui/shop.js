@@ -1,7 +1,7 @@
 // PC-Fenster: Desktop mit App-Symbolen, Taskleiste und eigenem Mauszeiger. Jede App öffnet ein Fenster:
 // „Filament-Shop“ (mit Zubehör), „Drucker-Shop“ und „Holzshop“ (Laser R1 und Holzplatten) zum Einkaufen,
 // „Aufträge“ und „Druckermenü“ zum Steuern, „Server-Shop“, „Teile-Shop“ (Server-Bauteile) und „Server-Vermietung“
-// (VM-Anfragen der Kunden), „Website“ (eigene Firmen-Website mit Vorschau), „KI“ (Chat), „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“ und „Rechner“.
+// (VM-Anfragen der Kunden), „Website“ (eigene Firmen-Website mit Vorschau), „KI“ (Chat), „Ausbau“ für Tische und Regalebenen, „Drucker-Cam“ mit Live-Bild, dazu „Erfolge“, „Notizen“, „Rechner“ und „Einstellungen“ (Aussehen des Tablets, #68).
 // Geheim: dreimal schnell aufs Windows-Symbol in der Taskleiste öffnet das „Entwicklermenü“.
 import {
   ACCESSORIES, FILAMENTS, FILAMENT_LINES, FURNITURE, PRINTERS, SHEET_MM, SPARE_PARTS, WOODS, filamentLabel, formatBuildVolume,
@@ -24,6 +24,7 @@ import { createPartsShop } from './parts-shop.js';
 import { createServerRentalApp } from './server-rental-app.js';
 import { createAIApp } from './ai-app.js';
 import { createWebsiteApp } from './website-app.js';
+import { createSettingsApp } from './settings-app.js';
 import { createAdvisor } from '../core/ai-advisor.js';
 import { iconDataUrl, wallpaperDataUrl } from './desktop.js';
 import { euro } from '../core/format.js';
@@ -54,6 +55,7 @@ const APPS = [
   { id: 'snake', name: 'Snake', icon: 'snake', live: false }, // nicht live: das Spielfeld darf nicht neu aufgebaut werden
   { id: 'notes', name: 'Notizen', icon: 'notes', live: false, small: true },
   { id: 'calc', name: 'Rechner', icon: 'calc', live: false, small: true },
+  { id: 'settings', name: 'Einstellungen', icon: 'settings', live: false }, // Tablet-Farbe und Hintergrundbild (#68)
   // versteckt: kein Symbol, nur über dreimal Windows-Symbol
   { id: 'dev', name: 'Entwicklermenü', icon: 'start', live: true, small: true, hidden: true },
 ];
@@ -77,6 +79,7 @@ const POWER_ICON = `<svg class="power-icon" viewBox="0 0 24 24" aria-hidden="tru
 export function createShop(economy, {
   orders, achievements, cam, upgrades, staff, staffStatus, servers, rentals, rentalAutomation = null, storageRentals = null, ai = null, advisor = null, serverParts = null,
   website = null, // eigene Website (#54, core/website.js): Statuszeile in der Server-Vermietung und App „Website“ (#55)
+  tabletStyle = null, // Aussehen des Tablets (#68, core/tablet-style.js): App „Einstellungen“
   freePrinterSlots, freeShelfSpace, onClose,
 }) {
   const icons = new Map(APPS.map((a) => [a.id, iconDataUrl(a.icon)]));
@@ -136,6 +139,7 @@ export function createShop(economy, {
     advisor: advisor ?? createAdvisor({ economy, orders, upgrades, staff, servers, rentals, rentalAutomation, ai }),
   });
   const websiteApp = createWebsiteApp({ website });
+  const settingsApp = createSettingsApp({ style: tabletStyle });
 
   function buyButton(id, blockedReason) {
     return blockedReason
@@ -411,7 +415,7 @@ export function createShop(economy, {
     const renderers = {
       filaments: renderFilaments, printers: renderPrinters, wood: renderWood, orders: ordersMenu.render, upgrades: upgradesMenu.render, staff: staffMenu.render,
       control: printerMenu.render, achievements: renderAchievements, notes: notes.render, calc: calc.render, snake: snake.render,
-      cam: cam.render, dev: renderDev, servers: serverShop.render, parts: partsShop.render, rentals: rentalApp.render, ai: aiApp.render, website: websiteApp.render,
+      cam: cam.render, dev: renderDev, servers: serverShop.render, parts: partsShop.render, rentals: rentalApp.render, ai: aiApp.render, website: websiteApp.render, settings: settingsApp.render,
     };
     // Textfeld, in dem gerade getippt wird (z. B. Gravurtext): nach dem Neuzeichnen wieder fokussieren
     const typing = document.activeElement?.closest?.('[data-keep-focus]');
@@ -625,6 +629,12 @@ export function createShop(economy, {
     }
     if (app === 'website') {
       const { message, render: redraw } = websiteApp.handleClick(e);
+      if (redraw) render();
+      if (message) toast(message);
+      return;
+    }
+    if (app === 'settings') {
+      const { message, render: redraw } = settingsApp.handleClick(e);
       if (redraw) render();
       if (message) toast(message);
       return;
