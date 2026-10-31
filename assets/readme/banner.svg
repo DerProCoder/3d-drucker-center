@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="Druckercenter">
+  <title>Druckercenter</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e1118"/>
+      <stop offset="1" stop-color="#1b2232"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.78" cy="0.55" r="0.55">
+      <stop offset="0" stop-color="#ffcf4a" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#ffcf4a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe08a"/>
+      <stop offset=".55" stop-color="#ffcf4a"/>
+      <stop offset="1" stop-color="#ff9a2e"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9fb3d9" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#9fb3d9" stop-opacity=".06"/>
+    </linearGradient>
+    <linearGradient id="table" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4558"/>
+      <stop offset="1" stop-color="#262e3d"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity=".045"/>
+    </pattern>
+    <clipPath id="card"><rect width="1280" height="360" rx="18"/></clipPath>
+    <!-- Ein Drucker mit Gehäuse, Glastür, Druckteil, Display und Status-LED -->
+    <g id="printer">
+      <rect x="0" y="0" width="150" height="170" rx="10" fill="#d9dee7"/>
+      <rect x="0" y="0" width="150" height="16" rx="8" fill="#eef1f6"/>
+      <rect x="12" y="24" width="126" height="118" rx="6" fill="#141a26"/>
+      <rect x="12" y="24" width="126" height="118" rx="6" fill="url(#glass)"/>
+      <rect x="20" y="40" width="110" height="5" rx="2" fill="#5a6476"/>
+      <rect x="22" y="128" width="106" height="6" rx="2" fill="#3a4354"/>
+      <rect x="12" y="148" width="40" height="14" rx="3" fill="#1d2433"/>
+      <circle cx="136" cy="155" r="5" fill="#4be08a"/>
+      <circle cx="136" cy="155" r="10" fill="#4be08a" fill-opacity=".25"/>
+    </g>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1280" height="360" fill="url(#bg)"/>
+    <rect width="1280" height="360" fill="url(#grid)"/>
+    <rect width="1280" height="360" fill="url(#glow)"/>
+
+    <!-- Halle: Tisch mit drei Druckern -->
+    <g transform="translate(708 70)">
+      <!-- Druckteile (Vase, Drache/Figur, Benchy-artig) hinter dem Glas -->
+      <use href="#printer" x="0" y="20"/>
+      <path d="M60 148 h30 l-4 -34 c-2 -14 8 -20 8 -30 h-38 c0 10 10 16 8 30 z" fill="#3aa0ff"/>
+      <rect x="54" y="62" width="42" height="4" rx="2" fill="#ffcf4a"/>
+      <rect x="71" y="45" width="8" height="18" fill="#c7ced9"/>
+
+      <use href="#printer" x="170" y="20"/>
+      <path d="M210 148 h70 v-10 l-12 -22 h-44 l-14 22 z" fill="#ff7a59"/>
+      <rect x="230" y="90" width="30" height="26" rx="4" fill="#ff7a59"/>
+      <rect x="226" y="62" width="38" height="4" rx="2" fill="#ffcf4a"/>
+      <rect x="241" y="45" width="8" height="18" fill="#c7ced9"/>
+
+      <use href="#printer" x="340" y="20"/>
+      <rect x="374" y="122" width="82" height="26" rx="3" fill="#4be08a"/>
+      <rect x="374" y="122" width="82" height="4" fill="#ffffff" fill-opacity=".35"/>
+      <rect x="380" y="62" width="42" height="4" rx="2" fill="#ffcf4a"/>
+      <rect x="397" y="45" width="8" height="18" fill="#c7ced9"/>
+      <!-- Schichtlinie, die gerade gedruckt wird -->
+      <rect x="374" y="118" width="58" height="4" rx="1" fill="#4be08a" fill-opacity=".6"/>
+
+      <!-- Tischplatte -->
+      <rect x="-30" y="190" width="580" height="18" rx="4" fill="url(#table)"/>
+      <rect x="-30" y="190" width="580" height="3" rx="1.5" fill="#ffffff" fill-opacity=".12"/>
+      <rect x="-10" y="208" width="14" height="90" fill="#262e3d"/>
+      <rect x="516" y="208" width="14" height="90" fill="#262e3d"/>
+
+      <!-- Spulen auf dem Tisch -->
+      <g transform="translate(522 190)">
+        <circle cx="0" cy="-22" r="22" fill="#ffcf4a"/><circle cx="0" cy="-22" r="8" fill="#0e1118"/>
+      </g>
+      <g transform="translate(518 146)">
+        <circle cx="0" cy="-18" r="18" fill="#3aa0ff"/><circle cx="0" cy="-18" r="6" fill="#0e1118"/>
+      </g>
+      <g transform="translate(-16 190)">
+        <circle cx="0" cy="-12" r="12" fill="#ff7a59"/><circle cx="0" cy="-12" r="4" fill="#0e1118"/>
+      </g>
+    </g>
+
+    <!-- Boden -->
+    <rect x="0" y="330" width="1280" height="30" fill="#0b0e14" fill-opacity=".55"/>
+
+    <!-- Schriftzug -->
+    <text x="72" y="196" textLength="590" lengthAdjust="spacingAndGlyphs"
+      font-family="'Rajdhani', 'Bahnschrift', 'DIN Alternate', 'Arial Narrow', 'Roboto Condensed', 'Helvetica Neue', Arial, sans-serif"
+      font-weight="800" font-size="104" fill="url(#gold)">DRUCKERCENTER</text>
+    <rect x="74" y="222" width="132" height="6" rx="3" fill="#4be08a"/>
+    <rect x="216" y="222" width="40" height="6" rx="3" fill="#ffcf4a"/>
+    <rect x="266" y="222" width="18" height="6" rx="3" fill="#3aa0ff"/>
+    <text x="74" y="270"
+      font-family="ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace"
+      font-size="22" letter-spacing="3" fill="#c9d2e3">FPV · 3D · THREE.JS · WEBGL</text>
+  </g>
+  <rect x=".5" y=".5" width="1279" height="359" rx="18" fill="none" stroke="#ffffff" stroke-opacity=".1"/>
+</svg>
