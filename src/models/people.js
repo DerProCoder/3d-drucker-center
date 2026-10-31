@@ -37,11 +37,67 @@ export function onPersonLoaded(listener) {
   loadedListeners.add(listener);
 }
 
+const LOAD_STALL_MS = 30000; // so lange ohne neue Daten gilt ein Versuch als hängend (beim n-ten Versuch n-mal so lange)
+const LOAD_TRIES = 3;
+
+// Antwort vollständig lesen; kommt zu lange nichts Neues an, wird abgebrochen. Gemessen wird der Stillstand, nicht
+// die Gesamtdauer – langsame, aber laufende Downloads werden nicht abgebrochen.
+async function readBody(response, arm) {
+  if (!response.body) return response.arrayBuffer();
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    arm();
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.length;
+  }
+  const data = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return data.buffer;
+}
+
+// GLB holen und auswerten. Bricht eine Antwort ab oder hängt sie (manche lokalen Server lassen bei vielen
+// gleichzeitigen Anfragen einzelne liegen), gibt es einen neuen Versuch – sonst bliebe die Figur für immer weg
+// und vom Azubi wäre nur das Namensschild zu sehen (#66).
+async function fetchFigure(id, url) {
+  for (let attempt = 1; ; attempt++) {
+    const abort = new AbortController();
+    const stall = LOAD_STALL_MS * attempt;
+    let timer = null;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => abort.abort(new Error(`keine Daten seit ${stall / 1000} s`)), stall);
+    };
+    try {
+      arm();
+      const response = await fetch(url, { signal: abort.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await readBody(response, arm);
+      clearTimeout(timer);
+      return await loader.parseAsync(data, url.slice(0, url.lastIndexOf('/') + 1));
+    } catch (err) {
+      if (attempt >= LOAD_TRIES) throw err;
+      console.warn(`Figur ${id}: Laden fehlgeschlagen (Versuch ${attempt}), neuer Versuch`, err);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function load(id) {
   if (!cache.has(id)) {
     const url = new URL(`../../assets/people/${id}.glb`, import.meta.url).href;
-    const promise = loader.loadAsync(url);
-    promise.then(() => { for (const listener of loadedListeners) listener(id); }, () => {});
+    const promise = fetchFigure(id, url);
+    // Fehlgeschlagen: nicht merken, damit der nächste Aufruf es erneut versucht
+    promise.then(() => { for (const listener of loadedListeners) listener(id); }, () => cache.delete(id));
     cache.set(id, promise);
   }
   return cache.get(id);

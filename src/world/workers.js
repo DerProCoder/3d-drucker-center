@@ -86,11 +86,16 @@ function createHolder(worker) {
   return holder;
 }
 
-// Figur passend zum Namen, zwei Azubis gleichen Geschlechts sehen verschieden aus
-function figureFor(worker) {
+// Figur passend zum Namen, zwei Azubis gleichen Geschlechts sehen verschieden aus.
+// attempt > 0: Ersatzfigur, wenn die eigentliche nicht geladen werden konnte (reihum die anderen Figuren)
+function figureFor(worker, attempt = 0) {
   const choices = peopleFor('staff', workerGender(worker));
-  return choices[Math.floor((worker.id - 1) / 2) % choices.length].id;
+  const base = Math.max(0, Math.floor((worker.id - 1) / 2)) || 0;
+  return choices[(base + attempt) % choices.length].id;
 }
+
+const FIGURE_RETRY_SECONDS = 5; // so lange warten, bevor nach einem Fehlschlag die nächste Figur probiert wird
+const FIGURE_ATTEMPTS = 10;       // danach aufgeben (z. B. Server ganz weg) – die Warnungen stehen in der Konsole
 
 // Was ein Azubi ohne Aufgabe gerade macht
 function idleText(r) {
@@ -144,12 +149,24 @@ export function createWorkers({ economy, staff }) {
     };
     group.add(mesh);
     runners.set(worker.id, r);
-    createPerson(figureFor(worker)).then((person) => {
-      if (runners.get(worker.id) !== r) return; // inzwischen entlassen
+    loadFigure(r, 0);
+  }
+
+  // Figur laden und an den Halter hängen. Klappt es nicht, nach kurzer Pause erneut – mit der nächsten Figur, damit
+  // nicht dauerhaft nur das Namensschild durch die Halle läuft (#66)
+  function loadFigure(r, attempt) {
+    const id = figureFor(r.worker, attempt);
+    createPerson(id).then((person) => {
+      if (runners.get(r.worker.id) !== r || r.person) { person.dispose(); return; } // inzwischen entlassen
       person.object.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
       r.person = person;
-      mesh.add(person.object);
-    }).catch((err) => console.warn('Azubi-Figur konnte nicht geladen werden', err));
+      r.mesh.add(person.object);
+    }).catch((err) => {
+      console.warn(`Azubi-Figur ${id} konnte nicht geladen werden, neuer Versuch in ${FIGURE_RETRY_SECONDS} s`, err);
+      setTimeout(() => {
+        if (runners.get(r.worker.id) === r && !r.person && attempt + 1 < FIGURE_ATTEMPTS) loadFigure(r, attempt + 1);
+      }, FIGURE_RETRY_SECONDS * 1000);
+    });
   }
 
   function remove(id) {
