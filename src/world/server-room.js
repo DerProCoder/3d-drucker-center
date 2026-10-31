@@ -193,7 +193,9 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
     return v.clone().sub(new THREE.Vector3(x, 0, z)).applyAxisAngle(Y_AXIS, -rackAngle(rack));
   };
   const frameOf = (area) => (area === 'bunker' && bunker ? bunker.frame : group);
-  // Hilfsobjekt (Vorschau, Markierung) in den Bereich hängen, in dem es gerade gebraucht wird
+  // Hilfsobjekt (Vorschau, Markierung) in den Bereich hängen, in dem es gerade gebraucht wird. Die Hilfsobjekte hängen
+  // anfangs nirgends: Was beim Anlegen schon in group steckt, blendet world/room-culling.js mit der Halle aus (Ebene 31),
+  // und im Keller ist die Halle immer ausgeblendet – im Bunker-Rahmen blieben sie sonst unsichtbar (#73).
   const place = (object, area) => {
     const frame = frameOf(area);
     if (object.parent !== frame) frame.add(object);
@@ -207,7 +209,6 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   );
   preview.raycast = () => {};
   preview.visible = false;
-  group.add(preview);
 
   const carriedDevice = () => {
     const item = carry.furniture;
@@ -287,7 +288,6 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   );
   bayMarker.raycast = () => {};
   bayMarker.visible = false;
-  group.add(bayMarker);
   // Unsichtbare Klickflächen je Schachtgröße (alle Schächte sind gleich groß)
   const bayHitGeometries = new Map();
   const bayHitGeometry = (b) => {
@@ -468,10 +468,8 @@ export function createServerRoom({ economy, servers, climate, carry, upgrades, c
   );
   pickedMarker.raycast = () => {};
   pickedMarker.visible = false;
-  group.add(pickedMarker);
   // Gewählte Clips leuchten ebenfalls gelb
-  const clipMarkers = new THREE.Group();
-  group.add(clipMarkers);
+  const clipMarkers = new THREE.Group(); // hängt erst über place() im Bereich (siehe dort, #73)
   const CLIP_MARKER_GEOMETRY = new THREE.BoxGeometry(0.03, 0.01, 0.03);
   let pendingCable = null;
   let pendingKey = '';
