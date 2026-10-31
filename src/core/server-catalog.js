@@ -21,7 +21,7 @@
 //   „Firewall 4 Ports“ hat 1 × WAN + 3 × LAN, „Firewall 8 Ports“ 1 × WAN + 8 × LAN (dort meint die 8 die LAN-Ports)
 
 // Kabelführung hinten im Schrank: links und rechts eine Leiste mit einem Clip alle clipEvery HE
-import { BATTERY, GENERATOR } from './backup-power.js';
+import { BATTERY, GENERATORS, GENERATOR_MAX } from './backup-power.js';
 
 export const CABLE_CLIP_EVERY = 2;
 
@@ -99,15 +99,16 @@ export function portName(type, port) {
 // Kommt wie die Server-Hardware als Karton (economy.furniture), ist aber keine Server-Hardware (isServerHardware
 // false) – aufgestellt wird sie auf festen Plätzen im Technikraum (location 'technik'). Diesel kauft man dort nach
 // (kommt per Tankwagen direkt in den Tank, kein Karton).
-//   capacityKwh/maxKw: Akku · kw/tankLiters/litersPerKwh/startMinutes: Generator · max: höchstens so viele
+//   capacityKwh/maxKw: Akku · kw/tankLiters/litersPerKwh/startMinutes/startDiesel: Generator (vier Modelle, #71)
+//   max: höchstens so viele – bei Generatoren für alle Modelle zusammen (GENERATOR_MAX)
 export const TECH_EQUIPMENT = [
   {
     id: BATTERY.id, kind: 'battery', name: 'Batterieschrank', price: BATTERY.price, max: BATTERY.max,
     capacityKwh: BATTERY.capacityKwh, maxKw: BATTERY.maxKw,
   },
-  {
-    id: GENERATOR.id, kind: 'generator', name: 'Dieselgenerator', price: GENERATOR.price, max: GENERATOR.max,
-    kw: GENERATOR.kw, tankLiters: GENERATOR.tankLiters, litersPerKwh: GENERATOR.litersPerKwh, startMinutes: GENERATOR.startMinutes,
-  },
+  ...GENERATORS.map((g) => ({
+    id: g.id, kind: 'generator', name: g.name, price: g.price, max: GENERATOR_MAX,
+    kw: g.kw, tankLiters: g.tankLiters, litersPerKwh: g.litersPerKwh, startMinutes: g.startMinutes, startDiesel: g.startDiesel,
+  })),
 ];
 export const techById = (id) => TECH_EQUIPMENT.find((t) => t.id === id);

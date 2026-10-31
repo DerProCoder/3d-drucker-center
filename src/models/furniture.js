@@ -143,6 +143,9 @@ const BUILDERS = { 'filament-rack': createFilamentRack, 'parts-rack': createPart
   'display-shelf': createDisplayShelf,
   // Technik für den Technikraum (#59): hier nur für Kartongröße und Vorschau, aufgestellt baut world/backup-power.js
   'battery-cabinet': createBatteryCabinet, 'diesel-generator': createGeneratorCrateShape,
+  // weitere Generator-Modelle (#71): gleicher Karton
+  'diesel-generator-80': createGeneratorCrateShape, 'diesel-generator-120': createGeneratorCrateShape,
+  'diesel-generator-240': createGeneratorCrateShape,
 };
 
 export function createFurnitureModel(type) {

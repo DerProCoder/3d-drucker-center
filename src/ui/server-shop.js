@@ -1,8 +1,8 @@
 // PC-App „Server-Shop“: Serverschränke, Server, Switches, Firewalls, Patchpanels und Kabelrollen kaufen. Oben steht,
 // was der Serverraum gerade bringt (VMs und Miete aus core/server-rentals.js). Gekauft werden kann erst, wenn die
 // zweite Etage steht (dort kommen die Schränke hin).
-// Kategorie „Technik“ (#59, core/backup-power.js über economy.backupPower): Batterieschränke, Dieselgenerator und
-// Diesel für den Technikraum – kaufbar, sobald der Raum bei −10,5 m steht.
+// Kategorie „Technik“ (#59, core/backup-power.js über economy.backupPower): Batterieschränke, vier Dieselgeneratoren
+// (40–240 kW, #71, höchstens 4 zusammen) und Diesel je Generator für den Technikraum – kaufbar, sobald der Raum bei −10,5 m steht.
 import { CABLE_ROLL, SERVER_CORES, SERVER_DEVICES, SERVER_RACKS, SERVER_RAM, SERVER_SERIES } from '../core/server-catalog.js';
 import { createCableRoll, createServerHardwareModel } from '../models/server-hardware.js';
 import { renderPreviews } from './printer-preview.js';
@@ -12,7 +12,7 @@ import { SLOT_SETS, isUpgradable, partsOfKind, standardCapacity } from '../core/
 import { isNas, storageText } from '../core/nas.js';
 import { DESIGN_BONUS, MAX_COUNTED_SERVERS, REQUESTS_PER_DAY, isWebsiteServer } from '../core/website.js';
 import { TECH_EQUIPMENT } from '../core/server-catalog.js';
-import { BATTERY, DIESEL, GENERATOR, isBatteryType } from '../core/backup-power.js';
+import { BATTERY, DIESEL, GENERATOR, GENERATORS, GENERATOR_MAX, fullLoadHours, generatorSpec, isBatteryType } from '../core/backup-power.js';
 import { createBatteryCabinet } from '../models/battery-cabinet.js';
 import { createGenerator } from '../models/generator.js';
 
@@ -86,13 +86,15 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       </div>`;
   }
 
-  // ---------- Technik (#59): Akkus, Generator, Diesel für den Technikraum im Raum bei −10,5 m ----------
+  // ---------- Technik (#59, #71): Akkus, Generatoren, Diesel für den Technikraum im Raum bei −10,5 m ----------
   const backup = () => economy.backupPower; // core/backup-power.js – ohne ihn gibt es keine Kategorie „Technik“
   const roomBuilt = () => !!upgrades.controlRoom;
+  const num1 = (v) => (Math.round(v * 10) / 10).toLocaleString('de-DE');
 
   function techCard(type) {
     const bp = backup();
     const problem = bp.buyProblem(type, roomBuilt());
+    const spec = generatorSpec(type);
     const specs = isBatteryType(type)
       ? [
         `<dt>Kapazität</dt><dd>${BATTERY.capacityKwh} kWh (kommt halb geladen)</dd>`,
@@ -101,44 +103,53 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
         `<dt>Platz</dt><dd>Technikraum, Ostwand (${BATTERY.max} Plätze)</dd>`,
       ]
       : [
-        `<dt>Leistung</dt><dd>${GENERATOR.kw} kW, springt ${GENERATOR.startMinutes} Spielminuten nach einem Stromausfall an</dd>`,
-        `<dt>Tank</dt><dd>${GENERATOR.tankLiters} L (kommt mit ${GENERATOR.startDiesel} L), Verbrauch ${String(GENERATOR.litersPerKwh).replace('.', ',')} L je kWh</dd>`,
-        '<dt>Platz</dt><dd>Technikraum, Südwand – Auspuff nach oben</dd>',
+        `<dt>Leistung</dt><dd>${spec.kw} kW, springt ${spec.startMinutes} Spielminuten nach einem Stromausfall an</dd>`,
+        `<dt>Tank</dt><dd>${spec.tankLiters} L (kommt mit ${spec.startDiesel} L), Verbrauch ${String(spec.litersPerKwh).replace('.', ',')} L je kWh</dd>`,
+        `<dt>Laufzeit</dt><dd>ca. ${num1(fullLoadHours(spec))} h bei Volllast mit vollem Tank</dd>`,
+        `<dt>Platz</dt><dd>Technikraum, Süd- und Nordwand – höchstens ${GENERATOR_MAX} Generatoren zusammen, Leistung addiert sich</dd>`,
       ];
+    const stock = isBatteryType(type) ? `Im Besitz: ${bp.owned(type)} / ${type.max}`
+      : `Im Besitz: ${bp.owned(type)} · alle Generatoren ${bp.ownedGenerators} / ${GENERATOR_MAX}`;
     return `
       <div class="card">
         ${image(type.id, type.name)}
         <div class="card-head"><span class="server-icon">${ICONS[type.kind]}</span><div class="card-title">${type.name}</div></div>
         <dl class="specs">${specs.join('')}</dl>
         <div class="card-foot">
-          <span class="stock">Im Besitz: ${bp.owned(type)} / ${type.max}</span>
+          <span class="stock">${stock}</span>
           <span class="price">${euro.format(type.price)}</span>
           ${problem ? `<button class="buy" disabled>${problem}</button>` : `<button class="buy" data-tech-buy="${type.id}">Kaufen</button>`}
         </div>
       </div>`;
   }
 
+  // Diesel (#71): je aufgestelltem Generator „+50 L“ in seinen eigenen Tank, dazu „Alle volltanken“ mit Gesamtpreis
   function dieselCard() {
     const bp = backup();
-    const step = bp.dieselOffer(DIESEL.stepLiters);
-    const full = bp.dieselOffer(GENERATOR.tankLiters);
-    const button = (liters, label, attr) => {
-      const problem = bp.dieselProblem(liters);
+    const gens = bp.generators;
+    const button = (liters, label, attr, item = null) => {
+      const problem = bp.dieselProblem(liters, item);
       return problem ? `<button class="buy" disabled>${problem}</button>`
-        : `<button class="buy" data-tech-diesel="${attr}">${label} · ${euro.format(bp.dieselPrice(liters))}</button>`;
+        : `<button class="buy" ${attr}>${label} · ${euro.format(bp.dieselPrice(liters))}</button>`;
     };
+    const rows = gens.map((g) => {
+      const spec = generatorSpec(g);
+      const step = bp.dieselOffer(DIESEL.stepLiters, g);
+      return `<dt>${spec.kw} kW · Platz ${g.slot + 1}</dt><dd>${Math.round(bp.dieselOf(g))} / ${spec.tankLiters} L
+        ${button(step, `+${Math.round(step || DIESEL.stepLiters)} L`, `data-tech-diesel="item" data-tech-generator="${g.id}"`, g)}</dd>`;
+    }).join('');
+    const full = bp.fillAllLiters;
     return `
       <div class="card">
         <div class="card-head"><span class="server-icon">🛢️</span><div class="card-title">Diesel</div></div>
         <dl class="specs">
           <dt>Preis</dt><dd>${euro.format(DIESEL.pricePerLiter)} je Liter</dd>
-          <dt>Tank</dt><dd>${Math.round(bp.diesel)} / ${GENERATOR.tankLiters} L</dd>
-          <dt>Lieferung</dt><dd>per Tankwagen direkt in den Tank des Generators</dd>
+          ${rows || '<dt>Tanks</dt><dd>kein Generator aufgestellt</dd>'}
+          <dt>Lieferung</dt><dd>per Tankwagen direkt in den Tank des jeweiligen Generators</dd>
         </dl>
         <div class="card-foot">
-          <span class="stock">${Math.round(bp.diesel)} L im Tank</span>
-          ${button(step, `${Math.round(step)} L`, 'step')}
-          ${full > step ? button(full, 'Volltanken', 'full') : ''}
+          <span class="stock">${Math.round(bp.diesel)} / ${bp.tankLiters} L in ${gens.length} ${gens.length === 1 ? 'Tank' : 'Tanks'}</span>
+          ${button(full, `Alle volltanken (${Math.round(full)} L)`, 'data-tech-diesel="all"')}
         </div>
       </div>`;
   }
@@ -147,9 +158,10 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
     const bp = backup();
     if (!bp) return '';
     const s = bp.status();
+    const g = s.generator;
     const info = s.installed
       ? `🔋 Akkus: <strong>${s.batteries.length} × ${BATTERY.capacityKwh} kWh · ${Math.round(s.percent)} %</strong>
-        · ⛽ Generator: <strong>${s.generator.installed ? `${Math.round(s.generator.diesel)} L Diesel` : '–'}</strong>
+        · ⛽ Generatoren: <strong>${g.installed ? `${g.count} × (${g.ratedKw} kW zusammen) · ${Math.round(g.diesel)} / ${g.tank} L Diesel` : '–'}</strong>
         · gespart heute <strong>${euro.format(s.savedToday)}</strong>`
       : 'Noch kein Notstrom aufgestellt – ohne Notstrom gibt es auch keine Stromausfälle.';
     return `
@@ -157,7 +169,8 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
         <p class="slots">${info}</p>
         <p class="slots">Kommt als Karton in den Abstellraum. Trag ihn in den Technikraum (hinter der Glaswand im Raum bei −10,5 m)
           und stell ihn an einer grünen Markierung auf. Akkus laden nachts billig und decken tagsüber den Verbrauch zuerst.
-          Mit Notstrom gibt es gelegentlich <b>Stromausfälle</b>: Dann versorgen erst die Akkus, nach ${GENERATOR.startMinutes} Minuten der Generator –
+          Mit Notstrom gibt es gelegentlich <b>Stromausfälle</b>: Dann versorgen erst die Akkus, nach ${GENERATOR.startMinutes} Minuten die Generatoren –
+          bis zu ${GENERATOR_MAX} beliebig gemischt, ihre Leistung addiert sich, jeder hat seinen eigenen Tank –
           nach Priorität <b>Server und Netzwerk → Licht → Drucker</b>. Reicht es nicht, bleibt der Rest aus.</p>
         <div class="grid">${TECH_EQUIPMENT.map(techCard).join('')}${dieselCard()}</div></section>`;
   }
@@ -174,9 +187,9 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
     images ??= renderPreviews([
       ...[...SERVER_RACKS, ...SERVER_DEVICES].map((t) => ({ id: t.id, name: t.name, make: () => createServerHardwareModel(t) })),
       { id: CABLE_ROLL.id, name: CABLE_ROLL.name, make: createCableRoll },
-      // Technik (#59): Batterieschrank und Generator (ohne Auspuffrohr bis zur Decke)
+      // Technik (#59, #71): Batterieschrank und die vier Generatoren (ohne Auspuffrohr bis zur Decke)
       { id: BATTERY.id, name: 'Batterieschrank', make: createBatteryCabinet },
-      { id: GENERATOR.id, name: 'Dieselgenerator', make: () => createGenerator() },
+      ...GENERATORS.map((g) => ({ id: g.id, name: g.name, make: () => createGenerator({ kw: g.kw, tankLiters: g.tankLiters }) })),
     ]);
     // Vermietbare Server und KI-GPU-Server getrennt zählen – wie die Server-Vermietung, die nur vermietbare kennt
     // Website-Server (#54) zählen extra – sie betreiben nur die Website
@@ -250,9 +263,17 @@ export function createServerShop({ economy, servers, upgrades, rentals, ai = nul
       return `${tech.name} bestellt – kommt in ${economy.deliverySeconds} s ${where}`;
     }
     const diesel = e.target.closest('[data-tech-diesel]')?.dataset.techDiesel;
+    if (bp && diesel === 'item') {
+      // +50 L in den Tank eines Generators
+      const genId = Number(e.target.closest('[data-tech-generator]')?.dataset.techGenerator);
+      const gen = bp.generators.find((g) => g.id === genId);
+      const liters = gen ? bp.buyDiesel(DIESEL.stepLiters, gen) : 0;
+      return liters ? `${Math.round(liters)} L Diesel getankt – ${generatorSpec(gen).name}: ${Math.round(bp.dieselOf(gen))} / ${bp.tankOf(gen)} L` : null;
+    }
     if (bp && diesel) {
-      const liters = bp.buyDiesel(diesel === 'full' ? GENERATOR.tankLiters : DIESEL.stepLiters);
-      return liters ? `${Math.round(liters)} L Diesel getankt – jetzt ${Math.round(bp.diesel)} / ${GENERATOR.tankLiters} L` : null;
+      // Alle volltanken (bzw. alte Knöpfe: ein Schritt)
+      const liters = diesel === 'step' ? bp.buyDiesel(DIESEL.stepLiters) : bp.fillAll();
+      return liters ? `${Math.round(liters)} L Diesel getankt – jetzt ${Math.round(bp.diesel)} / ${bp.tankLiters} L` : null;
     }
     if (e.target.closest('[data-server-cables]') && !servers.buyProblem(CABLE_ROLL.price, upgrades.upperFloor) && servers.buyCables()) {
       return `${CABLE_ROLL.name} bestellt – in ${economy.deliverySeconds} s im Vorrat`;

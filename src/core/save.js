@@ -9,7 +9,7 @@ import { BUNKER_ROW_X, BUNKER_ROW_Z, BUNKER_SPOTS_PER_FIELD, FIRST_BUNKER_SPOT, 
 import { LEGACY_BASEMENT_WAN_PORT0, LEGACY_BASEMENT_WALL_PORTS, basementWanPort } from './cable-tray.js';
 import { GRID } from './basement-layout.js';
 import { techById } from './server-catalog.js';
-import { BATTERY, GENERATOR, isBatteryType } from './backup-power.js';
+import { BATTERY, GENERATOR_MAX, isGeneratorType } from './backup-power.js';
 
 const KEY = 'druckercenter-save';
 // 2: Drucker mit Spulenfächern (AMS) · 3: zwei Varianten – Pannen/Feuchte/Erfolge/Regale (#6) bzw.
@@ -52,7 +52,10 @@ const KEY = 'druckercenter-save';
 // 31: Notstrom und Akkus (#59, core/backup-power.js) – Batterieschränke und Generator als Einrichtung mit location
 //     'technik' und slot, dazu backupPower (Ladung je Akku, Diesel, Priorität, Reserve, Statistik). Alte Stände:
 //     nichts gekauft, Standard-Priorität
-const VERSION = 31;
+// 32: Mehrere Dieselgeneratoren (#71) – vier Modelle (40/80/120/240 kW), bis zu 4 im Technikraum, Diesel je
+//     Generator (backupPower.tanks statt einer Zahl diesel). Alte Stände: backupPower.load legt den Diesel in den
+//     vorhandenen 40-kW-Generator (siehe core/backup-power.js)
+const VERSION = 32;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -435,6 +438,11 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
     data.backupPower ??= null;
     data.version = 31;
   }
+  // Version 31 hat den Diesel als eine Zahl (backupPower.diesel): backupPower.load versteht das selbst und legt ihn
+  // in den vorhandenen Generator (#71)
+  if (data?.version === 31) {
+    data.version = 32;
+  }
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -507,12 +515,15 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
       usedRackSlots.add(key);
     }
   }
-  // Technikraum (#59): Akkus und Generator auf ungültigen oder doppelten Plätzen zurück in den Abstellraum
+  // Technikraum (#59, #71): Akkus und Generatoren auf ungültigen oder doppelten Plätzen zurück in den Abstellraum. Alle
+  // Generator-Modelle teilen sich die Plätze 0 … GENERATOR_MAX − 1 – doppelt ist ein Platz also je Art (Akku/Generator),
+  // nicht je Modell.
   const usedTechSlots = new Set();
   for (const f of economy.furniture) {
     if (f.location !== 'technik') continue;
-    const max = isBatteryType(f.type) ? BATTERY.max : GENERATOR.max;
-    const key = `${f.type.id}:${f.slot}`;
+    const kind = isGeneratorType(f.type) ? 'generator' : 'battery';
+    const max = kind === 'generator' ? GENERATOR_MAX : BATTERY.max;
+    const key = `${kind}:${f.slot}`;
     if (!Number.isInteger(f.slot) || f.slot < 0 || f.slot >= max || usedTechSlots.has(key)) {
       f.location = 'storage';
       f.slot = null;

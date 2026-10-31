@@ -13,7 +13,7 @@ import { Reception } from './core/reception.js';
 import { filamentLabel } from './core/catalog.js';
 import { GameClock } from './core/game-clock.js';
 import { PowerGrid, NIGHT_FACTOR, DAY_FACTOR } from './core/power-grid.js';
-import { BackupPower, groupListText } from './core/backup-power.js';
+import { BackupPower, generatorSpec, groupListText } from './core/backup-power.js';
 import { euro, euroRound, meters } from './core/format.js';
 import { createHall } from './world/hall.js';
 import { Achievements } from './core/achievements.js';
@@ -152,7 +152,7 @@ const sound = createSound();
 powerGrid.onEvent = (type, d) => {
   if (type === 'outage-start') {
     hud.notify(backupPower.installed
-      ? `⚡ Stromausfall! Notstrom übernimmt – erst die Akkus, dann der Generator – etwa ${d.minutes} Spielminuten`
+      ? `⚡ Stromausfall! Notstrom übernimmt – erst die Akkus, dann ${backupPower.generators.length > 1 ? 'die Generatoren' : 'der Generator'} – etwa ${d.minutes} Spielminuten`
       : `⚡ Stromausfall! Drucker pausieren, Server sind offline – etwa ${d.minutes} Spielminuten`, 'bad');
     sound.play('outage');
   } else if (type === 'outage-end') {
@@ -162,15 +162,17 @@ powerGrid.onEvent = (type, d) => {
     hud.notify(d.tariff.id === 'night' ? `🌙 Nachtstrom: Strom kostet jetzt weniger (× ${String(NIGHT_FACTOR).replace('.', ',')})` : `☀️ Tagstrom: Strom kostet wieder mehr (× ${String(DAY_FACTOR).replace('.', ',')})`, 'info');
   }
 };
-// Notstrom (#59): Generator, Diesel, Akkus und Gruppen, die der Notstrom nicht mehr trägt
+// Notstrom (#59, #71): Generatoren, Diesel je Generator, Akkus und Gruppen, die der Notstrom nicht mehr trägt
 backupPower.onEvent = (type, d) => {
   if (type === 'generator-start') {
-    hud.notify('⛽ Dieselgenerator läuft – Notstrom aus dem Generator', 'info');
+    // Alle Generatoren, die zugleich anspringen, kommen in einer Meldung (d.items, d.kw zusammen)
+    const n = d.items?.length ?? 1;
+    hud.notify(n > 1 ? `⛽ ${n} Dieselgeneratoren laufen – ${d.kw} kW Notstrom` : `⛽ Dieselgenerator ${d.kw} kW läuft – Notstrom aus dem Generator`, 'info');
     sound.play('generator-start');
   } else if (type === 'generator-stop') {
     sound.play('generator-stop');
   } else if (type === 'diesel-empty') {
-    hud.notify('⛽ Diesel leer – im Server-Shop unter „Technik“ nachkaufen', 'bad');
+    hud.notify(`⛽ Diesel leer: ${generatorSpec(d.item)?.name ?? 'Dieselgenerator'} aus – im Server-Shop unter „Technik“ nachkaufen`, 'bad');
   } else if (type === 'batteries-empty') {
     hud.notify('🔋 Akkus leer', 'bad');
   } else if (type === 'groups-off') {
@@ -1316,7 +1318,7 @@ renderer.setAnimationLoop(() => {
   safely('HUD', () => hud.update());
   safely('Notstrom', () => backupWorld.update(dt, camera.position)); // Ladebalken, Generator vibriert
   safely('Geräusche', () => printerSounds(dt));
-  safely('Generator', () => { const g = backupWorld.audioState(camera.position); sound.updateGenerator(g.running, g.distance); });
+  safely('Generator', () => { const g = backupWorld.audioState(camera.position); sound.updateGenerator(g.running, g.distance, g.kw); });
   safely('Bewegung', () => updateMovement(dt));
   safely('Zielen', () => {
     interaction.update(playing());

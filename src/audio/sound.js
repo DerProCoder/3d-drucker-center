@@ -184,12 +184,16 @@ export function createSound() {
     }
   }
 
-  // Laufender Dieselgenerator (#59): tiefes Tuckern (Sägezahn ~ 25 Hz Zündfolge) und gefiltertes Rauschen, leiser mit
-  // Abstand. running: läuft er? distance: Meter bis zur Kamera. Aufrufen in jedem Bild (main.js)
+  // Laufende Dieselgeneratoren (#59, #71): tiefes Tuckern (Sägezahn ~ 25 Hz Zündfolge) und gefiltertes Rauschen, leiser mit
+  // Abstand – ein Ton für alle zusammen, lauter mit mehr laufender Leistung. running: läuft mindestens einer?
+  // distance: Meter bis zur Kamera (nächster laufender) · kw: laufende Leistung zusammen (40 kW = bisherige
+  // Lautstärke, 240 kW etwa doppelt so laut, höchstens 2,2-fach). Aufrufen in jedem Bild (main.js)
   let generator = null; // { osc, osc2, lfo, lfoGain, noiseSrc, gain }
-  function updateGenerator(running, distance = Infinity) {
+  function updateGenerator(running, distance = Infinity, kw = 40) {
     if (!ctx || ctx.state !== 'running') return;
-    const volume = running ? 0.16 / (1 + distance * distance * 0.06) : 0;
+    // 40 kW → 1, 80 → 1,35, 120 → 1,62, 240 → 2,23 (gedeckelt 2,2), 280 → 2,2
+    const loud = Math.min(2.2, 0.15 + 0.85 * Math.sqrt(Math.max(40, Number.isFinite(kw) ? kw : 40) / 40));
+    const volume = running ? (0.16 * loud) / (1 + distance * distance * 0.06) : 0;
     if (!generator && volume > 0.0005) {
       const osc = ctx.createOscillator();
       osc.type = 'sawtooth';

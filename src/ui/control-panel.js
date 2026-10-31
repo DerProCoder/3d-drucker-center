@@ -15,7 +15,7 @@ import { isLaser, laserJobLabel } from '../core/laser.js';
 import { spotLabel } from '../core/server-zones.js';
 import { TEMP_LIMITS } from '../core/server-climate.js';
 import { euro, euroRound, realTime } from '../core/format.js';
-import { BATTERY, GENERATOR, GROUP_ICONS, GROUP_NAMES as BACKUP_GROUP_NAMES, generatorStartText } from '../core/backup-power.js';
+import { BATTERY, GROUP_ICONS, GROUP_NAMES as BACKUP_GROUP_NAMES, generatorStartText } from '../core/backup-power.js';
 
 const STATUS_MS = 500;          // so alt darf der gesammelte Zustand höchstens sein
 const PANEL_REFRESH_MS = 1000;  // offenes Overlay: Anzeigen jede Sekunde auffrischen
@@ -568,18 +568,37 @@ export function createControlPanel({ economy, status, cam, onClose }) {
 
   // Notstrom (#59, core/backup-power.js über economy.backupPower): Akkus, Generator, Diesel, Ersparnis, Priorität.
   // Die Priorität stellen ▲/▼ um (backupPower.movePriority) – sonst nur lesend aus power.backupPower (status()).
+  // Mehrere Generatoren (#71): Gesamtleistung, Diesel aller Tanks mit geschätzter Laufzeit und je Generator eine Zeile
+  // mit Tankbalken und Zustand (status().generators).
   const kw = (v) => `${Math.round(Math.abs(v ?? 0) * 10) / 10} kW`.replace('.', ',');
+  // Stunden als „5,6 h“, unter einer Stunde als „40 min“
+  const hoursText = (h) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${(Math.round(h * 10) / 10).toLocaleString('de-DE')} h`);
   const MODE_TEXT = { idle: 'Ruhe', charging: 'lädt', discharging: 'gibt ab', backup: 'Notstrom' };
+  const GEN_STATE = { running: 'läuft', starting: 'startet', empty: 'Tank leer', ready: 'Bereitschaft' };
+  function generatorRow(x) {
+    const pct = Math.round(x.percent);
+    const level = pct < 15 ? 'bad' : pct < 40 ? 'warn' : 'good';
+    const state = x.state === 'running' ? `läuft · ${kw(x.kw)}` : x.state === 'starting' ? generatorStartText(x.startsIn) : GEN_STATE[x.state] ?? '';
+    return `<li class="cp-generator ${x.state}"><span>⛽ ${x.ratedKw} kW <small>Platz ${x.slot + 1}</small></span>`
+      + `<span class="cp-cabinet-bar"><span style="width:${pct}%" class="${level}"></span></span>`
+      + `<span>${Math.round(x.diesel)} / ${x.tank} L</span><span class="cp-generator-state">${escapeHtml(state)}</span></li>`;
+  }
   function backupHtml(power) {
     const b = power.backupPower;
     if (!b) return '';
     if (!b.installed) {
-      return '<p class="cp-help">Noch kein Notstrom aufgestellt – Batterieschränke und Dieselgenerator gibt es im Server-Shop unter „Technik“. Sie kommen als Karton und stehen auf festen Plätzen im Technikraum hinter der Glaswand.</p>';
+      return '<p class="cp-help">Noch kein Notstrom aufgestellt – Batterieschränke und Dieselgeneratoren (40 bis 240 kW, bis zu 4) gibt es im Server-Shop unter „Technik“. Sie kommen als Karton und stehen auf festen Plätzen im Technikraum hinter der Glaswand.</p>';
     }
     const flow = b.mode === 'charging' ? `+${kw(b.flowKw)}` : b.flowKw < -0.01 ? `−${kw(b.flowKw)}` : '0 kW';
     const g = b.generator;
+    const count = g.count ?? (g.installed ? 1 : 0);
     const genText = !g.installed ? '–'
-      : g.running ? `läuft · ${kw(g.kw)}` : g.startsIn != null ? generatorStartText(g.startsIn) : g.diesel <= 0 ? 'Tank leer' : 'Bereitschaft';
+      : g.running ? `${count > 1 ? `${g.runningCount} / ${count} laufen` : 'läuft'} · ${kw(g.kw)}`
+        : g.startsIn != null ? generatorStartText(g.startsIn) : g.diesel <= 0 ? 'Tank leer' : 'Bereitschaft';
+    const genLabel = !g.installed ? 'Generator' : `${count > 1 ? `${count} Generatoren` : 'Generator'} ${kw(g.ratedKw ?? 0)}`;
+    const runtime = g.runtimeHours != null ? `Diesel reicht ca. ${hoursText(g.runtimeHours)} bei jetziger Last`
+      : g.fullLoadHours != null ? `Diesel reicht ca. ${hoursText(g.fullLoadHours)} unter Volllast` : '';
+    const generators = (b.generators ?? []).map(generatorRow).join('');
     const batLevel = b.percent < 20 ? 'bad' : b.percent < 50 ? 'warn' : 'good';
     const dieselLevel = !g.installed ? '' : g.diesel < g.tank * 0.15 ? 'bad' : g.diesel < g.tank * 0.4 ? 'warn' : 'good';
     const cabinets = b.batteries.map((x) => {
@@ -598,10 +617,11 @@ export function createControlPanel({ economy, status, cam, onClose }) {
       <div class="cp-stats">
         <div class="cp-stat ${batLevel}"><b>${b.batteries.length ? `${Math.round(b.percent)} %` : '–'}</b><span>🔋 Akkus ${b.batteries.length} × ${BATTERY.capacityKwh} kWh (${Math.round(b.chargeKwh)} / ${b.capacityKwh} kWh)</span></div>
         <div class="cp-stat"><b>${flow}</b><span>${MODE_TEXT[b.mode] ?? b.mode}${b.mode === 'charging' ? ' (Nachtstrom)' : b.mode === 'discharging' ? ' (deckt den Verbrauch)' : ''}</span></div>
-        <div class="cp-stat ${dieselLevel}"><b>${g.installed ? `${Math.round(g.diesel)} / ${g.tank} L` : '–'}</b><span>⛽ Generator ${GENERATOR.kw} kW: ${genText}</span></div>
+        <div class="cp-stat ${dieselLevel}"><b>${g.installed ? `${Math.round(g.diesel)} / ${g.tank} L` : '–'}</b><span>⛽ ${genLabel}: ${genText}${runtime ? ` · ${runtime}` : ''}</span></div>
         <div class="cp-stat good"><b>${euro.format(b.savedToday)}</b><span>gespart heute (gestern ${euro.format(b.savedYesterday)})</span></div>
       </div>
       ${cabinets ? `<ul class="cp-cabinets">${cabinets}</ul>` : ''}
+      ${generators ? `<ul class="cp-generators">${generators}</ul>` : ''}
       <h3>Priorität bei Stromausfall</h3>
       <p class="cp-help">Reicht der Notstrom nicht, bleiben zuerst die unteren Gruppen aus. Diesel im Server-Shop (Technik) nachkaufen.</p>
       <ol class="cp-prio">${prio}</ol>`;

@@ -2,7 +2,8 @@
 // Kellertreppenhaus (STAIRWELL in world/basement.js). Hinein geht es durch eine Tür in der Ostwand des Treppenhauses
 // auf dem Stockwerkspodest bei −10,5 m und – mit Keller-Fahrstuhl – durch einen Vorraum vom Fahrstuhl aus.
 // Vorne (Westen, an der Tür) liegt der Leitstand (8 m, Platz für Bildschirmwand und Pult, #58), hinten hinter einer
-// Glaswand mit Tür der Technikraum (6 m, Warnstreifen-Boden, Kabelkanäle, feste Plätze für Akkus und Generator, #59).
+// Glaswand mit Tür der Technikraum (6 m, Warnstreifen-Boden, Kabelkanäle, feste Plätze für Akkus und bis zu vier
+// Generatoren, #59, #71).
 //
 // world/basement.js legt den Raum an, baut ihn nach der Lieferung (build), reicht footing/Kollision weiter und leiht
 // ihm im Raum die Deckenspots des Kellers (lightPoints) – eigene Lichter gibt es keine, damit sich die Zahl der Lichter
@@ -44,16 +45,31 @@ const DOOR_SWITCH_X = R.wallX + T / 2; // Mitte der Tür: hier wechselt die Figu
 const VISIBLE_BELOW = 1.5;             // so weit unter dem Boden (Kamera) wird der Raum noch gezeichnet
 const VISIBLE_ABOVE = R.height + 0.2;  // … und so weit darüber (letzter Treppenlauf von oben)
 
+// Generator-Stellplätze (#71): so groß wie der größte Generator (240 kW, 2,8 × 1,3 m) samt etwas Luft. Je zwei
+// passen an die Süd- und an die Nordwand des Technikraums (6 m breit) – an der Südwand allein wäre nur für zwei
+// Platz. exhaustTop: Höhe der Auspuffmündung über dem Boden – an der Südwand bis knapp unter die Decke, an der
+// Nordwand in den Lüftungskanal unter der Decke (graues Rohr, siehe createCeiling).
+const GEN_SLOT = { width: 2.8, depth: 1.4 };
+const GEN_X = [5.05, 7.95];
+const GENERATOR_SLOTS = [
+  ...GEN_X.map((x) => ({ x, y: FLOOR_Y, z: R.z1 - 0.05 - GEN_SLOT.depth / 2, rotY: Math.PI, ...GEN_SLOT, wall: 'south', exhaustTop: R.height - 0.05 })),
+  ...GEN_X.map((x) => ({ x, y: FLOOR_Y, z: R.z0 + 0.05 + GEN_SLOT.depth / 2, rotY: 0, ...GEN_SLOT, wall: 'north', exhaustTop: R.height - 0.22 })),
+];
+
 // Feste Plätze für die Einrichtung (Boden = FLOOR_Y). rotY: Drehung eines Modells, dessen Vorderseite nach +z zeigt.
 export const CONTROL_ANCHORS = {
   // Bildschirmwand an der Südwand des Leitstands, Bildschirme schauen nach Norden (−z)
   screenWall: { x: -0.6, y: FLOOR_Y + 1.9, z: R.z1 - 0.02, rotY: Math.PI, width: 7, height: 2.4 },
   // Pult davor in der Mitte des Leitstands, man sitzt nördlich davon und schaut zur Bildschirmwand
   desk: { x: -0.6, y: FLOOR_Y, z: -3.4, rotY: Math.PI, width: 3.2, depth: 1.2 },
-  // 6 Batterieschränke an der Ostwand des Technikraums (Vorderseite nach Westen), je 0,9 m breit und 0,6 m tief
-  batterySlots: Array.from({ length: 6 }, (_, i) => ({ x: R.x1 - 0.35, y: FLOOR_Y, z: -9.35 + i * 0.95, rotY: -Math.PI / 2, width: 0.9, depth: 0.6 })),
-  // Dieselgenerator an der Südwand des Technikraums (Vorderseite nach Norden), Auspuff an der Wand hoch zur Decke
-  generatorSlot: { x: 6.6, y: FLOOR_Y, z: R.z1 - 0.75, rotY: Math.PI, width: 2.6, depth: 1.2 },
+  // 6 Batterieschränke an der Ostwand des Technikraums (Vorderseite nach Westen), je 0,9 m breit und 0,6 m tief –
+  // mittig zwischen den Generator-Reihen an Nord- und Südwand (gegenüber der Glastür)
+  batterySlots: Array.from({ length: 6 }, (_, i) => ({ x: R.x1 - 0.35, y: FLOOR_Y, z: -7.35 + i * 0.95, rotY: -Math.PI / 2, width: 0.9, depth: 0.6 })),
+  // Bis zu 4 Dieselgeneratoren (#71): Platz 0 und 1 an der Südwand (Vorderseite nach Norden), Platz 2 und 3 an der
+  // Nordwand (Vorderseite nach Süden). Ein Generator steht mit dem Rücken (Auspuff) an der Wand.
+  generatorSlots: GENERATOR_SLOTS,
+  // Platz 0 (wie vor #71 der einzige Platz)
+  generatorSlot: GENERATOR_SLOTS[0],
 };
 
 // Gelb-schwarze Warnstreifen (Textur wird je Fläche über die UVs wiederholt)
@@ -282,8 +298,8 @@ function createTechFloor(m) {
   const bz0 = slots[0].z - slots[0].width / 2 - 0.1;
   const bz1 = slots[slots.length - 1].z + slots[0].width / 2 + 0.1;
   g.add(...hazardFrame(hz, R.x1 - 0.45, (bz0 + bz1) / 2, 0.9, bz1 - bz0));
-  const gen = CONTROL_ANCHORS.generatorSlot;
-  g.add(...hazardFrame(hz, gen.x, gen.z - 0.05, gen.width + 0.4, gen.depth + 0.4));
+  // Je Generator-Platz ein eigener Rahmen (an der Wand bündig)
+  for (const gen of CONTROL_ANCHORS.generatorSlots) g.add(...hazardFrame(hz, gen.x, gen.z, gen.width + 0.08, gen.depth + 0.1));
   return g;
 }
 

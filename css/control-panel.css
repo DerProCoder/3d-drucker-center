@@ -111,6 +111,15 @@
 .cp-cabinet-bar > span { display: block; height: 100%; background: #2bb673; }
 .cp-cabinet-bar > span.warn { background: #f2c419; }
 .cp-cabinet-bar > span.bad { background: #e0503f; }
+/* Generatoren (#71): je Generator Leistung, Tankbalken, Liter und Zustand */
+.cp-generators { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-width: 620px; }
+.cp-generator { display: grid; grid-template-columns: 130px 1fr 90px 130px; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px; background: #262a31; border-left: 3px solid #5d636d; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.cp-generator small { opacity: 0.65; }
+.cp-generator.running { border-left-color: #2bb673; }
+.cp-generator.starting { border-left-color: #f2c419; }
+.cp-generator.empty { border-left-color: #e0503f; }
+.cp-generator-state { text-align: right; }
+@media (max-width: 640px) { .cp-generator { grid-template-columns: 1fr 1fr; } }
 .cp-prio { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-width: 520px; }
 .cp-prio-row { display: grid; grid-template-columns: 24px 1fr auto auto auto; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px; background: #262a31; border-left: 3px solid #2bb673; }
 .cp-prio-row.bad { border-left-color: #e0503f; }
