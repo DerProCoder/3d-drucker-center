@@ -1,7 +1,7 @@
 // Kellerfelder (#51): Der Keller (world/basement.js) wird so groß gezeichnet, wie er ausgebaut ist
 // (core/basement-layout.js, 20 … 120 m, Felder zu 20 × 20 m). Je Feld: Boden, Decke mit Leuchten, Außenwände an den
 // Kellerrändern, eine Betonstütze an der inneren Südost-Ecke und ein Schild.
-//   - Lager: Betonboden mit gelben Bodenlinien (Rand und Mittelgang)
+//   - Lager: Betonboden, die gelb umrandeten Lagerplätze in Reihen kommen aus world/basement-storage.js (#72)
 //   - Daten-Bunker: dunkler Stahl-Doppelboden; zu jedem Nachbarfeld, das kein Bunker ist, eine Wand mit dicker
 //     Stahl-Schiebetür (öffnet von selbst, wenn man davorsteht). Zwischen zwei Bunker-Feldern bleibt es offen.
 //   - nicht festgelegt: leerer Betonboden, Schild „Feld noch nicht festgelegt – im Ausbau-Menü wählen“
@@ -40,7 +40,6 @@ const SLIDE_SECONDS = 0.6;
 const PASSABLE = 0.9;
 const BUDGET_MS = 4;            // so lange darf der Neubau von Feldern pro Bild höchstens dauern
 const SIDES = ['N', 'E', 'S', 'W'];
-const LINE_W = 0.1;             // gelbe Bodenlinien
 
 const TYPE_STYLE = {
   storage: { bg: '#1f4f8a', name: 'LAGER' },
@@ -87,7 +86,6 @@ function createMaterials() {
     concrete: new THREE.MeshStandardMaterial({ color: 0xcfcbc2, roughness: 0.95 }),   // Wände, Decke, Stützen, Leuchtengehäuse
     bunkerWall: new THREE.MeshStandardMaterial({ color: 0x5b6169, roughness: 0.85 }),
     plinth: new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.8 }),       // Sockel, Schildhalter
-    line: new THREE.MeshStandardMaterial({ color: 0xe2b21c, roughness: 0.6 }),          // gelbe Bodenlinien
     lamp,
     door: createSteelDoorMaterials(),
   };
@@ -147,19 +145,6 @@ function sideRect(line, a0, a1, c0, c1) {
   return line.alongX ? { minX: a0, maxX: a1, minZ: lo, maxZ: hi } : { minX: lo, maxX: hi, minZ: a0, maxZ: a1 };
 }
 
-// Gelbe Linien als achsenparallele Strecken [[x0, z0], [x1, z1]]
-function lineBoxes(g, material, y, segments) {
-  for (const [[x0, z0], [x1, z1]] of segments) {
-    const len = Math.hypot(x1 - x0, z1 - z0) + LINE_W;
-    const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
-    g.add(alongX
-      ? box(len, 0.004, LINE_W, material, (x0 + x1) / 2, y + 0.003, (z0 + z1) / 2)
-      : box(LINE_W, 0.004, len, material, (x0 + x1) / 2, y + 0.003, (z0 + z1) / 2));
-  }
-}
-
-const loop = (pts) => pts.map((p, k) => [p, pts[(k + 1) % pts.length]]);
-
 function disposeTree(root, shared) {
   root.traverse((o) => {
     if (!o.isMesh) return;
@@ -179,7 +164,7 @@ export function createBasementFields({ layout, collision, stairwell, keepFree = 
   const group = new THREE.Group();
   group.name = 'basement-fields';
   const m = createMaterials();
-  const shared = new Set([m.concreteFloor, m.steelFloor, m.concrete, m.bunkerWall, m.plinth, m.line, m.lamp, ...Object.values(m.door)]);
+  const shared = new Set([m.concreteFloor, m.steelFloor, m.concrete, m.bunkerWall, m.plinth, m.lamp, ...Object.values(m.door)]);
   const ORIGIN = fieldBounds(0).minX;
 
   // Je Feld eine dauerhafte Gruppe: darin der zusammengefasste Bau (wird ersetzt), die Türblätter und die Einrichtung
@@ -288,22 +273,7 @@ export function createBasementFields({ layout, collision, stairwell, keepFree = 
       g.add(box(PILLAR + 0.02, 0.6, PILLAR + 0.02, m.door.hazard, b.maxX, y + 0.3, b.maxZ));
     }
 
-    // Lager: gelbe Linien (Rand 1 m innen, Mittelgang 2,5 m breit von Nord nach Süd)
-    if (type === 'storage') {
-      const x0 = b.minX + 1;
-      const x1 = b.maxX - 1;
-      const z0 = b.minZ + 1;
-      const z1 = b.maxZ - 1;
-      // Feld 0: Rand um Treppenhaus und Fahrstuhl herum
-      const border = first
-        ? [[sw.x1 + 1, z0], [x1, z0], [x1, z1], [x0, z1], [x0, sw.z1 + 3.1], [sw.x1 + 1, sw.z1 + 3.1]]
-        : [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
-      lineBoxes(g, m.line, y, [
-        ...loop(border),
-        [[cx - 1.25, z0], [cx - 1.25, z1]],
-        [[cx + 1.25, z0], [cx + 1.25, z1]],
-      ]);
-    }
+    // Lager: Die gelb umrandeten Lagerplätze in Reihen zeichnet world/basement-storage.js (#72), die Gänge bleiben grau
 
     // Schild mitten im Feld: vier Seiten, hängt an zwei Stangen von der Decke
     const style = TYPE_STYLE[type ?? 'none'];

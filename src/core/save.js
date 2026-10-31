@@ -41,7 +41,7 @@ const KEY = 'druckercenter-save';
 //     Platznummern (Schränke ziehen auf den nächstgelegenen freien Platz im selben Feld), Kabel im Bunker über Trassen
 //     (cables[].reroute: core/servers.js verlegt sie beim Laden neu)
 // 27: Keller-Lager (#53, core/basement-storage.js) – Kartons im Keller (location 'basement') und Filament-Regale dort
-//     (location 'basement-rack') mit basement = { field, zone, order } bzw. { field, spot }; Lieferungen ins
+//     (location 'basement-rack') mit basement = { field, zone, order } bzw. { field, spot } (bis 32, siehe 33); Lieferungen ins
 //     Keller-Lager tragen basement schon unterwegs. Alte Stände haben nichts im Keller-Lager – nichts umzuwandeln
 // 28: Internet-Kästen in jedem Bunker-Feld (#61, core/cable-tray.js) – 4 Kästen à 33 Ports je Feld mit neuen
 //     Port-Nummern ab BASEMENT_WAN_PORT0; die einzelne Glasfaser-Säule (Ports 1000…1031, servers.basementWanField)
@@ -55,7 +55,11 @@ const KEY = 'druckercenter-save';
 // 32: Mehrere Dieselgeneratoren (#71) – vier Modelle (40/80/120/240 kW), bis zu 4 im Technikraum, Diesel je
 //     Generator (backupPower.tanks statt einer Zahl diesel). Alte Stände: backupPower.load legt den Diesel in den
 //     vorhandenen 40-kW-Generator (siehe core/backup-power.js)
-const VERSION = 32;
+// 33: Keller-Lager-Raster (#72, core/basement-storage.js) – jedes Lager-Feld voller Plätze in Reihen (STORAGE_PLACES):
+//     Karton basement = { field, place, order }, Regal basement = { field, place }. Alte Stände (27 … 32) mit
+//     { field, zone, order } bzw. { field, spot } wandelt basementStorage.load()/settle() um: alles kommt auf den nächsten
+//     freien Platz im selben Feld, auch unterwegs reservierte Lieferungen – hier ist nichts weiter umzuwandeln
+const VERSION = 33;
 export const AUTOSAVE_SECONDS = 10;
 
 // localStorage kann fehlen oder gesperrt sein (privater Modus) – dann läuft das Spiel einfach ohne Speichern
@@ -92,7 +96,7 @@ export function saveGame({ economy, orders, progress, achievements, upgrades, cl
     rackId: f.location === 'rack' ? f.rackId : undefined, // Server-Hardware im Schrank (core/servers.js)
     unit: f.location === 'rack' ? f.unit : undefined,
     storageSpot: f.location === 'storage' ? f.storageSpot : null,
-    basement: basementPlace(f), // Keller-Lager (#53): Stapelplatz bzw. Regalplatz
+    basement: basementPlace(f), // Keller-Lager (#53, #72): Lagerplatz { field, place }
     arriveIn: f.arriveIn,
     spools: f.spools ? f.spools.map((s) => (s ? { ...s } : null)) : null,
     parts: f.parts ? f.parts.map((p) => (p ? { templateId: p.templateId, filamentIds: [...p.filamentIds] } : null)) : null,
@@ -443,6 +447,9 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
   if (data?.version === 31) {
     data.version = 32;
   }
+  // Version 32 → 33 (#72): Keller-Lager mit Platzraster. Kartons und Regale behalten basement mit zone bzw. spot –
+  // basementStorage.load() (unten) verteilt sie auf freie Plätze im selben Feld, sobald die Kartonhöhen bekannt sind
+  if (data?.version === 32) data.version = 33;
   if (data?.version !== VERSION) return false;
 
   const e = data.economy;
@@ -532,7 +539,8 @@ export function loadGame({ economy, orders, progress, achievements, upgrades, cl
       usedTechSlots.add(key);
     }
   }
-  // Keller-Lager: Kartons und Regale auf ungültigen Plätzen zurück in den Abstellraum (core/basement-storage.js)
+  // Keller-Lager: Kartons und Regale auf ungültigen Plätzen zurück in den Abstellraum, alte Zonen/Regalplätze (bis
+  // Version 32) aufs neue Platzraster umwandeln (core/basement-storage.js, #72)
   basementStorage?.load();
   // Beim Speichern getragene oder geworfene Kartons stehen als „im Abstellraum“ ohne Platz im Stand (#64). Sie bekommen
   // einen freien Platz bzw. einen im Keller-Lager – sofort, wenn der Abstellraum schon steht (Laden im laufenden
