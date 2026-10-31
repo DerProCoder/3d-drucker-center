@@ -499,6 +499,21 @@ export function iconDataUrl(name, size = 48) {
   return canvas.toDataURL();
 }
 
+// Symbol direkt auf ein Canvas zeichnen (z. B. Startbildschirm des Tablets im 3D-Modell, ui/tablet.js)
+export function drawIcon(ctx, name, x, y, size) {
+  ICONS[name](ctx, x, y, size);
+}
+
+// Hintergrundbild füllend auf ein Canvas beliebiger Größe zeichnen (Ränder werden abgeschnitten, nicht verzerrt)
+export function drawWallpaperCover(ctx, width, height) {
+  const s = Math.max(width / W, height / H);
+  ctx.save();
+  ctx.translate((width - W * s) / 2, (height - H * s) / 2);
+  ctx.scale(s, s);
+  drawWallpaper(ctx);
+  ctx.restore();
+}
+
 // Nur das Hintergrundbild, z. B. für den Desktop im PC-Fenster
 export function wallpaperDataUrl() {
   const canvas = document.createElement('canvas');

@@ -24,6 +24,8 @@ import { createHud } from './ui/hud.js';
 import { createRoom, roomColliders } from './world/room.js';
 import { createDesktopScreen } from './ui/desktop.js';
 import { createShop } from './ui/shop.js';
+import { createTablet } from './ui/tablet.js';
+import { createTabletHold } from './world/tablet-hold.js';
 import { createStorageRoom } from './world/storage-room.js';
 import { createBasementStorage } from './world/basement-storage.js';
 import { BasementStorage } from './core/basement-storage.js';
@@ -842,6 +844,7 @@ const touch = createTouchControls({
     else if (id === 'return') carry.returnToStorage();
     // wie das Mausrad: am Ausstellungsregal das nächste Teil, sonst die nächste Spule in der Hand
     else if (id === 'cycle' && !displayWall.cycle(1, interaction.current?.owner)) carry.cycle(1);
+    else if (id === 'tablet') openTablet();
   },
   onPause: () => stopPlaying(),
 });
@@ -941,12 +944,29 @@ const shop = createShop(economy, {
   // Platz ist für so viele Drucker, wie die gekauften Tische Stellplätze haben – egal ob schon aufgestellt
   freePrinterSlots: () => upgrades.printerSlots - economy.printers.length,
   freeShelfSpace: () => upgrades.shelfCapacity - economy.spoolsInStorage - carry.spools.length,
-  onClose: () => {
+  onClose: (mode) => {
+    if (mode === 'tablet') { // Tablet (#67): Bildschirm aus, Tablet senkt sich – Getragenes bleibt in der Hand
+      tablet.hide();
+      tabletHold.lower();
+    }
     if (gameOver) return; // Pleite: Maus nicht wieder einfangen
     title.showResume(); // PC: nach Esc klappt das erneute Sperren der Maus nicht – dann weiter per Klick
     startPlaying();
   },
 });
+
+// Tablet in der Hand (#67, Taste G bzw. Knopf 📱): dieselben Apps wie am PC, überall dabei und von Anfang an da.
+// Das 3D-Modell hebt sich vor die Kamera, der HTML-Bildschirm mit den Apps liegt genau über seinem Bildschirm.
+// Wie das PC-Fenster: Maus frei, Spielzeit läuft weiter, G oder Esc schließt (über shop.close → onClose oben)
+const tablet = createTablet({ shop });
+const tabletHold = createTabletHold({ camera });
+tabletHold.setScreenImages(tablet.homeImages());
+function openTablet() {
+  if (gameOver || !playing() || uiOpen() || screenFade.busy) return;
+  tablet.open();
+  tabletHold.raise();
+  stopPlaying();
+}
 
 // Schrankfenster: wie der PC – Maus frei, beim Schließen zurück ins Spiel
 const rackPanel = createRackPanel({
@@ -1068,6 +1088,11 @@ window.addEventListener('keydown', (e) => {
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
   if (e.code === 'KeyE' && !e.repeat && controls.isLocked) liftAimedPrinter();
   if (e.code === 'KeyF' && !e.repeat && controls.isLocked) throwCarried();
+  // G: Tablet öffnen bzw. wieder weglegen (nicht beim Tippen in einem Textfeld, z. B. Notizen oder KI-Chat)
+  if (e.code === 'KeyG' && !e.repeat && !e.target.closest?.('input, textarea, select, [contenteditable]')) {
+    if (shop.isOpen() && shop.mode === 'tablet') shop.close();
+    else if (controls.isLocked) openTablet();
+  }
   if (e.code === 'KeyM' && !e.repeat && !uiOpen()) {
     sound.toggleMute();
     hud.notify(sound.muted ? '🔇 Ton aus' : '🔊 Ton an', 'info');
@@ -1305,6 +1330,8 @@ renderer.setAnimationLoop(() => {
     }
     crosshair.classList.toggle('active', !hintEl.classList.contains('hidden'));
   });
+  // Tablet heben/senken; ganz oben liegt der HTML-Bildschirm genau über dem des Modells
+  safely('Tablet', () => tablet.place(tabletHold.update(dt)));
   safely('Zeichnen', () => graphics.render(dt));
   safely('Drucker-Cam', () => printerCam.update(dt));
   perf.end(dt);

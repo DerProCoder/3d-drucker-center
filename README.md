@@ -67,10 +67,11 @@ Beim ersten Start fragt das Spiel: **Über welches Gerät spielst du?** – **PC
 | Mittlere Maustaste | Zoom zurück auf 1× |
 | E | Aufgestellten Drucker hochheben (nicht während er druckt) |
 | F | Getragenen Drucker oder Druckerkarton werfen |
+| G | Tablet aus der Tasche holen bzw. wieder weglegen (siehe **Tablet in der Hand** unten) |
 | Q | Alles in der Hand zurück ins Lager legen |
 | M | Ton an/aus |
 | F3 | Leistungsanzeige: Bilder pro Sekunde, Bildzeit, Draw Calls, Auflösung |
-| Esc | Pause / PC oder Fenster (Schrank, Werkbank, Leitstand) verlassen (danach einmal klicken, um weiterzuspielen) |
+| Esc | Pause / PC, Tablet oder Fenster (Schrank, Werkbank, Leitstand) verlassen (danach einmal klicken, um weiterzuspielen) |
 
 Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 
@@ -88,10 +89,26 @@ Unter dem Fadenkreuz steht immer, was ein Linksklick gerade bewirkt.
 | ↩ Ins Lager | Alles in der Hand zurück ins Lager legen |
 | 🔄 Spule | Bei mehreren Spulen in der Hand: nächste wählen · am Ausstellungsregal: anderes Teil wählen |
 | 🧎 Schleichen | Schleichen an/aus |
+| 📱 Tablet | Tablet in der Hand öffnen – zum Weglegen oben rechts im Tablet auf ✕ tippen |
 | ⏸ (oben rechts) | Pause |
 
 Laufen und Umschauen bzw. Antippen gehen gleichzeitig mit zwei Fingern. Das Spiel schaltet beim Start in den
 Vollbildmodus, sofern der Browser das erlaubt.
+
+### Tablet in der Hand
+
+Dein **Tablet** hast du von Anfang an immer dabei – auch in alten Spielständen, kaufen musst du es nicht. Mit **G**
+(Touch: Knopf **📱 Tablet**) hebt die Spielfigur es vor die Augen, egal ob in der Halle, auf der Etage, im Keller oder
+draußen. Darauf laufen **dieselben Apps wie am PC** (Shops, Aufträge, Ausbau, Druckermenü, Server-Vermietung, KI …) –
+so kaufst du z. B. Filament oder startest einen Druck, ohne erst zum Computertisch zu laufen. Der PC in der Halle
+bleibt trotzdem.
+
+- Wie am PC wird die Maus frei, die Spielzeit läuft weiter und es gibt kein Pausenmenü.
+- **G**, **Esc** oder **✕ Weglegen** oben rechts legt das Tablet weg, und du spielst weiter. Nach Esc lässt der Browser
+  die Maus manchmal erst nach einem Klick wieder einfangen (wie am PC); mit G geht es ohne Klick weiter.
+- **⌂** oben bzw. der Balken unten führt zurück zum Startbildschirm.
+- Was du in der Hand hältst (Spulen, Karton, Holzplatten), bleibt dabei in der Hand.
+- Auf dem Handy dreht sich das Tablet mit: quer im Querformat, hochkant im Hochformat.
 
 Auch auf dem **Handy** spielbar, quer und hochkant: Das HUD wird dort zur schmalen Leiste (Level, Kontostand, Uhrzeit,
 Aufträge), die Knöpfe stehen als kleines Raster unten rechts, und die PC-Apps öffnen sich bildschirmfüllend. Die
@@ -320,6 +337,7 @@ css/                Gestaltung, je Bereich eine Datei, in fester Reihenfolge gel
   storage-rental.css  Server-Vermietung: Speicher-Balken je NAS, Speicher-Anfragen (#47) und Kennzeichen „🌐 Website“ (#54)
   website-app.css     PC-App Website (#55): Assistent, Gestaltung, Statistik und Live-Vorschau (vor touch.css)
   control-panel.css   Leitstand-Fenster (#58): Reiter, Kennzahlen, Drucker mit Start/Abnehmen, Tabellen, Warnungen (vor touch.css)
+  tablet.css          Tablet in der Hand (#67): Bildschirm über dem 3D-Modell, Statusleiste, Startbildschirm, Apps im Tablet (vor touch.css)
   touch.css           Tablet-Steuerung, Anpassungen für Touch/Tablet/Handy (steht nach hud.css … apps.css,
                       damit sie deren Regeln überschreibt; neue Bereichsdateien davor einbinden, wenn sie für sie gelten soll)
   screen-fade.css     Abblenden des Bildschirms (z. B. Fahrstuhl)
@@ -392,6 +410,7 @@ src/
     workbench.js      Werkbank an der Südwand des Serverraums: Karton ablegen, offener Server mit Teilen, Deckel zum Aufnehmen
     hall-lights.js    Lichtschalter der Halle: Deckenleuchten aus, Raum dunkel, Glow-Filament leuchtet
     display-wall.js   Ausstellungsregale an der Südwand: Aufstellen, Teile ausstellen (Mausrad wählt), zurücknehmen
+    tablet-hold.js    Tablet in der Hand (#67): hängt an der Kamera, heben und senken (0,3 s), Bildschirm-Rechteck für das HTML darüber
     zoom.js           Zoom mit dem Mausrad (Blickfeld der Kamera, langsamere Maus beim Reinzoomen)
     workshop.js       Drucktische: Aufstellen, Einlegen, Druck-Animation, Pannen, Statussymbole
     tool-changer.js   Düsenwechsel des H2C: Kopf fährt zum Wechsler, legt Düse ab, holt die nächste
@@ -451,6 +470,7 @@ src/
     outdoor-props.js  Auto, Wohnhaus, Bank, Laternen, Briefkasten, Himmel; Bäume, Büsche und Blumen als Instanzen
     control-desk.js   Leitstand: Pult mit kleinen Bildschirmen und Schaltfeld, Bildschirmwand (Rahmen und Plätze der 6 Bildschirme)
     battery-cabinet.js Batterieschrank mit LED-Ladebalken
+    tablet.js         Tablet der Spielfigur: Gehäuse mit runden Ecken, Rand, Kamera-Punkt, Bildschirm; Farbe per setColor
     generator.js      Dieselgenerator mit Auspuff nach oben, Bedienfeld und Tankanzeige
   ui/               HTML-Overlays und PC-Apps
     hud.js            HUD, Level-Up-Banner, Meldungen, Erfolge
@@ -465,8 +485,9 @@ src/
     control-panel.js  Leitstand (#58): Zustand für alle Anzeigen, Maler der 6 Wand-Bildschirme, Fenster mit Reitern Drucker/Serverraum/Geld/Warnungen/Strom (Erweiterung für Notstrom: addPowerSection)
     touch-controls.js Tablet-Steuerung: Joystick, Umschauen per Wischen, Antippen, Knöpfe; gewähltes Gerät
     title-screen.js   Titel-, Pausen- und Game-Over-Bildschirm, Geräteabfrage (PC oder Tablet)
-    shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger
+    shop.js           PC-Desktop mit Apps (Shops inkl. Holzshop), Taskleiste und Mauszeiger; dieselben Apps auch im Tablet
     desktop.js        Bildschirm und App-Symbole
+    tablet.js         Tablet (#67): Bildschirm über dem 3D-Modell, Statusleiste und Home-Balken, hängt die PC-Apps aus shop.js ein
     printer-menu.js · orders-menu.js · upgrades-menu.js · staff-menu.js   Apps Druckermenü, Aufträge, Ausbau, Personal
     printer-cam.js    App Drucker-Cam; Standbilder für die Bildschirmwand im Leitstand (still)
     printer-preview.js  Produktbilder der Drucker für den Shop

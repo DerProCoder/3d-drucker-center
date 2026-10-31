@@ -655,7 +655,13 @@ export function createShop(economy, {
     }
   });
 
-  function open() {
+  // mode: 'pc' (Desktop über den ganzen Bildschirm) oder 'tablet' (#67: dieselben Apps im Tablet-Bildschirm,
+  // host ist dann dessen Fläche) – es gibt nur diese eine Fassung der Apps, das Tablet hängt sie nur woanders ein
+  let mode = 'pc';
+  function open({ host = document.body, mode: nextMode = 'pc' } = {}) {
+    if (root.parentElement !== host) host.appendChild(root);
+    mode = nextMode;
+    root.classList.toggle('in-tablet', mode === 'tablet');
     root.classList.remove('hidden');
     updateClock();
     render();
@@ -664,7 +670,7 @@ export function createShop(economy, {
   function close() {
     if (isOpen()) {
       root.classList.add('hidden');
-      onClose?.();
+      onClose?.(mode);
     }
   }
 
@@ -683,5 +689,7 @@ export function createShop(economy, {
   website?.subscribe(refresh); // eigene Website (#54): Status und Online-Anfragen
   ai?.subscribe(refresh); // KI-Stufe im Server-Shop
 
-  return { open, close, isOpen };
+  // apps: sichtbare Apps (id, name, icon) – z. B. für den Startbildschirm des Tablets im 3D-Modell
+  // home(): zurück zum Desktop bzw. Startbildschirm (offene App schließen)
+  return { open, close, isOpen, get mode() { return mode; }, home: () => openApp(null), apps: VISIBLE_APPS };
 }

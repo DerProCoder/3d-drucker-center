@@ -1,6 +1,6 @@
 // Tablet-Steuerung: links ein Joystick zum Laufen (erscheint dort, wo der Daumen aufsetzt), rechts wischen zum
 // Umschauen, Antippen benutzt das angetippte Objekt (wie ein Linksklick darauf). Knöpfe rechts ersetzen die Tasten:
-// Aufheben (E), Werfen (F), Ins Lager (Q), Spule wechseln (Mausrad), Schleichen (C) und Pause (Esc).
+// Aufheben (E), Werfen (F), Ins Lager (Q), Spule wechseln (Mausrad), Schleichen (C), Tablet (G) und Pause (Esc).
 // Außerdem: welches Gerät der Spieler gewählt hat (PC oder Tablet), gespeichert im Browser.
 import * as THREE from 'three';
 
@@ -48,7 +48,9 @@ const BUTTONS = [
   { id: 'return', label: '↩', title: 'Ins Lager' },
   { id: 'cycle', label: '🔄', title: 'Spule' },
   { id: 'sneak', label: '🧎', title: 'Schleichen' },
+  { id: 'tablet', label: '📱', title: 'Tablet' }, // Tablet in der Hand öffnen (#67), wie G am PC
 ];
+const ALWAYS = new Set(['sneak', 'tablet']); // immer sichtbar, die anderen nur, wenn sie gerade Sinn ergeben
 
 // canvas: Spielbild (dort landen die Berührungen) · camera: wird beim Umschauen gedreht
 // onTap(ndc): angetippte Stelle (−1…1) benutzen · onButton(id): Knopf gedrückt · onPause()
@@ -60,7 +62,7 @@ export function createTouchControls({ canvas, camera, onTap, onButton, onPause }
     <div class="touch-stick hidden"><div class="touch-knob"></div></div>
     <button class="touch-pause" data-touch="pause" aria-label="Pause">⏸</button>
     <div class="touch-buttons">
-      ${BUTTONS.map((b) => `<button class="touch-btn ${b.id === 'sneak' ? '' : 'hidden'}" data-touch="${b.id}"><span>${b.label}</span><small>${b.title}</small></button>`).join('')}
+      ${BUTTONS.map((b) => `<button class="touch-btn ${ALWAYS.has(b.id) ? '' : 'hidden'}" data-touch="${b.id}"><span>${b.label}</span><small>${b.title}</small></button>`).join('')}
     </div>`;
   document.body.appendChild(root);
   const stickEl = root.querySelector('.touch-stick');

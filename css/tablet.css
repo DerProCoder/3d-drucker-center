@@ -1,0 +1,150 @@
+/* Tablet in der Hand (#67, ui/tablet.js): HTML-Bildschirm genau über dem Bildschirm des 3D-Modells, darin die
+   PC-Apps (#shop mit Klasse .in-tablet). Steht vor touch.css; die Regeln hier sind spezifischer (#shop.in-tablet …)
+   und gelten deshalb auch gegen dessen Handy-Anpassungen. Randfarbe über --tablet-frame (für #68). */
+
+#tablet {
+  --tablet-frame: #23262d;
+  --tablet-radius: 8px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--tablet-radius);
+  background: #0b1d3a;
+  /* schmaler Saum in Randfarbe, damit zwischen HTML und 3D-Rand kein Spalt aufblitzt */
+  box-shadow: 0 0 0 1px var(--tablet-frame);
+  color: #fff;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.08s ease-out;
+}
+#tablet.hidden { display: none; }
+#tablet.shown { visibility: visible; opacity: 1; }
+
+.tablet-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px 0 14px;
+  background: rgba(10, 12, 18, 0.72);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.tablet-clock { font-weight: 600; }
+.tablet-name { flex: 1; text-align: center; opacity: 0.7; }
+.tablet-home, .tablet-close {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.tablet-home { font-size: 1rem; line-height: 1; }
+.tablet-home:hover { background: rgba(255, 255, 255, 0.22); }
+.tablet-close:hover { background: #c42b1c; }
+
+.tablet-apps { position: relative; flex: 1; min-height: 0; }
+
+.tablet-homebar {
+  flex: none;
+  position: relative;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: rgba(10, 12, 18, 0.72);
+  cursor: pointer;
+}
+.tablet-homebar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  width: 120px;
+  max-width: 40%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.7);
+  transform: translateX(-50%);
+}
+
+/* ---------- PC-Apps im Tablet ---------- */
+
+#shop.in-tablet { position: absolute; inset: 0; z-index: auto; }
+/* Kein Windows-Mauszeiger im Tablet */
+#shop.in-tablet, #shop.in-tablet * { cursor: auto; }
+#shop.in-tablet button:not(:disabled), #shop.in-tablet button:not(:disabled) *, #shop.in-tablet select { cursor: pointer; }
+#shop.in-tablet textarea, #shop.in-tablet input { cursor: text; }
+/* Statt der Taskleiste: Statusleiste und Home-Balken des Tablets */
+#shop.in-tablet .taskbar { display: none; }
+
+/* Startbildschirm: App-Symbole als Raster aus abgerundeten Kacheln */
+#shop.in-tablet .desktop-icons {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 6px 4px;
+  padding: 16px 14px;
+  overflow-y: auto;
+}
+#shop.in-tablet .desktop-icon { width: auto; padding: 6px 2px; gap: 6px; font-size: 0.8rem; }
+#shop.in-tablet .desktop-icon img {
+  box-sizing: border-box;
+  width: 60px;
+  height: 60px;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+#shop.in-tablet .desktop-icon:hover { background: transparent; border-color: transparent; }
+#shop.in-tablet .desktop-icon:hover img, #shop.in-tablet .desktop-icon:active img { background: rgba(255, 255, 255, 0.26); }
+#shop.in-tablet .icon-badge { top: 0; right: calc(50% - 38px); }
+
+/* App-Fenster füllt den Tablet-Bildschirm */
+#shop.in-tablet .shop-window,
+#shop.in-tablet .shop-window.small {
+  inset: 0;
+  width: auto;
+  height: auto;
+  transform: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: tablet-app-in 0.15s ease-out;
+}
+#shop.in-tablet .shop-toast { bottom: 16px; max-width: calc(100% - 32px); box-sizing: border-box; text-align: center; }
+@keyframes tablet-app-in { from { opacity: 0; transform: scale(0.97); } }
+
+/* Kleiner Tablet-Bildschirm (Handy): kompaktere Leisten und Symbole */
+#tablet.portrait .tablet-close-text { display: none; }
+@media (max-width: 700px), (max-height: 500px) {
+  .tablet-status { height: 28px; padding-left: 10px; }
+  .tablet-close-text { display: none; }
+  .tablet-name { font-size: 0.75rem; }
+  #shop.in-tablet .desktop-icons { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); padding: 10px 6px; }
+  #shop.in-tablet .desktop-icon { font-size: 0.72rem; }
+  #shop.in-tablet .desktop-icon img { width: 48px; height: 48px; padding: 6px; border-radius: 13px; }
+  #shop.in-tablet .icon-badge { right: calc(50% - 32px); }
+}
+@media (pointer: coarse) {
+  .tablet-home, .tablet-close { height: 26px; min-width: 36px; }
+}
+
+/* Bei offenem Tablet: HUD aus (Kontostand steht in der Titelleiste der Apps), Meldungen bleiben lesbar über dem Tablet */
+body.tablet-open #hud, body.tablet-open #carry-info, body.tablet-open #crosshair, body.tablet-open #zoom-info { visibility: hidden; }
+body.tablet-open #feed { z-index: 21; }
