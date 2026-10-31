@@ -11,7 +11,9 @@
 //
 // Für spätere Einrichtung (#58, #59): Objekte in die Gruppen leitstand bzw. technik hängen (werden mit dem Raum
 // ein- und ausgeblendet und sind anklickbar, weil sie unter basement.group hängen), Positionen aus anchors nehmen,
-// Hindernisse mit collision.setDynamic(key, [{ …, level: CONTROL_LEVEL }]) eintragen.
+// Hindernisse mit collision.setDynamic(key, [{ …, level: CONTROL_LEVEL }]) oder addCollider({ minX, maxX, minZ, maxZ })
+// eintragen. Leitstand (#58): world/control-wall.js hängt Bildschirmwand und Pult in leitstand; isInside(p) sagt, ob
+// die Kamera im Raum ist (nur dann malen die Bildschirme neu).
 import * as THREE from 'three';
 import { WALL_THICKNESS } from './room.js';
 import { box, cylinder } from '../models/mesh-helpers.js';
@@ -299,6 +301,7 @@ export function createControlRoom({ materials, createSign, collision }) {
   const m = createMaterials(materials);
   let built = false;
   let endWall = null; // Abschluss des Vorraums, solange dort kein Fahrstuhl hält
+  const extraColliders = []; // Einrichtung (#58 Pult, #59 Schränke): addCollider
 
   function colliders() {
     const V = VESTIBULE;
@@ -322,6 +325,7 @@ export function createControlRoom({ materials, createSign, collision }) {
       // Glaswand mit Tür
       { minX: R.glassX - 0.04, maxX: R.glassX + 0.04, minZ: R.z0, maxZ: R.glassDoor.z0, level },
       { minX: R.glassX - 0.04, maxX: R.glassX + 0.12, minZ: R.glassDoor.z1, maxZ: R.z1, level },
+      ...extraColliders,
     ];
   }
 
@@ -358,6 +362,13 @@ export function createControlRoom({ materials, createSign, collision }) {
     collision.setDynamic('control-room', colliders());
   }
 
+  // Hindernis der Einrichtung (Welt-x/z, { minX, maxX, minZ, maxZ }) – gilt auf dem Stockwerk des Raums, sobald er
+  // gebaut ist (vorher gibt es dort nichts zum Anstoßen)
+  function addCollider(b) {
+    extraColliders.push({ ...b, level: CONTROL_LEVEL });
+    if (built) collision.setDynamic('control-room', colliders());
+  }
+
   // Hält der Keller-Fahrstuhl hier? Dann ersetzt sein Schacht die Wand am Ende des Vorraums
   function setElevator(on) {
     if (endWall) endWall.visible = !on;
@@ -383,6 +394,9 @@ export function createControlRoom({ materials, createSign, collision }) {
   // Ist die Kamera (Augenhöhe) auf dem Podest bzw. im Raum bei −10,5 m? Nur dann ist die Tür offen (das Treppenhaus
   // teilt sich ein Kollisions-Stockwerk mit allen 20 Stockwerken).
   const onDoorStorey = (p) => p.y > FLOOR_Y + 0.8 && p.y < FLOOR_Y + 2.3;
+  // Steht die Kamera im gebauten Raum (samt Vorraum) auf seinem Stockwerk? Z. B. für die Bildschirmwand (#58), die
+  // nur dann neu zeichnet
+  const isInside = (p) => built && onDoorStorey(p) && contains(p);
 
   // Jedes Bild: Raum nur in der Nähe zeichnen – aus dem Treppenhaus nur, wenn die Tür im Bild ist (vom Fahrstuhl-
   // Vorraum aus immer). Gibt zurück, ob er zu sehen ist.
@@ -407,7 +421,8 @@ export function createControlRoom({ materials, createSign, collision }) {
   const lightPoints = [{ x: -2.2, z: -5 }, { x: 1.4, z: -4.4 }, { x: 6.4, z: -5 }].map((q) => ({ ...q, y: CEIL_Y - 0.1 }));
 
   return {
-    group, leitstand, technik, build, update, footing, entersFromStairs, onDoorStorey, contains, colliders, setElevator,
+    group, leitstand, technik, build, update, footing, entersFromStairs, onDoorStorey, contains, isInside, colliders, setElevator,
+    addCollider,
     lightPoints, anchors: CONTROL_ANCHORS, bounds: CONTROL_ROOM, level: CONTROL_LEVEL, floorY: FLOOR_Y,
     get built() { return built; },
   };

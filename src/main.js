@@ -66,6 +66,8 @@ import { onPersonLoaded } from './models/people.js';
 import { createSound } from './audio/sound.js';
 import { Interaction } from './world/interaction.js';
 import { createPrinterCam } from './ui/printer-cam.js';
+import { createControlPanel, createControlStatus, createWallScreens } from './ui/control-panel.js';
+import { createLeitstand } from './world/control-wall.js';
 import { createPerfOverlay } from './ui/perf-overlay.js';
 import { enableShadows } from './world/util.js';
 import { createZoom } from './world/zoom.js';
@@ -950,8 +952,29 @@ function openWorkbench(deviceId) {
   workbenchPanel.open(deviceId);
   stopPlaying();
 }
-// Ist gerade ein Fenster offen (PC, Schrank oder Werkbank)? Dann läuft die Zeit weiter und es gibt kein Pausenmenü
-const uiOpen = () => shop.isOpen() || rackPanel.isOpen() || workbenchPanel.isOpen();
+// Leitstand (#58) im Raum bei −10,5 m: Bildschirmwand mit 6 Live-Bildschirmen und Pult. Ein Klick aufs Pult öffnet das
+// Overlay (Drucker starten und abnehmen, Serverraum, Geld, Warnungen, Strom) – wie das Schrankfenster mit freier Maus
+const controlStatus = createControlStatus({ economy, orders, servers, climate, automation, advisor, aiService, clock: gameClock });
+const controlPanel = createControlPanel({
+  economy,
+  status: controlStatus,
+  cam: printerCam, // Reiter „Drucker“: Kamera wie in der PC-App
+  onClose: () => {
+    if (gameOver) return;
+    title.showResume();
+    startPlaying();
+  },
+});
+const leitstand = createLeitstand({
+  room: basement.controlRoom,
+  screens: createWallScreens({ status: controlStatus, cam: printerCam }),
+  onOpen: () => {
+    controlPanel.open();
+    stopPlaying();
+  },
+});
+// Ist gerade ein Fenster offen (PC, Schrank, Werkbank oder Leitstand)? Dann läuft die Zeit weiter und es gibt kein Pausenmenü
+const uiOpen = () => shop.isOpen() || rackPanel.isOpen() || workbenchPanel.isOpen() || controlPanel.isOpen();
 
 const pcInteraction = {
   hint: () => 'Linksklick: PC benutzen (Shop, Aufträge, Ausbau & Druckermenü)',
@@ -1007,6 +1030,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && shop.isOpen()) shop.close();
   else if (e.code === 'Escape' && rackPanel.isOpen()) rackPanel.close();
   else if (e.code === 'Escape' && workbenchPanel.isOpen()) workbenchPanel.close();
+  else if (e.code === 'Escape' && controlPanel.isOpen()) controlPanel.close();
   else if (e.code === 'Escape' && title.isResume()) title.show(true);
   if (e.code === 'KeyQ' && controls.isLocked) carry.returnToStorage();
   // E: den Drucker, auf den man zielt, vom Tisch hochheben · F: getragenen Drucker werfen
@@ -1139,6 +1163,7 @@ function checkBankrupt() {
   autosave.disable();
   deleteSave();
   shop.close();
+  controlPanel.close();
   stopPlaying();
   title.showGameOver({ day: gameClock.day, ...achievements.stats });
 }
@@ -1216,6 +1241,7 @@ renderer.setAnimationLoop(() => {
   safely('Eingang', () => entrance.update(dt, [camera.position, ...customers.positions(), ...visitorGroup.positions()]));
   safely('Räume', () => culling.update());
   safely('Keller', () => basement.update(dt, camera)); // Treppenhaus nur in der Nähe zeichnen, Sonne unten aus
+  safely('Leitstand', () => leitstand.update(dt, camera)); // nach dem Keller (blendet den Raum ein): Bildschirme nur im Raum neu malen
   safely('Besuchergruppe', () => visitorGroup.update(dt, camera, culling)); // nach den Räumen: blendet mit aus
   safely('Außenbereich', () => outdoor.update(dt, camera, culling.outdoorVisible()));
   safely('Passanten', () => pedestrians.update(dt, camera.position, outdoor.group.visible));

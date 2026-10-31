@@ -1,0 +1,136 @@
+/* Leitstand im Raum bei −10,5 m (Ladereihenfolge siehe index.html: vor touch.css) */
+
+/* ---------- Overlay „Leitstand“ (ui/control-panel.js) ---------- */
+#control-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(5, 8, 14, 0.45);
+  color: #e6e8ec;
+  user-select: none;
+}
+#control-panel.hidden { display: none; }
+#control-panel .control-window { width: min(980px, calc(100% - 32px)); height: min(720px, calc(100% - 32px)); transform: translate(-50%, -50%); animation: none; }
+.cp-time { font-size: 0.85rem; opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+/* Reiter: am Handy waagrecht scrollbar */
+.cp-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 0;
+  background: #1a1c21;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cp-tabs::-webkit-scrollbar { display: none; }
+.cp-tab {
+  flex: none;
+  position: relative;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: #c9ccd1;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cp-tab:hover { background: rgba(255, 255, 255, 0.06); }
+.cp-tab.active { background: rgba(28, 31, 38, 0.95); color: #fff; box-shadow: inset 0 2px 0 #3aa0ff; }
+.cp-badge { display: none; margin-left: 6px; padding: 0 7px; border-radius: 999px; background: #d0392b; color: #fff; font-size: 0.75rem; }
+.cp-badge.on { display: inline-block; animation: cp-blink 1s steps(2, start) infinite; }
+@keyframes cp-blink { to { background: #7a1f17; } }
+
+.cp-content { flex: 1; min-height: 0; overflow-y: auto; }
+.cp-content h3 { margin: 16px 0 8px; font-size: 1rem; }
+.cp-help { margin: 6px 0 10px; font-size: 0.82rem; opacity: 0.7; }
+.cp-message { margin: 0 0 10px; padding: 6px 10px; border-radius: 5px; background: #20406a; font-size: 0.88rem; }
+.cp-message.good { background: #1f5a36; }
+.cp-message.bad { background: #6a2620; }
+.cp-ok { color: #7ee08a; font-weight: 600; }
+#control-panel .good { color: #7ee08a; }
+.cp-content .bad, .cp-note.bad { color: #ff8a7a; }
+
+/* Kennzahlen als Kacheln */
+.cp-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.cp-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 6px; background: #262a31; border-left: 4px solid #3aa0ff; }
+.cp-stat b { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.cp-stat span { font-size: 0.78rem; opacity: 0.7; }
+.cp-stat.good { border-left-color: #2bb673; }
+.cp-stat.warn { border-left-color: #f2c419; }
+.cp-stat.bad { border-left-color: #e0503f; }
+
+/* Drucker */
+.cp-printer-list { display: flex; flex-direction: column; gap: 6px; }
+.cp-printer { padding: 8px 10px; border-radius: 6px; background: #262a31; border-left: 4px solid #555c69; }
+.cp-printer.ready { border-left-color: #2bb673; }
+.cp-printer.printing { border-left-color: #3aa0ff; }
+.cp-printer.paused { border-left-color: #f2c419; }
+.cp-printer.done { border-left-color: #7ee08a; background: #233a2b; }
+.cp-printer.failed { border-left-color: #e0503f; }
+.cp-printer-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 0.9rem; }
+.cp-printer-name { font-weight: 600; }
+.cp-printer-name small { opacity: 0.6; font-weight: 400; }
+.cp-printer-status { opacity: 0.85; }
+.cp-printer .progress { margin: 6px 0; height: 6px; }
+.cp-printer.done .progress .bar { background: #2bb673; }
+.cp-printer.failed .progress .bar { background: #e0503f; }
+.cp-printer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.cp-printer-actions:empty { display: none; }
+.cp-select { min-height: 32px; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 5px; background: #121418; color: #e6e8ec; font: inherit; font-size: 0.85rem; }
+.cp-count { width: auto; }
+.cp-action:disabled { opacity: 0.45; cursor: not-allowed; }
+.cp-note { font-size: 0.8rem; opacity: 0.8; }
+.cp-cam { margin-top: 12px; }
+.cp-cam .cam-view { width: 100%; max-width: 640px; height: auto; }
+
+/* Tabellen (Serverraum, Geld) */
+.cp-table-wrap { overflow-x: auto; }
+.cp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.cp-table th, .cp-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.08); vertical-align: top; }
+.cp-table thead th { font-size: 0.75rem; opacity: 0.65; font-weight: 600; }
+.cp-table tr.warn td:first-child { box-shadow: inset 3px 0 0 #f2c419; }
+.cp-table tr.bad td:first-child { box-shadow: inset 3px 0 0 #e0503f; }
+.cp-table .lvl-hot { color: #ff8a7a; font-weight: 600; }
+.cp-table .lvl-warm { color: #f2c419; }
+.cp-table .lvl-ok { color: #7ee08a; }
+.cp-table .lvl-cool, .cp-table .lvl-cold { color: #7cc4ff; }
+
+/* Warnungen */
+.cp-warnings { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.cp-warnings li { padding: 6px 10px; border-radius: 5px; font-size: 0.88rem; }
+.cp-warnings.bad li { background: rgba(224, 80, 63, 0.16); border-left: 3px solid #e0503f; }
+.cp-warnings.hint li { background: rgba(242, 196, 25, 0.1); border-left: 3px solid #f2c419; }
+
+/* Strom */
+.cp-groups { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cp-power-section + .cp-power-section { margin-top: 14px; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+
+/* Touch: größere Tippflächen */
+@media (pointer: coarse) {
+  #control-panel, #control-panel * { cursor: auto !important; }
+  .cp-tab { min-height: 44px; padding: 10px 16px; }
+  .cp-select { min-height: 44px; font-size: 16px; } /* 16px: iOS zoomt sonst hinein */
+  .cp-action { min-height: 44px; }
+}
+
+/* Tablet und Handy: über den ganzen Bildschirm (ohne Taskleiste – das Overlay hat keine) */
+@media (max-width: 900px), (max-height: 600px) {
+  #control-panel .control-window {
+    top: env(safe-area-inset-top, 0px);
+    left: env(safe-area-inset-left, 0px);
+    right: env(safe-area-inset-right, 0px);
+    bottom: env(safe-area-inset-bottom, 0px);
+    width: auto;
+    height: auto;
+    transform: none;
+    border-radius: 0;
+    border: 0;
+  }
+}
+@media (max-width: 700px) {
+  .cp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cp-stat b { font-size: 1.05rem; }
+  .cp-printer-actions .cp-action { flex: 1 1 100%; }
+  .cp-printer-actions select:first-child { flex: 1 1 auto; min-width: 0; }
+}
